@@ -1,31 +1,31 @@
 package com.vodchyts.backend.feature.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
+import org.springframework.data.relational.core.mapping.Column;
 
-@Entity
-@Table(name = "Users")
+@Table("Users")
 public class User {
+
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "UserID")
+    @Column("UserID")
     private Integer userID;
 
-    @Column(name = "Login", nullable = false, unique = true)
+    @Column("Login")
     private String login;
 
-    @Column(name = "Password", nullable = false)
+    @Column("Password")
     @JsonIgnore
     private String password;
 
-    @ManyToOne
-    @JoinColumn(name = "RoleID")
-    private Role role;
+    @Column("RoleID")
+    private Integer roleID;
 
-    @Column(name = "ContactInfo")
+    @Column("ContactInfo")
     private String contactInfo;
 
-    @Column(name = "TelegramID", unique = true)
+    @Column("TelegramID")
     private Long telegramID;
 
     public Integer getUserID() {
@@ -52,12 +52,12 @@ public class User {
         this.password = password;
     }
 
-    public Role getRole() {
-        return role;
+    public Integer getRoleID() {
+        return roleID;
     }
 
-    public void setRole(Role role) {
-        this.role = role;
+    public void setRoleID(Integer roleID) {
+        this.roleID = roleID;
     }
 
     public String getContactInfo() {

@@ -2,14 +2,10 @@ package com.vodchyts.backend.feature.controller;
 
 import com.vodchyts.backend.feature.dto.LoginRequest;
 import com.vodchyts.backend.feature.dto.RegisterRequest;
-import com.vodchyts.backend.feature.entity.User;
-import com.vodchyts.backend.feature.repository.RoleRepository;
-import com.vodchyts.backend.feature.repository.UserRepository;
 import com.vodchyts.backend.feature.service.AuthService;
-import com.vodchyts.backend.security.JwtUtils;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Mono;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -22,12 +18,15 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<String> register(@RequestBody RegisterRequest request) {
-        return ResponseEntity.ok(authService.register(request.login(), request.password(), request.roleName()));
+    public Mono<ResponseEntity<String>> register(@RequestBody RegisterRequest request) {
+        return authService.register(request.login(), request.password(), request.roleName())
+                .map(ResponseEntity::ok);
     }
 
+
     @PostMapping("/login")
-    public ResponseEntity<String> login(@RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request.login(), request.password()));
+    public Mono<ResponseEntity<String>> login(@RequestBody LoginRequest request) {
+        return authService.login(request.login(), request.password())
+                .map(ResponseEntity::ok);
     }
 }

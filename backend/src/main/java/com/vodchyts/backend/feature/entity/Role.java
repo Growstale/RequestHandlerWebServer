@@ -1,16 +1,17 @@
 package com.vodchyts.backend.feature.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
+import org.springframework.data.relational.core.mapping.Column;
 
-@Entity
-@Table(name = "Roles")
+@Table("Roles")
 public class Role {
+
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "RoleID")
+    @Column("RoleID")
     private Integer roleID;
 
-    @Column(name = "RoleName", nullable = false, unique = true)
+    @Column("RoleName")
     private String roleName;
 
     public Integer getRoleID() {
