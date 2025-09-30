@@ -1,17 +1,17 @@
 package com.vodchyts.backend.feature.init;
 
 import com.vodchyts.backend.feature.entity.Role;
-import com.vodchyts.backend.feature.repository.RoleRepository;
+import com.vodchyts.backend.feature.repository.ReactiveRoleRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
 @Component
 public class DataLoader implements CommandLineRunner {
 
-    private final RoleRepository roleRepository;
+    private final ReactiveRoleRepository reactiveRoleRepository;
 
-    public DataLoader(RoleRepository roleRepository) {
-        this.roleRepository = roleRepository;
+    public DataLoader(ReactiveRoleRepository reactiveRoleRepository) {
+        this.reactiveRoleRepository = reactiveRoleRepository;
     }
 
     @Override
@@ -22,10 +22,12 @@ public class DataLoader implements CommandLineRunner {
     }
 
     private void createRoleIfNotExists(String roleName) {
-        if (roleRepository.findByRoleName(roleName).isEmpty()) {
-            Role role = new Role();
-            role.setRoleName(roleName);
-            roleRepository.save(role);
-        }
+        reactiveRoleRepository.findByRoleName(roleName)
+                .switchIfEmpty(
+                        reactiveRoleRepository.save(new Role() {{
+                            setRoleName(roleName);
+                        }})
+                )
+                .subscribe();
     }
 }
