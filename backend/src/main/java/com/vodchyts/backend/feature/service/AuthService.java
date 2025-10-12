@@ -1,36 +1,64 @@
 package com.vodchyts.backend.feature.service;
 
+import com.vodchyts.backend.exception.InvalidPasswordException;
 import com.vodchyts.backend.feature.dto.LoginResponse;
+import com.vodchyts.backend.feature.dto.LoginResponseWithRefresh;
+import com.vodchyts.backend.feature.dto.UserInfoResponse;
+import com.vodchyts.backend.feature.entity.RefreshToken;
 import com.vodchyts.backend.feature.entity.User;
+import com.vodchyts.backend.exception.InvalidTokenException;
+import com.vodchyts.backend.exception.UserAlreadyExistsException;
+import com.vodchyts.backend.exception.UserNotFoundException;
+import com.vodchyts.backend.feature.repository.ReactiveRefreshTokenRepository;
 import com.vodchyts.backend.feature.repository.ReactiveRoleRepository;
 import com.vodchyts.backend.feature.repository.ReactiveUserRepository;
 import com.vodchyts.backend.security.JwtUtils;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Base64;
 
 @Service
 public class AuthService {
 
     private final ReactiveUserRepository userRepository;
     private final ReactiveRoleRepository roleRepository;
+    private final ReactiveRefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
 
+    @Value("${jwt.refresh-expiration-ms}")
+    private long refreshExpirationMs;
+
     public AuthService(ReactiveUserRepository userRepository,
                        ReactiveRoleRepository roleRepository,
+                       ReactiveRefreshTokenRepository refreshTokenRepository,
                        PasswordEncoder passwordEncoder,
                        JwtUtils jwtUtils) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtils = jwtUtils;
     }
 
-    public Mono<String> register(String login, String password, String roleName) {
+    public Mono<ResponseEntity<Void>> register(String login, String password, String roleName) {
+        validatePassword(password);
+
         return userRepository.existsByLogin(login)
                 .flatMap(exists -> {
-                    if (exists) return Mono.just("User already exists");
+                    if (exists) {
+                        return Mono.error(new UserAlreadyExistsException("User already exists"));
+                    }
                     return roleRepository.findByRoleName(roleName)
                             .switchIfEmpty(Mono.error(new RuntimeException("Role not found")))
                             .flatMap(role -> {
@@ -38,24 +66,103 @@ public class AuthService {
                                 user.setLogin(login);
                                 user.setPassword(passwordEncoder.encode(password));
                                 user.setRoleID(role.getRoleID());
-                                return userRepository.save(user).thenReturn("User registered");
+                                return userRepository.save(user)
+                                        .thenReturn(ResponseEntity.status(HttpStatus.CREATED).build());
                             });
                 });
     }
 
-    public Mono<LoginResponse> login(String login, String password) {
+    public Mono<LoginResponseWithRefresh> login(String login, String password) {
         return userRepository.findByLogin(login)
-                .switchIfEmpty(Mono.error(new RuntimeException("User not found")))
+                .switchIfEmpty(Mono.error(new UserNotFoundException("User not found")))
                 .flatMap(user -> {
                     if (!passwordEncoder.matches(password, user.getPassword())) {
                         return Mono.error(new RuntimeException("Invalid password"));
                     }
                     return roleRepository.findById(user.getRoleID())
-                            .map(role -> new LoginResponse(
-                                    jwtUtils.generateToken(user.getLogin(), role.getRoleName()),
-                                    user.getLogin(),
-                                    role.getRoleName()
-                            ));
+                            .flatMap(role -> {
+                                String accessToken = jwtUtils.generateAccessToken(user.getLogin(), role.getRoleName());
+                                String refreshToken = jwtUtils.generateRefreshToken(user.getLogin());
+
+                                String tokenHash = sha256(refreshToken);
+
+                                RefreshToken tokenEntity = new RefreshToken();
+                                tokenEntity.setUserID(user.getUserID());
+                                tokenEntity.setTokenHash(tokenHash);
+                                tokenEntity.setIssuedAt(LocalDateTime.now());
+                                tokenEntity.setExpiresAt(LocalDateTime.now().plus(Duration.ofMillis(refreshExpirationMs)));
+
+                                return refreshTokenRepository.save(tokenEntity)
+                                        .thenReturn(new LoginResponseWithRefresh(accessToken, refreshToken));
+                            });
                 });
+    }
+
+    public Mono<LoginResponse> refresh(String refreshToken) {
+        if (!jwtUtils.validateToken(refreshToken)) {
+            return Mono.error(new InvalidTokenException("Invalid JWT refresh token"));
+        }
+
+        String tokenHash = sha256(refreshToken);
+
+        return refreshTokenRepository.findByTokenHash(tokenHash)
+                .switchIfEmpty(Mono.error(new InvalidTokenException("Invalid or expired refresh token")))
+                .flatMap(rt -> {
+                    if (rt.getExpiresAt().isBefore(LocalDateTime.now())) {
+                        return Mono.error(new InvalidTokenException("Refresh token expired"));
+                    }
+
+                    String username = jwtUtils.getUsernameFromToken(refreshToken);
+
+                    return userRepository.findByLogin(username)
+                            .switchIfEmpty(Mono.error(new UserNotFoundException("User not found")))
+                            .flatMap(user -> roleRepository.findById(user.getRoleID())
+                                    .map(role -> {
+                                        String newAccessToken = jwtUtils.generateAccessToken(username, role.getRoleName());
+                                        return new LoginResponse(newAccessToken);
+                                    }));
+                });
+    }
+
+    public Mono<ResponseEntity<Void>> logout(String refreshToken) {
+        String tokenHash = sha256(refreshToken);
+        return refreshTokenRepository.deleteByTokenHash(tokenHash)
+                .thenReturn(ResponseEntity.ok().build());
+    }
+
+    private static String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm not available", e);
+        }
+    }
+
+    private void validatePassword(String password) {
+        if (password == null || password.isBlank()) {
+            throw new InvalidPasswordException("Password cannot be empty");
+        }
+
+        if (password.length() < 8) {
+            throw new InvalidPasswordException("Password must be at least 8 characters long");
+        }
+
+        if (!password.matches(".*[A-Z].*")) {
+            throw new InvalidPasswordException("Password must contain at least one uppercase letter");
+        }
+
+        if (!password.matches(".*[a-z].*")) {
+            throw new InvalidPasswordException("Password must contain at least one lowercase letter");
+        }
+
+        if (!password.matches(".*\\d.*")) {
+            throw new InvalidPasswordException("Password must contain at least one digit");
+        }
+
+        if (!password.matches(".*[!@#$%^&*()_+\\-={}:;\"'<>,.?/].*")) {
+            throw new InvalidPasswordException("Password must contain at least one special character");
+        }
     }
 }

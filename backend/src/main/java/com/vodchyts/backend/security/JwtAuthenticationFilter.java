@@ -1,7 +1,8 @@
 package com.vodchyts.backend.security;
 
+import com.vodchyts.backend.exception.InvalidTokenException;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -26,7 +27,6 @@ public class JwtAuthenticationFilter implements WebFilter {
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         var request = exchange.getRequest();
 
-        // Пропускаем preflight
         if ("OPTIONS".equalsIgnoreCase(request.getMethod().name())) {
             return chain.filter(exchange);
         }
@@ -44,6 +44,9 @@ public class JwtAuthenticationFilter implements WebFilter {
 
                 return chain.filter(exchange)
                         .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(context)));
+            }
+            else  {
+                return Mono.error(new InvalidTokenException("Invalid or expired JWT token"));
             }
         }
 
