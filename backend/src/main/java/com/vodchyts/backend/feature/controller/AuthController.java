@@ -24,11 +24,6 @@ public class AuthController {
         this.authService = authService;
     }
 
-    @PostMapping("/register")
-    public Mono<ResponseEntity<Void>> register(@RequestBody RegisterRequest request) {
-        return authService.register(request.login(), request.password(), request.roleName());
-    }
-
     @PostMapping("/login")
     public Mono<ResponseEntity<LoginResponse>> login(@RequestBody LoginRequest request,
                                                      ServerWebExchange exchange) {

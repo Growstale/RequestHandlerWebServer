@@ -1,20 +1,15 @@
 package com.vodchyts.backend.feature.service;
 
-import com.vodchyts.backend.exception.InvalidPasswordException;
 import com.vodchyts.backend.feature.dto.LoginResponse;
 import com.vodchyts.backend.feature.dto.LoginResponseWithRefresh;
-import com.vodchyts.backend.feature.dto.UserInfoResponse;
 import com.vodchyts.backend.feature.entity.RefreshToken;
-import com.vodchyts.backend.feature.entity.User;
 import com.vodchyts.backend.exception.InvalidTokenException;
-import com.vodchyts.backend.exception.UserAlreadyExistsException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.repository.ReactiveRefreshTokenRepository;
 import com.vodchyts.backend.feature.repository.ReactiveRoleRepository;
 import com.vodchyts.backend.feature.repository.ReactiveUserRepository;
 import com.vodchyts.backend.security.JwtUtils;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -49,27 +44,6 @@ public class AuthService {
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtils = jwtUtils;
-    }
-
-    public Mono<ResponseEntity<Void>> register(String login, String password, String roleName) {
-        validatePassword(password);
-
-        return userRepository.existsByLogin(login)
-                .flatMap(exists -> {
-                    if (exists) {
-                        return Mono.error(new UserAlreadyExistsException("User already exists"));
-                    }
-                    return roleRepository.findByRoleName(roleName)
-                            .switchIfEmpty(Mono.error(new RuntimeException("Role not found")))
-                            .flatMap(role -> {
-                                User user = new User();
-                                user.setLogin(login);
-                                user.setPassword(passwordEncoder.encode(password));
-                                user.setRoleID(role.getRoleID());
-                                return userRepository.save(user)
-                                        .thenReturn(ResponseEntity.status(HttpStatus.CREATED).build());
-                            });
-                });
     }
 
     public Mono<LoginResponseWithRefresh> login(String login, String password) {
@@ -137,32 +111,6 @@ public class AuthService {
             return Base64.getEncoder().encodeToString(hash);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 algorithm not available", e);
-        }
-    }
-
-    private void validatePassword(String password) {
-        if (password == null || password.isBlank()) {
-            throw new InvalidPasswordException("Password cannot be empty");
-        }
-
-        if (password.length() < 8) {
-            throw new InvalidPasswordException("Password must be at least 8 characters long");
-        }
-
-        if (!password.matches(".*[A-Z].*")) {
-            throw new InvalidPasswordException("Password must contain at least one uppercase letter");
-        }
-
-        if (!password.matches(".*[a-z].*")) {
-            throw new InvalidPasswordException("Password must contain at least one lowercase letter");
-        }
-
-        if (!password.matches(".*\\d.*")) {
-            throw new InvalidPasswordException("Password must contain at least one digit");
-        }
-
-        if (!password.matches(".*[!@#$%^&*()_+\\-={}:;\"'<>,.?/].*")) {
-            throw new InvalidPasswordException("Password must contain at least one special character");
         }
     }
 }
