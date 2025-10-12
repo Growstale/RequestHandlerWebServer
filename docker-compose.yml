@@ -1,0 +1,55 @@
+# version: '3.8' <- Эту строку можно удалить, она устарела
+
+services:
+  # Сервис для базы данных MS SQL Server
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest # Официальный образ от Microsoft
+    container_name: course-work-db
+    environment:
+      # ВАЖНО: Эти переменные обязательны для запуска образа MS SQL Server
+      ACCEPT_EULA: "Y" # Принимаем лицензионное соглашение
+      MSSQL_SA_PASSWORD: "123456" # Устанавливаем пароль для пользователя 'sa'
+    ports:
+      # Пробрасываем порт 1433 контейнера на порт 1433 вашего компьютера.
+      # Это позволит вам подключаться к БД извне, например, через SQL Server Management Studio.
+      - "1433:1433"
+    volumes:
+      # Создаем именованный том для хранения данных БД.
+      # Это КЛЮЧЕВОЙ момент: данные не будут удаляться при перезапуске контейнера.
+      - sqlserver_data:/var/opt/mssql
+
+  # Сервис для бэкенда
+  backend:
+    build:
+      context: ./backend
+    container_name: course-work-backend
+    depends_on:
+      - db # <-- Указываем, что бэкенд должен стартовать только ПОСЛЕ старта базы данных
+    environment:
+      # --- ПЕРЕОПРЕДЕЛЯЕМ НАСТРОЙКИ ПОДКЛЮЧЕНИЯ К БД ---
+      # Теперь вместо 'localhost' мы используем имя сервиса 'db'.
+      # Docker Compose автоматически сделает так, что 'db' будет указывать на IP-адрес контейнера с БД.
+      SPRING_R2DBC_URL: "r2dbc:mssql://db:1433/RequestHandlerWebServer?encrypt=false&trustServerCertificate=true"
+      SPRING_R2DBC_USERNAME: "sa"
+      SPRING_R2DBC_PASSWORD: "123456"
+      # Эти настройки тоже можно переопределить, если нужно
+      SPRING_SQL_INIT_MODE: "always"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # Сервис для Nginx (остается без изменений)
+  nginx:
+    build:
+      context: .
+      dockerfile: ./nginx/Dockerfile-proxy
+    container_name: course-work-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# Определяем именованный том, который будет управляться Docker
+volumes:
+  sqlserver_data:
