@@ -6,6 +6,7 @@ import Home from './pages/Home'
 import Login from './pages/Login'
 import Navbar from './components/NavBar'
 import Sidebar from './components/Sidebar'
+import Users from './pages/Users' // <-- Импортируем новую страницу
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -32,10 +33,10 @@ export default function App() {
             }
           />
           <Route
-            path="/profile"
+            path="/users" // <-- Добавляем новый маршрут
             element={
-              <ProtectedRoute>
-                <Dashboard />
+              <ProtectedRoute allowedRoles={['RetailAdmin']}>
+                <Users />
               </ProtectedRoute>
             }
           />

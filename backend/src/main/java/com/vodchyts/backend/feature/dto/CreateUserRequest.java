@@ -15,8 +15,13 @@ public record CreateUserRequest(
         @NotBlank(message = "Role name cannot be blank")
         String roleName,
 
+        String fullName,
+
         String contactInfo,
 
-        @Pattern(regexp = "^[0-9]+$", message = "Telegram ID must contain only digits")
+        @Pattern(
+                regexp = "^[0-9]*$",
+                message = "Telegram ID must contain only digits"
+        )
         String telegramID
 ) {}
