@@ -1,10 +1,14 @@
 package com.vodchyts.backend.exception;
 
+import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.support.WebExchangeBindException;
 import reactor.core.publisher.Mono;
+
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -38,4 +42,19 @@ public class GlobalExceptionHandler {
     public Mono<ResponseEntity<String>> handleInvalidPassword(InvalidPasswordException ex) {
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage()));
     }
+
+    @ExceptionHandler(OperationNotAllowedException.class)
+    public Mono<ResponseEntity<String>> handleOperationNotAllowed(OperationNotAllowedException ex) {
+        return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(ex.getMessage()));
+    }
+
+    @ExceptionHandler(WebExchangeBindException.class)
+    public Mono<ResponseEntity<String>> handleValidationExceptions(WebExchangeBindException ex) {
+        String errors = ex.getBindingResult()
+                .getAllErrors().stream()
+                .map(DefaultMessageSourceResolvable::getDefaultMessage)
+                .collect(Collectors.joining(", "));
+        return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors));
+    }
+
 }

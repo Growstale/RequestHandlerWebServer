@@ -43,6 +43,11 @@ api.interceptors.response.use(
   res => res,
   async err => {
     const originalReq = err.config
+
+    if (originalReq.url.includes('/auth/refresh')) {
+      return Promise.reject(err);
+    }
+
     if (axios.isCancel(err)) {
         return Promise.reject(err);
     }
