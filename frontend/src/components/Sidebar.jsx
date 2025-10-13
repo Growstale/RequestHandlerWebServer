@@ -3,16 +3,21 @@ import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthProvider'
 import { Button } from './ui/button'
+import { Users as UsersIcon } from 'lucide-react' // Добавим иконку
 
-const links = [
+const baseLinks = [
   { href: '/', label: 'Главная' },
   { href: '/dashboard', label: 'Дашборд' },
-  { href: '/profile', label: 'Профиль' },
+]
+
+const adminLinks = [
+  { href: '/users', label: 'Пользователи', icon: UsersIcon },
 ]
 
 export default function Sidebar({ open, onClose }) {
   const location = useLocation()
   const { user, logout } = useAuth()
+  const links = user?.role === 'RetailAdmin' ? [...baseLinks, ...adminLinks] : baseLinks;
 
   return (
     <>
@@ -40,6 +45,7 @@ export default function Sidebar({ open, onClose }) {
             )}
             onClick={onClose} 
           >
+            {link.icon && <link.icon className="h-4 w-4" />}
             {link.label}
           </Link>
         ))}

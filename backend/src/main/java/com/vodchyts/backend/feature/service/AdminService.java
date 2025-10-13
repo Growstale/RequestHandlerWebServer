@@ -1,7 +1,6 @@
 package com.vodchyts.backend.feature.service;
 
 import com.vodchyts.backend.common.validator.PasswordValidator;
-import com.vodchyts.backend.exception.InvalidPasswordException;
 import com.vodchyts.backend.exception.OperationNotAllowedException;
 import com.vodchyts.backend.exception.UserAlreadyExistsException;
 import com.vodchyts.backend.exception.UserNotFoundException;
@@ -49,6 +48,7 @@ public class AdminService {
                                 user.setLogin(request.login());
                                 user.setPassword(passwordEncoder.encode(request.password()));
                                 user.setRoleID(role.getRoleID());
+                                user.setFullName(request.fullName());
                                 user.setContactInfo(request.contactInfo());
                                 if (request.telegramID() != null && !request.telegramID().isBlank()) {
                                     user.setTelegramID(Long.parseLong(request.telegramID()));
@@ -59,7 +59,7 @@ public class AdminService {
     }
 
     public Flux<UserResponse> getAllUsers(String roleName, List<String> sort) {
-        Flux<User> users = (roleName != null && !roleName.isEmpty())
+        Flux<User> users = (roleName != null && !roleName.isEmpty() && !"Все".equalsIgnoreCase(roleName))
                 ? roleRepository.findByRoleName(roleName)
                 .flatMapMany(role -> userRepository.findAllByRoleID(role.getRoleID()))
                 : userRepository.findAll();
@@ -69,12 +69,11 @@ public class AdminService {
         if (sort != null && !sort.isEmpty()) {
             Comparator<UserResponse> comparator = buildComparator(sort);
             if (comparator != null) {
-                return userResponses.collectList().flatMapMany(list -> {
-                    list.sort(comparator);
-                    return Flux.fromIterable(list);
-                });
+                // ПРАВИЛЬНЫЙ СПОСОБ СОРТИРОВКИ РЕАКТИВНОГО ПОТОКА
+                return userResponses.sort(comparator);
             }
         }
+
         return userResponses;
     }
 
@@ -83,6 +82,8 @@ public class AdminService {
 
         for (String sortParam : sortParams) {
             String[] parts = sortParam.split(",");
+            if (parts.length == 0 || parts[0].isBlank()) continue;
+
             String field = parts[0];
             String direction = parts.length > 1 ? parts[1].toUpperCase() : "ASC";
 
@@ -90,6 +91,7 @@ public class AdminService {
                 case "userID" -> Comparator.comparing(UserResponse::userID, Comparator.nullsLast(Comparator.naturalOrder()));
                 case "login" -> Comparator.comparing(UserResponse::login, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
                 case "roleName" -> Comparator.comparing(UserResponse::roleName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+                case "fullName" -> Comparator.comparing(UserResponse::fullName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
                 case "contactInfo" -> Comparator.comparing(UserResponse::contactInfo, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
                 case "telegramID" -> Comparator.comparing(UserResponse::telegramID, Comparator.nullsLast(Comparator.naturalOrder()));
                 default -> null;
@@ -140,6 +142,10 @@ public class AdminService {
                         user.setContactInfo(request.contactInfo());
                     }
 
+                    if (request.fullName() != null) {
+                        user.setFullName(request.fullName());
+                    }
+
                     if (request.telegramID() != null) {
                         if (request.telegramID().isEmpty()) {
                             user.setTelegramID(null);
@@ -170,6 +176,7 @@ public class AdminService {
                         user.getUserID(),
                         user.getLogin(),
                         role.getRoleName(),
+                        user.getFullName(),
                         user.getContactInfo(),
                         user.getTelegramID()
                 ));

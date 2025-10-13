@@ -22,6 +22,9 @@ public class User {
     @Column("RoleID")
     private Integer roleID;
 
+    @Column("FullName")
+    private String fullName;
+
     @Column("ContactInfo")
     private String contactInfo;
 
@@ -74,5 +77,13 @@ public class User {
 
     public void setTelegramID(Long telegramID) {
         this.telegramID = telegramID;
+    }
+
+    public String getFullName() {
+        return fullName;
+    }
+
+    public void setFullName(String fullName) {
+        this.fullName = fullName;
     }
 }
