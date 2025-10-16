@@ -46,7 +46,7 @@ public class JwtAuthenticationFilter implements WebFilter {
                         .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(context)));
             }
             else  {
-                return Mono.error(new InvalidTokenException("Invalid or expired JWT token"));
+                return Mono.error(new InvalidTokenException("Недействительный или истекший JWT токен"));
             }
         }
 

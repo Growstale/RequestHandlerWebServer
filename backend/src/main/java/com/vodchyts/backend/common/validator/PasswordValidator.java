@@ -8,22 +8,22 @@ public class PasswordValidator {
 
     public void validate(String password) {
         if (password == null || password.isBlank()) {
-            throw new InvalidPasswordException("Password cannot be empty");
+            throw new InvalidPasswordException("Пароль не может быть пустым");
         }
         if (password.length() < 8) {
-            throw new InvalidPasswordException("Password must be at least 8 characters long");
+            throw new InvalidPasswordException("Пароль должен содержать не менее 8 символов");
         }
         if (!password.matches(".*[A-Z].*")) {
-            throw new InvalidPasswordException("Password must contain at least one uppercase letter");
+            throw new InvalidPasswordException("Пароль должен содержать хотя бы одну заглавную букву");
         }
         if (!password.matches(".*[a-z].*")) {
-            throw new InvalidPasswordException("Password must contain at least one lowercase letter");
+            throw new InvalidPasswordException("Пароль должен содержать хотя бы одну строчную букву");
         }
         if (!password.matches(".*\\d.*")) {
-            throw new InvalidPasswordException("Password must contain at least one digit");
+            throw new InvalidPasswordException("Пароль должен содержать хотя бы одну цифру");
         }
         if (!password.matches(".*[!@#$%^&*()_+\\-={}:;\"'<>,.?/].*")) {
-            throw new InvalidPasswordException("Password must contain at least one special character");
+            throw new InvalidPasswordException("Пароль должен содержать хотя бы один специальный символ");
         }
     }
 }

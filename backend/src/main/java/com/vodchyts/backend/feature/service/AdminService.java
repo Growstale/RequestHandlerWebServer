@@ -39,10 +39,10 @@ public class AdminService {
         return userRepository.existsByLogin(request.login())
                 .flatMap(exists -> {
                     if (exists) {
-                        return Mono.error(new UserAlreadyExistsException("User with login '" + request.login() + "' already exists"));
+                        return Mono.error(new UserAlreadyExistsException("Пользователь с логином '" + request.login() + "' уже существует"));
                     }
                     return roleRepository.findByRoleName(request.roleName())
-                            .switchIfEmpty(Mono.error(new RuntimeException("Role '" + request.roleName() + "' not found")))
+                            .switchIfEmpty(Mono.error(new RuntimeException("Роль '" + request.roleName() + "' не найдена")))
                             .flatMap(role -> {
                                 User user = new User();
                                 user.setLogin(request.login());
@@ -69,8 +69,12 @@ public class AdminService {
         if (sort != null && !sort.isEmpty()) {
             Comparator<UserResponse> comparator = buildComparator(sort);
             if (comparator != null) {
-                // ПРАВИЛЬНЫЙ СПОСОБ СОРТИРОВКИ РЕАКТИВНОГО ПОТОКА
-                return userResponses.sort(comparator);
+                return userResponses.collectList()
+                        .map(list -> {
+                            list.sort(comparator);
+                            return list;
+                        })
+                        .flatMapMany(Flux::fromIterable);
             }
         }
 
@@ -78,6 +82,9 @@ public class AdminService {
     }
 
     private Comparator<UserResponse> buildComparator(List<String> sortParams) {
+        if (sortParams == null) {
+            return null;
+        }
         Comparator<UserResponse> finalComparator = null;
 
         for (String sortParam : sortParams) {
@@ -85,7 +92,7 @@ public class AdminService {
             if (parts.length == 0 || parts[0].isBlank()) continue;
 
             String field = parts[0];
-            String direction = parts.length > 1 ? parts[1].toUpperCase() : "ASC";
+            boolean isDescending = parts.length > 1 && "desc".equalsIgnoreCase(parts[1]);
 
             Comparator<UserResponse> currentComparator = switch (field) {
                 case "userID" -> Comparator.comparing(UserResponse::userID, Comparator.nullsLast(Comparator.naturalOrder()));
@@ -98,7 +105,7 @@ public class AdminService {
             };
 
             if (currentComparator != null) {
-                if ("DESC".equals(direction)) {
+                if (isDescending) {
                     currentComparator = currentComparator.reversed();
                 }
 
@@ -116,12 +123,12 @@ public class AdminService {
         String adminRoleName = "RetailAdmin";
 
         return userRepository.findById(userId)
-                .switchIfEmpty(Mono.error(new UserNotFoundException("User with ID " + userId + " not found")))
+                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с ID " + userId + " не найден")))
                 .flatMap(userToDelete ->
                         roleRepository.findById(userToDelete.getRoleID())
                                 .flatMap(userRole -> {
                                     if (adminRoleName.equals(userRole.getRoleName())) {
-                                        return Mono.error(new OperationNotAllowedException("Cannot delete an administrator account"));
+                                        return Mono.error(new OperationNotAllowedException("Нельзя удалить учетную запись администратора"));
                                     }
                                     return userRepository.delete(userToDelete);
                                 })
@@ -131,7 +138,7 @@ public class AdminService {
 
     public Mono<UserResponse> updateUser(Integer userId, UpdateUserRequest request) {
         return userRepository.findById(userId)
-                .switchIfEmpty(Mono.error(new UserNotFoundException("User with ID " + userId + " not found")))
+                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с ID " + userId + " не найден")))
                 .flatMap(user -> {
                     if (request.password() != null && !request.password().isBlank()) {
                         passwordValidator.validate(request.password());
@@ -157,7 +164,7 @@ public class AdminService {
                     Mono<User> userMono = Mono.just(user);
                     if (request.roleName() != null && !request.roleName().isBlank()) {
                         userMono = roleRepository.findByRoleName(request.roleName())
-                                .switchIfEmpty(Mono.error(new RuntimeException("Role '" + request.roleName() + "' not found")))
+                                .switchIfEmpty(Mono.error(new RuntimeException("Роль '" + request.roleName() + "' не найдена")))
                                 .map(role -> {
                                     user.setRoleID(role.getRoleID());
                                     return user;

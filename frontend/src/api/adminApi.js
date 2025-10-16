@@ -3,11 +3,18 @@ import api from './axios'
 export const getUsers = (params = {}) => {
   const queryParams = new URLSearchParams()
 
-  if (params.role) {
+  if (params.role && params.role !== 'Все') {
     queryParams.append('role', params.role)
   }
+
+  if (params.sortConfig) {
+    params.sortConfig.forEach(sort => {
+      queryParams.append('sort', `${sort.field},${sort.direction}`)
+    })
+  }
   
-  return api.get(`/api/admin/users?${queryParams.toString()}`)
+  const queryString = queryParams.toString()
+  return api.get(`/api/admin/users${queryString ? `?${queryString}` : ''}`)
 }
 
 export const createUser = (userData) => {

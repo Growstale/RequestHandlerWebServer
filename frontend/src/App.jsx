@@ -6,7 +6,8 @@ import Home from './pages/Home'
 import Login from './pages/Login'
 import Navbar from './components/NavBar'
 import Sidebar from './components/Sidebar'
-import Users from './pages/Users' // <-- Импортируем новую страницу
+import Users from './pages/Users' 
+import Shops from './pages/Shops' 
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -33,10 +34,18 @@ export default function App() {
             }
           />
           <Route
-            path="/users" // <-- Добавляем новый маршрут
+            path="/users"
             element={
               <ProtectedRoute allowedRoles={['RetailAdmin']}>
                 <Users />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/shops"
+            element={
+              <ProtectedRoute allowedRoles={['RetailAdmin']}>
+                <Shops />
               </ProtectedRoute>
             }
           />

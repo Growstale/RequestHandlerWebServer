@@ -48,10 +48,10 @@ public class AuthService {
 
     public Mono<LoginResponseWithRefresh> login(String login, String password) {
         return userRepository.findByLogin(login)
-                .switchIfEmpty(Mono.error(new UserNotFoundException("User not found")))
+                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь не найден")))
                 .flatMap(user -> {
                     if (!passwordEncoder.matches(password, user.getPassword())) {
-                        return Mono.error(new RuntimeException("Invalid password"));
+                        return Mono.error(new RuntimeException("Неверный пароль"));
                     }
                     return roleRepository.findById(user.getRoleID())
                             .flatMap(role -> {
@@ -74,22 +74,22 @@ public class AuthService {
 
     public Mono<LoginResponse> refresh(String refreshToken) {
         if (!jwtUtils.validateToken(refreshToken)) {
-            return Mono.error(new InvalidTokenException("Invalid JWT refresh token"));
+            return Mono.error(new InvalidTokenException("Недействительный JWT токен обновления"));
         }
 
         String tokenHash = sha256(refreshToken);
 
         return refreshTokenRepository.findByTokenHash(tokenHash)
-                .switchIfEmpty(Mono.error(new InvalidTokenException("Invalid or expired refresh token")))
+                .switchIfEmpty(Mono.error(new InvalidTokenException("Недействительный или истекший токен обновления")))
                 .flatMap(rt -> {
                     if (rt.getExpiresAt().isBefore(LocalDateTime.now())) {
-                        return Mono.error(new InvalidTokenException("Refresh token expired"));
+                        return Mono.error(new InvalidTokenException("Срок действия токена обновления истек"));
                     }
 
                     String username = jwtUtils.getUsernameFromToken(refreshToken);
 
                     return userRepository.findByLogin(username)
-                            .switchIfEmpty(Mono.error(new UserNotFoundException("User not found")))
+                            .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь не найден")))
                             .flatMap(user -> roleRepository.findById(user.getRoleID())
                                     .map(role -> {
                                         String newAccessToken = jwtUtils.generateAccessToken(username, role.getRoleName());

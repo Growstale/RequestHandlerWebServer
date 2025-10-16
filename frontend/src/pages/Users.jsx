@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { getUsers, createUser, updateUser, deleteUser, getRoles } from '@/api/adminApi'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
@@ -16,6 +16,7 @@ import {
 import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle } from 'lucide-react'
 import UserForm from './UserForm'
 import { cn } from '@/lib/utils'
+import { getRoleDisplayName } from '@/lib/displayNames'
 
 export default function Users() {
   const [allUsers, setAllUsers] = useState([])
@@ -31,79 +32,56 @@ export default function Users() {
   const [currentUser, setCurrentUser] = useState(null)
   const [formApiError, setFormApiError] = useState(null)
 
-  const reloadUsers = async () => {
+  const reloadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const usersResponse = await getUsers();
+      const usersResponse = await getUsers({ role: filterRole, sortConfig });
       setAllUsers(usersResponse.data);
     } catch (err) {
       setError(err.response?.data || 'Не удалось обновить список пользователей');
     } finally {
       setLoading(false);
     }
-  };
-  
+  }, [filterRole, sortConfig]);
+
   useEffect(() => {
     const fetchInitialData = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const [usersResponse, rolesResponse] = await Promise.all([getUsers(), getRoles()]);
-            setAllUsers(usersResponse.data);
-            setRoles(rolesResponse.data);
-        } catch (err) {
-            setError(err.response?.data || 'Не удалось загрузить данные');
-        } finally {
-            setLoading(false);
-        }
+      setLoading(true);
+      setError(null);
+      try {
+        const rolesResponse = await getRoles();
+        setRoles(rolesResponse.data);
+        // Пользователи будут загружены следующим эффектом
+      } catch (err) {
+        setError(err.response?.data || 'Не удалось загрузить роли');
+        setLoading(false);
+      }
     };
     fetchInitialData();
   }, []);
 
-  const displayedUsers = useMemo(() => {
-    let result = [...allUsers];
-    if (filterRole !== 'Все') {
-      result = result.filter(user => user.roleName === filterRole);
+  useEffect(() => {
+    if (roles.length > 0) {
+        reloadUsers();
     }
-    result.sort((a, b) => {
-      for (const sort of sortConfig) {
-        const aValue = a[sort.field];
-        const bValue = b[sort.field];
+  }, [roles, reloadUsers]);
 
-        const aIsNull = aValue == null || aValue === '';
-        const bIsNull = bValue == null || bValue === '';
-
-        if (aIsNull && bIsNull) return 0; 
-        const directionMultiplier = sort.direction === 'asc' ? 1 : -1;
-        if (aIsNull) return 1 * directionMultiplier;
-        if (bIsNull) return -1 * directionMultiplier;
-
-        let comparison = 0;
-        if (typeof aValue === 'string') {
-          comparison = aValue.localeCompare(bValue, 'ru', { numeric: true });
-        } else {
-          comparison = aValue - bValue;
-        }
-
-        if (comparison !== 0) {
-          return sort.direction === 'asc' ? comparison : -comparison;
-        }
-      }
-      return 0;
-    });
-    return result;
-  }, [allUsers, filterRole, sortConfig]);
+  const displayedUsers = useMemo(() => {
+    return allUsers;
+  }, [allUsers]);
 
   const handleSort = (clickedField, e) => {
     const isShiftPressed = e.shiftKey;
     setSortConfig(currentConfig => {
       const existingSortIndex = currentConfig.findIndex(s => s.field === clickedField);
+
       if (!isShiftPressed) {
         if (existingSortIndex === 0 && currentConfig.length === 1) {
           return [{ field: clickedField, direction: currentConfig[0].direction === 'asc' ? 'desc' : 'asc' }];
         }
         return [{ field: clickedField, direction: 'asc' }];
       }
+
       const newConfig = [...currentConfig];
       if (existingSortIndex > -1) {
         if (newConfig[existingSortIndex].direction === 'asc') {
@@ -114,6 +92,7 @@ export default function Users() {
       } else {
         newConfig.push({ field: clickedField, direction: 'asc' });
       }
+
       return newConfig.length > 0 ? newConfig : [{ field: 'userID', direction: 'asc' }];
     });
   };
@@ -206,7 +185,7 @@ export default function Users() {
           <SelectTrigger className="w-[180px]"><SelectValue placeholder="Фильтр по роли" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="Все">Все</SelectItem>
-            {roles.map(role => <SelectItem key={role.roleID} value={role.roleName}>{role.roleName}</SelectItem>)}
+            {roles.map(role => <SelectItem key={role.roleID} value={role.roleName}>{getRoleDisplayName(role.roleName)}</SelectItem>)}
           </SelectContent>
         </Select>
         {(sortConfig.length > 1 || sortConfig[0].field !== 'userID' || sortConfig[0].direction !== 'asc') && (
@@ -239,7 +218,7 @@ export default function Users() {
                   <TableCell>{user.userID}</TableCell>
                   <TableCell className="font-medium">{user.login}</TableCell>
                   <TableCell>{user.fullName || '—'}</TableCell>
-                  <TableCell>{user.roleName}</TableCell>
+                  <TableCell>{getRoleDisplayName(user.roleName)}</TableCell>
                   <TableCell>{user.contactInfo || '—'}</TableCell>
                   <TableCell>{user.telegramID || '—'}</TableCell>
                   <TableCell>

@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -29,15 +30,19 @@ public class AdminController {
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<UserResponse> createUser(@Valid @RequestBody Mono<CreateUserRequest> request) {
         return request.flatMap(adminService::createUser)
-                .flatMap(user -> adminService.getAllUsers(null, null)
-                        .filter(u -> u.userID().equals(user.getUserID()))
-                        .next());
+                .flatMap(user -> {
+                    List<String> defaultSort = List.of("userID,asc");
+                    return adminService.getAllUsers(null, defaultSort)
+                            .filter(u -> u.userID().equals(user.getUserID()))
+                            .next();
+                });
     }
 
     @GetMapping("/users")
-    public Flux<UserResponse> getAllUsers(@RequestParam(required = false) String role,
-                                          @RequestParam(required = false) List<String> sort) {
-        return adminService.getAllUsers(role, sort);
+    public Flux<UserResponse> getAllUsers(ServerWebExchange exchange) {
+        List<String> sortParams = exchange.getRequest().getQueryParams().get("sort");
+        String role = exchange.getRequest().getQueryParams().getFirst("role");
+        return adminService.getAllUsers(role, sortParams);
     }
 
     @DeleteMapping("/users/{userId}")

@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthProvider'
 import { Button } from './ui/button'
-import { Users as UsersIcon } from 'lucide-react' // Добавим иконку
+import { Users as UsersIcon, Building as ShopsIcon } from 'lucide-react'
 
 const baseLinks = [
   { href: '/', label: 'Главная' },
@@ -12,6 +12,7 @@ const baseLinks = [
 
 const adminLinks = [
   { href: '/users', label: 'Пользователи', icon: UsersIcon },
+  { href: '/shops', label: 'Магазины', icon: ShopsIcon },
 ]
 
 export default function Sidebar({ open, onClose }) {
@@ -36,18 +37,18 @@ export default function Sidebar({ open, onClose }) {
         )}
       >
         {links.map(link => (
-          <Link
-            key={link.href}
-            to={link.href}
-            className={cn(
-              'px-3 py-2 rounded hover:bg-gray-100 transition-colors',
-              location.pathname === link.href && 'bg-gray-200 font-semibold'
-            )}
-            onClick={onClose} 
-          >
-            {link.icon && <link.icon className="h-4 w-4" />}
-            {link.label}
-          </Link>
+            <Link
+                key={link.href}
+                to={link.href}
+                className={cn(
+                'flex items-center gap-3 px-3 py-2 rounded hover:bg-gray-100 transition-colors',
+                location.pathname === link.href && 'bg-gray-200 font-semibold'
+                )}
+                onClick={onClose} 
+            >
+                {link.icon && <link.icon className="h-4 w-4" />}
+                {link.label}
+            </Link>
         ))}
 
         <div className="mt-4 border-t pt-4 flex flex-col gap-2">
