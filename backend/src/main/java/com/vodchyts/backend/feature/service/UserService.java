@@ -24,13 +24,13 @@ public class UserService {
 
     public Mono<UserInfoResponse> whoAmI(String accessToken) {
         if (!jwtUtils.validateToken(accessToken)) {
-            return Mono.error(new InvalidTokenException("Invalid or expired access token"));
+            return Mono.error(new InvalidTokenException("Недействительный или истекший токен доступа"));
         }
 
         String username = jwtUtils.getUsernameFromToken(accessToken);
 
         return userRepository.findByLogin(username)
-                .switchIfEmpty(Mono.error(new UserNotFoundException("User not found")))
+                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь не найден")))
                 .flatMap(user ->
                         roleRepository.findById(user.getRoleID())
                                 .map(role -> new UserInfoResponse(user.getLogin(), role.getRoleName()))

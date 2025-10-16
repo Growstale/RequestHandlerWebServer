@@ -88,6 +88,7 @@ public class AdminUserManagementTest {
                 newUserLogin,
                 newUserPassword,
                 "Contractor",
+                "Test",
                 "info@test.com",
                 "111222333"
         );
@@ -116,7 +117,7 @@ public class AdminUserManagementTest {
     @Order(4)
     @DisplayName("4. Администратор пытается создать пользователя с существующим логином (конфликт)")
     void adminCreatesUser_Conflict() {
-        CreateUserRequest request = new CreateUserRequest(newUserLogin, newUserPassword, "Contractor", null, null);
+        CreateUserRequest request = new CreateUserRequest(newUserLogin, newUserPassword, "Contractor", "Test", null, null);
 
         webTestClient.post().uri("/api/admin/users")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminAccessToken)
@@ -161,8 +162,8 @@ public class AdminUserManagementTest {
     @DisplayName("7. Администратор получает отсортированный список пользователей")
     void adminGetsUsers_WithSorting() {
         // --- Setup: Создаем дополнительных пользователей для надежного теста сортировки ---
-        CreateUserRequest userA_Request = new CreateUserRequest("a-sort-user", newUserPassword, "StoreManager", null, null);
-        CreateUserRequest userZ_Request = new CreateUserRequest("z-sort-user", newUserPassword, "Contractor", null, null);
+        CreateUserRequest userA_Request = new CreateUserRequest("a-sort-user", newUserPassword, "StoreManager", "Test", null, null);
+        CreateUserRequest userZ_Request = new CreateUserRequest("z-sort-user", newUserPassword, "Contractor", "Test", null, null);
 
         UserResponse userA = webTestClient.post().uri("/api/admin/users")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminAccessToken)
@@ -221,6 +222,7 @@ public class AdminUserManagementTest {
         UpdateUserRequest request = new UpdateUserRequest(
                 null, // Пароль не меняем
                 "StoreManager",
+                "Test",
                 "updated.info@test.com",
                 "999888777"
         );

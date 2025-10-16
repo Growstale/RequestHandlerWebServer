@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { getRoleDisplayName } from '@/lib/displayNames'
 
 const getInitialFormData = (user) => {
   if (user) {
@@ -97,7 +98,7 @@ export default function UserForm({ currentUser, onSubmit, onCancel, apiError, ro
               <SelectValue placeholder="Выберите роль" />
             </SelectTrigger>
             <SelectContent>
-              {roles.map(role => <SelectItem key={role.roleID} value={role.roleName}>{role.roleName}</SelectItem>)}
+              {roles.map(role => <SelectItem key={role.roleID} value={role.roleName}>{getRoleDisplayName(role.roleName)}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>

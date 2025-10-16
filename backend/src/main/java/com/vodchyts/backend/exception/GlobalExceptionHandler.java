@@ -48,6 +48,11 @@ public class GlobalExceptionHandler {
         return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(ex.getMessage()));
     }
 
+    @ExceptionHandler(ShopAlreadyExistsException.class)
+    public Mono<ResponseEntity<String>> handleShopAlreadyExists(ShopAlreadyExistsException ex) {
+        return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getMessage()));
+    }
+
     @ExceptionHandler(WebExchangeBindException.class)
     public Mono<ResponseEntity<String>> handleValidationExceptions(WebExchangeBindException ex) {
         String errors = ex.getBindingResult()

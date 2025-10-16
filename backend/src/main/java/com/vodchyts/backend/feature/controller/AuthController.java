@@ -3,8 +3,6 @@ package com.vodchyts.backend.feature.controller;
 import com.vodchyts.backend.exception.UnauthorizedException;
 import com.vodchyts.backend.feature.dto.LoginRequest;
 import com.vodchyts.backend.feature.dto.LoginResponse;
-import com.vodchyts.backend.feature.dto.RegisterRequest;
-import com.vodchyts.backend.feature.dto.UserInfoResponse;
 import com.vodchyts.backend.feature.service.AuthService;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -60,7 +58,7 @@ public class AuthController {
     public Mono<ResponseEntity<Void>> logout(ServerWebExchange exchange) {
         var cookie = exchange.getRequest().getCookies().getFirst("refreshToken");
         if (cookie == null) {
-            return Mono.error(new UnauthorizedException("Refresh token not found"));
+            return Mono.error(new UnauthorizedException("Токен обновления не найден"));
         }
         String refreshToken = cookie.getValue();
 

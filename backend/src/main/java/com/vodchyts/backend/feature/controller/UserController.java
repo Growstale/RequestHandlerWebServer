@@ -24,7 +24,7 @@ public class UserController {
     public Mono<ResponseEntity<UserInfoResponse>> whoAmI(ServerWebExchange exchange) {
         String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return Mono.error(new UnauthorizedException("Authorization header missing or invalid"));
+            return Mono.error(new UnauthorizedException("Заголовок Authorization отсутствует или недействителен"));
         }
 
         String accessToken = authHeader.substring(7);
