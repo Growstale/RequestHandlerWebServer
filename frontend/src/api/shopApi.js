@@ -1,13 +1,21 @@
 import api from './axios'
 
-export const getShops = (sortConfig = []) => { // <<< 1. ПРИНИМАТЬ sortConfig
-  const params = new URLSearchParams();
-  sortConfig.forEach(sort => {
-    params.append('sort', `${sort.field},${sort.direction}`);
-  });
+const PAGE_SIZE = 40;
+
+export const getShops = (params = {}) => {
+  const queryParams = new URLSearchParams();
+
+  queryParams.append('page', params.page || 0);
+  queryParams.append('size', PAGE_SIZE);
+
+  if (params.sortConfig) {
+    params.sortConfig.forEach(sort => {
+      queryParams.append('sort', `${sort.field},${sort.direction}`);
+    });
+  }
   
-  const queryString = params.toString();
-  return api.get(`/api/admin/shops${queryString ? `?${queryString}` : ''}`); // <<< 3. ДОБАВИТЬ К URL
+  const queryString = queryParams.toString();
+  return api.get(`/api/admin/shops?${queryString}`);
 }
 
 export const createShop = (shopData) => {

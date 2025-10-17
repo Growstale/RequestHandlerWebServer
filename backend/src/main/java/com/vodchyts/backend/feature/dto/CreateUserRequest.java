@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Pattern;
 
 public record CreateUserRequest(
         @NotBlank(message = "Логин не может быть пустым")
-        @Size(min = 3, max = 100, message = "Логин должен содержать от 3 до 100 символов")
+        @Size(max = 100, message = "Логин должен содержать до 100 символов")
         String login,
 
         @NotBlank(message = "Пароль не может быть пустым")

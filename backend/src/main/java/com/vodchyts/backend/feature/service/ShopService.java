@@ -4,6 +4,7 @@ import com.vodchyts.backend.exception.OperationNotAllowedException;
 import com.vodchyts.backend.exception.ShopAlreadyExistsException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.CreateShopRequest;
+import com.vodchyts.backend.feature.dto.PagedResponse;
 import com.vodchyts.backend.feature.dto.ShopResponse;
 import com.vodchyts.backend.feature.dto.UpdateShopRequest;
 import com.vodchyts.backend.feature.entity.Shop;
@@ -32,21 +33,32 @@ public class ShopService {
         this.roleRepository = roleRepository;
     }
 
-    public Flux<ShopResponse> getAllShops(List<String> sort) {
-        Flux<ShopResponse> shopResponses = shopRepository.findAll().flatMap(this::mapShopToResponse);
+    public Mono<PagedResponse<ShopResponse>> getAllShops(List<String> sort, int page, int size) {
+        Flux<Shop> shopsFlux = shopRepository.findAll();
+
+        Flux<ShopResponse> shopResponses = shopsFlux.flatMap(this::mapShopToResponse);
 
         if (sort != null && !sort.isEmpty()) {
             Comparator<ShopResponse> comparator = buildComparator(sort);
             if (comparator != null) {
-                return shopResponses.collectList()
-                        .map(list -> {
-                            list.sort(comparator);
-                            return list;
-                        })
-                        .flatMapMany(Flux::fromIterable);
+                shopResponses = shopResponses.sort(comparator);
             }
         }
-        return shopResponses;
+
+        Mono<Long> countMono = shopRepository.count();
+
+        Mono<List<ShopResponse>> contentMono = shopResponses
+                .skip((long) page * size)
+                .take(size)
+                .collectList();
+
+        return Mono.zip(contentMono, countMono)
+                .map(tuple -> {
+                    List<ShopResponse> content = tuple.getT1();
+                    Long count = tuple.getT2();
+                    int totalPages = (count == 0) ? 0 : (int) Math.ceil((double) count / size);
+                    return new PagedResponse<>(content, page, count, totalPages);
+                });
     }
 
     private Comparator<ShopResponse> buildComparator(List<String> sortParams) {

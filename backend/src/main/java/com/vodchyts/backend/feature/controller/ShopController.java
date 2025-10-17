@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ServerWebExchange; // <-- ВАЖНО: Добавьте этот импорт
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-
+import com.vodchyts.backend.feature.dto.PagedResponse;
 import java.util.List;
 
 @RestController
@@ -29,11 +29,15 @@ public class ShopController {
     }
 
     @GetMapping
-    public Flux<ShopResponse> getAllShops(ServerWebExchange exchange) { // <-- ИЗМЕНЯЕМ ЗДЕСЬ
-        // Вручную получаем параметры, чтобы избежать автоматического разделения по запятой
+    public Mono<PagedResponse<ShopResponse>> getAllShops(
+            ServerWebExchange exchange,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "40") int size
+    ) {
         List<String> sortParams = exchange.getRequest().getQueryParams().get("sort");
-        return shopService.getAllShops(sortParams); // Передаем правильный список в сервис
+        return shopService.getAllShops(sortParams, page, size);
     }
+
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

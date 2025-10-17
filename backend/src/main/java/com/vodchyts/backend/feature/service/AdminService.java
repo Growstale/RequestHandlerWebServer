@@ -5,6 +5,7 @@ import com.vodchyts.backend.exception.OperationNotAllowedException;
 import com.vodchyts.backend.exception.UserAlreadyExistsException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.CreateUserRequest;
+import com.vodchyts.backend.feature.dto.PagedResponse;
 import com.vodchyts.backend.feature.dto.UpdateUserRequest;
 import com.vodchyts.backend.feature.dto.UserResponse;
 import com.vodchyts.backend.feature.entity.User;
@@ -58,27 +59,38 @@ public class AdminService {
                 });
     }
 
-    public Flux<UserResponse> getAllUsers(String roleName, List<String> sort) {
-        Flux<User> users = (roleName != null && !roleName.isEmpty() && !"Все".equalsIgnoreCase(roleName))
+    public Mono<PagedResponse<UserResponse>> getAllUsers(String roleName, List<String> sort, int page, int size) {
+        boolean b = roleName != null && !roleName.isEmpty() && !"Все".equalsIgnoreCase(roleName);
+        Flux<User> usersFlux = b
                 ? roleRepository.findByRoleName(roleName)
                 .flatMapMany(role -> userRepository.findAllByRoleID(role.getRoleID()))
                 : userRepository.findAll();
 
-        Flux<UserResponse> userResponses = users.flatMap(this::mapUserToUserResponse);
+        Flux<UserResponse> userResponses = usersFlux.flatMap(this::mapUserToUserResponse);
 
         if (sort != null && !sort.isEmpty()) {
             Comparator<UserResponse> comparator = buildComparator(sort);
             if (comparator != null) {
-                return userResponses.collectList()
-                        .map(list -> {
-                            list.sort(comparator);
-                            return list;
-                        })
-                        .flatMapMany(Flux::fromIterable);
+                userResponses = userResponses.sort(comparator);
             }
         }
 
-        return userResponses;
+        Mono<Long> countMono = b
+                ? roleRepository.findByRoleName(roleName).flatMap(role -> userRepository.countByRoleID(role.getRoleID()))
+                : userRepository.count();
+
+        Mono<List<UserResponse>> contentMono = userResponses
+                .skip((long) page * size)
+                .take(size)
+                .collectList();
+
+        return Mono.zip(contentMono, countMono)
+                .map(tuple -> {
+                    List<UserResponse> content = tuple.getT1();
+                    long count = tuple.getT2();
+                    int totalPages = (count == 0) ? 0 : (int) Math.ceil((double) count / size);
+                    return new PagedResponse<>(content, page, count, totalPages);
+                });
     }
 
     private Comparator<UserResponse> buildComparator(List<String> sortParams) {
@@ -177,7 +189,7 @@ public class AdminService {
                 .flatMap(this::mapUserToUserResponse);
     }
 
-    private Mono<UserResponse> mapUserToUserResponse(User user) {
+    public Mono<UserResponse> mapUserToUserResponse(User user) {
         return roleRepository.findById(user.getRoleID())
                 .map(role -> new UserResponse(
                         user.getUserID(),

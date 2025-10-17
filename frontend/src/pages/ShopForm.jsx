@@ -47,7 +47,7 @@ export default function ShopForm({ currentShop, users = [], onSubmit, onCancel, 
         
         <div className="grid grid-cols-4 items-center gap-4">
           <Label htmlFor="shopName" className="text-right">Название <span className="text-destructive">*</span></Label>
-          <Input id="shopName" name="shopName" value={formData.shopName} onChange={handleChange} className="col-span-3" required />
+          <Input id="shopName" name="shopName" value={formData.shopName} onChange={handleChange} className="col-span-3" />
         </div>
 
         <div className="grid grid-cols-4 items-center gap-4">

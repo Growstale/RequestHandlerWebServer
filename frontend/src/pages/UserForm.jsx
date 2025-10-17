@@ -71,14 +71,14 @@ export default function UserForm({ currentUser, onSubmit, onCancel, apiError, ro
           <Label htmlFor="login" className="text-right">
             Логин <span className="text-destructive">*</span>
           </Label>
-          <Input id="login" name="login" value={formData.login} onChange={handleChange} className="col-span-3" required disabled={isEditing} />
+          <Input id="login" name="login" value={formData.login} onChange={handleChange} className="col-span-3" disabled={isEditing} />
         </div>
 
         <div className="grid grid-cols-4 items-center gap-4">
           <Label htmlFor="password" className="text-right">
             {isEditing ? 'Новый пароль' : <>Пароль <span className="text-destructive">*</span></>}
           </Label>
-          <Input id="password" name="password" type="password" placeholder={isEditing ? 'Оставьте пустым, чтобы не менять' : ''} value={formData.password} onChange={handleChange} className="col-span-3" required={!isEditing} />
+          <Input id="password" name="password" type="password" placeholder={isEditing ? 'Оставьте пустым, чтобы не менять' : ''} value={formData.password} onChange={handleChange} className="col-span-3" />
         </div>
 
         <div className="grid grid-cols-4 items-center gap-4">

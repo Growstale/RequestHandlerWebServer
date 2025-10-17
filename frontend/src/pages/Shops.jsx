@@ -13,63 +13,69 @@ import {
 } from "@/components/ui/alert-dialog"
 import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle } from 'lucide-react'
 import ShopForm from './ShopForm'
+import Pagination from '@/components/Pagination'
 import { cn } from '@/lib/utils'
 
 export default function Shops() {
   const [shops, setShops] = useState([])
-  const [users, setUsers] = useState([]) 
+  // Это состояние теперь хранит только менеджеров для формы
+  const [storeManagers, setStoreManagers] = useState([]) 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   
   const [sortConfig, setSortConfig] = useState([{ field: 'shopID', direction: 'asc' }])
   
+  const [currentPage, setCurrentPage] = useState(0);
+  const [paginationData, setPaginationData] = useState({ totalPages: 0, totalItems: 0 });
+
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isAlertOpen, setIsAlertOpen] = useState(false)
   const [currentShop, setCurrentShop] = useState(null)
   const [formApiError, setFormApiError] = useState(null)
 
-  const storeManagers = useMemo(() => {
-    return users.filter(user => user.roleName === 'StoreManager')
-  }, [users])
-
-    const displayedShops = useMemo(() => {
-    return shops;
-  }, [shops]);
-
+  // Эта функция теперь отвечает только за перезагрузку магазинов
   const reloadShops = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const shopsResponse = await getShops(sortConfig)
-      setShops(shopsResponse.data)
+      const response = await getShops({ sortConfig, page: currentPage })
+      setShops(response.data.content)
+      setPaginationData({
+        totalPages: response.data.totalPages,
+        totalItems: response.data.totalItems,
+      });
     } catch (err) {
       setError(err.response?.data || 'Не удалось обновить список магазинов')
     } finally {
       setLoading(false);
     }
-  }, [sortConfig]);
+  }, [sortConfig, currentPage]);
   
+  // Этот useEffect загружает менеджеров для формы один раз при монтировании компонента
   useEffect(() => {
-    const fetchAndSetData = async () => {
-        setLoading(true)
-        setError(null)
+    const fetchStoreManagers = async () => {
         try {
-            const usersResponse = await getUsers();
-            setUsers(usersResponse.data);
-            await reloadShops(); 
+            // Загружаем только первую страницу менеджеров (до 40) для выпадающего списка
+            const response = await getUsers({ role: 'StoreManager' });
+            if (response.data && Array.isArray(response.data.content)) {
+                setStoreManagers(response.data.content);
+            }
         } catch (err) {
-            setError(err.response?.data || 'Не удалось загрузить данные')
-        } finally {
-            setLoading(false)
+            console.error("Не удалось загрузить список менеджеров:", err);
         }
     }
-    
-    if (users.length === 0) {
-      fetchAndSetData();
-    } else {
-      reloadShops();
-    }
-  }, [sortConfig, reloadShops]) 
+    fetchStoreManagers();
+  }, []); // Пустой массив зависимостей означает, что эффект выполнится один раз
 
+  // Этот useEffect перезагружает магазины при изменении сортировки или страницы
+  useEffect(() => {
+    reloadShops();
+  }, [reloadShops]) 
+
+  // Сбрасываем страницу на первую при изменении сортировки
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [sortConfig]);
 
   const handleSort = (clickedField, e) => {
     const isShiftPressed = e.shiftKey;
@@ -117,7 +123,12 @@ export default function Shops() {
     try {
       await deleteShop(currentShop.shopID)
       setIsAlertOpen(false)
-      reloadShops()
+      // Если удалили последний элемент на странице, переходим на предыдущую
+      if (shops.length === 1 && currentPage > 0) {
+        setCurrentPage(currentPage - 1);
+      } else {
+        reloadShops();
+      }
     } catch (err) {
       console.error("Ошибка удаления:", err.response?.data)
       setIsAlertOpen(false)
@@ -127,7 +138,7 @@ export default function Shops() {
   const SortableHeader = ({ field, children }) => {
     const sortInfo = sortConfig.find(s => s.field === field);
     const sortIndex = sortConfig.findIndex(s => s.field === field);
-    const directionIcon = sortInfo ? (sortInfo.direction === 'asc' ? '↑' : '↓') : '';
+    const directionIcon = sortInfo ? (sortInfo.direction === 'asc' ? '↓' : '↑') : '';
     
     return (
         <TableHead 
@@ -180,12 +191,17 @@ export default function Shops() {
 
       <p className="text-sm text-muted-foreground mb-4">Кликните на заголовок для сортировки. Удерживайте <strong>Shift</strong> для сортировки по нескольким столбцам.</p>
       
-      <div className="flex items-center gap-4 mb-4">
-        {(sortConfig.length > 1 || sortConfig[0].field !== 'shopID' || sortConfig[0].direction !== 'asc') && (
-          <Button variant="outline" onClick={() => setSortConfig([{ field: 'shopID', direction: 'asc' }])}>
-            <XCircle className="mr-2 h-4 w-4" />Сбросить сортировку
-          </Button>
-        )}
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <div className="flex items-center gap-4">
+          {(sortConfig.length > 1 || sortConfig[0].field !== 'shopID' || sortConfig[0].direction !== 'asc') && (
+            <Button variant="outline" onClick={() => setSortConfig([{ field: 'shopID', direction: 'asc' }])}>
+              <XCircle className="mr-2 h-4 w-4" />Сбросить сортировку
+            </Button>
+          )}
+        </div>
+        <div className="text-sm text-muted-foreground">
+          Найдено: {paginationData.totalItems}
+        </div>
       </div>
 
       {loading && <p>Загрузка...</p>}
@@ -204,7 +220,7 @@ export default function Shops() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {displayedShops.map(shop => (
+              {shops.map(shop => (
                 <TableRow key={shop.shopID}>
                   <TableCell>{shop.shopID}</TableCell>
                   <TableCell className="font-medium">{shop.shopName}</TableCell>
@@ -222,6 +238,12 @@ export default function Shops() {
           </Table>
         </div>
       )}
+
+      <Pagination 
+        currentPage={currentPage}
+        totalPages={paginationData.totalPages}
+        onPageChange={setCurrentPage}
+      />
 
       <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
         <AlertDialogContent>

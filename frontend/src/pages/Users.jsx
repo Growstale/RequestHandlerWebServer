@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle } from 'lucide-react'
 import UserForm from './UserForm'
+import Pagination from '@/components/Pagination'
 import { cn } from '@/lib/utils'
 import { getRoleDisplayName } from '@/lib/displayNames'
 
@@ -27,6 +28,9 @@ export default function Users() {
   const [filterRole, setFilterRole] = useState('Все')
   const [sortConfig, setSortConfig] = useState([{ field: 'userID', direction: 'asc' }])
   
+  const [currentPage, setCurrentPage] = useState(0);
+  const [paginationData, setPaginationData] = useState({ totalPages: 0, totalItems: 0 });
+
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isAlertOpen, setIsAlertOpen] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
@@ -34,15 +38,26 @@ export default function Users() {
 
   const reloadUsers = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const usersResponse = await getUsers({ role: filterRole, sortConfig });
-      setAllUsers(usersResponse.data);
+      const response = await getUsers({ 
+        role: filterRole, 
+        sortConfig,
+        page: currentPage 
+      });
+      setAllUsers(response.data.content); 
+      setPaginationData({
+        totalPages: response.data.totalPages,
+        totalItems: response.data.totalItems,
+      });
     } catch (err) {
       setError(err.response?.data || 'Не удалось обновить список пользователей');
     } finally {
       setLoading(false);
     }
-  }, [filterRole, sortConfig]);
+  }, [filterRole, sortConfig, currentPage]);
+
+
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -51,7 +66,6 @@ export default function Users() {
       try {
         const rolesResponse = await getRoles();
         setRoles(rolesResponse.data);
-        // Пользователи будут загружены следующим эффектом
       } catch (err) {
         setError(err.response?.data || 'Не удалось загрузить роли');
         setLoading(false);
@@ -65,6 +79,10 @@ export default function Users() {
         reloadUsers();
     }
   }, [roles, reloadUsers]);
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [filterRole, sortConfig]);
 
   const displayedUsers = useMemo(() => {
     return allUsers;
@@ -96,6 +114,7 @@ export default function Users() {
       return newConfig.length > 0 ? newConfig : [{ field: 'userID', direction: 'asc' }];
     });
   };
+
   
   const handleFormSubmit = async (formData) => {
     setFormApiError(null)
@@ -127,7 +146,7 @@ export default function Users() {
   const SortableHeader = ({ field, children }) => {
     const sortInfo = sortConfig.find(s => s.field === field);
     const sortIndex = sortConfig.findIndex(s => s.field === field);
-    const directionIcon = sortInfo ? (sortInfo.direction === 'asc' ? '↑' : '↓') : '';
+    const directionIcon = sortInfo ? (sortInfo.direction === 'asc' ? '↓' : '↑') : '';
     
     return (
         <TableHead 
@@ -233,6 +252,12 @@ export default function Users() {
           </Table>
         </div>
       )}
+
+      <Pagination 
+        currentPage={currentPage}
+        totalPages={paginationData.totalPages}
+        onPageChange={setCurrentPage}
+      />
 
       <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
         <AlertDialogContent>

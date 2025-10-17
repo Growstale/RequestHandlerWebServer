@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.controller;
 
 import com.vodchyts.backend.feature.dto.CreateUserRequest;
+import com.vodchyts.backend.feature.dto.PagedResponse;
 import com.vodchyts.backend.feature.dto.UpdateUserRequest;
 import com.vodchyts.backend.feature.dto.UserResponse;
 import com.vodchyts.backend.feature.service.AdminService;
@@ -30,19 +31,17 @@ public class AdminController {
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<UserResponse> createUser(@Valid @RequestBody Mono<CreateUserRequest> request) {
         return request.flatMap(adminService::createUser)
-                .flatMap(user -> {
-                    List<String> defaultSort = List.of("userID,asc");
-                    return adminService.getAllUsers(null, defaultSort)
-                            .filter(u -> u.userID().equals(user.getUserID()))
-                            .next();
-                });
+                .flatMap(adminService::mapUserToUserResponse);
     }
 
     @GetMapping("/users")
-    public Flux<UserResponse> getAllUsers(ServerWebExchange exchange) {
+    public Mono<PagedResponse<UserResponse>> getAllUsers(
+            ServerWebExchange exchange,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "40") int size) {
         List<String> sortParams = exchange.getRequest().getQueryParams().get("sort");
         String role = exchange.getRequest().getQueryParams().getFirst("role");
-        return adminService.getAllUsers(role, sortParams);
+        return adminService.getAllUsers(role, sortParams, page, size);
     }
 
     @DeleteMapping("/users/{userId}")

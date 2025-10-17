@@ -1,7 +1,12 @@
 import api from './axios'
 
+const PAGE_SIZE = 40;
+
 export const getUsers = (params = {}) => {
   const queryParams = new URLSearchParams()
+
+  queryParams.append('page', params.page || 0);
+  queryParams.append('size', PAGE_SIZE);
 
   if (params.role && params.role !== 'Все') {
     queryParams.append('role', params.role)
@@ -14,8 +19,9 @@ export const getUsers = (params = {}) => {
   }
   
   const queryString = queryParams.toString()
-  return api.get(`/api/admin/users${queryString ? `?${queryString}` : ''}`)
+  return api.get(`/api/admin/users?${queryString}`)
 }
+
 
 export const createUser = (userData) => {
   return api.post('/api/admin/users', userData)
