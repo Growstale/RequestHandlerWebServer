@@ -53,6 +53,11 @@ public class GlobalExceptionHandler {
         return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getMessage()));
     }
 
+    @ExceptionHandler(WorkCategoryAlreadyExistsException.class)
+    public Mono<ResponseEntity<String>> handleWorkCategoryAlreadyExists(WorkCategoryAlreadyExistsException ex) {
+        return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getMessage()));
+    }
+
     @ExceptionHandler(WebExchangeBindException.class)
     public Mono<ResponseEntity<String>> handleValidationExceptions(WebExchangeBindException ex) {
         String errors = ex.getBindingResult()
