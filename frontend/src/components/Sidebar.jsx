@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthProvider'
 import { Button } from './ui/button'
-import { Users as UsersIcon, Building as ShopsIcon, ClipboardList, CalendarClock } from 'lucide-react' 
+import { Users as UsersIcon, Building as ShopsIcon, ClipboardList, CalendarClock, Briefcase, Archive } from 'lucide-react';
 
 const baseLinks = [
   { href: '/', label: 'Главная' },
@@ -15,6 +15,8 @@ const adminLinks = [
   { href: '/shops', label: 'Магазины', icon: ShopsIcon },
   { href: '/work-categories', label: 'Виды работ', icon: ClipboardList },
   { href: '/urgency-categories', label: 'Сроки заявок', icon: CalendarClock },
+  { href: '/requests', label: 'Заявки', icon: Briefcase },
+  { href: '/requests/archive', label: 'Архив заявок', icon: Archive },
 ]
 
 export default function Sidebar({ open, onClose }) {

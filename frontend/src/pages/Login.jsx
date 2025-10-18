@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useNavigate } from 'react-router-dom'
@@ -9,8 +9,14 @@ export default function Login() {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
-  const { login: doLogin } = useAuth()
+  const { login: doLogin, accessToken, loading } = useAuth()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!loading && accessToken) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [accessToken, loading, navigate])
 
   const onSubmit = async (e) => {
     e.preventDefault()
@@ -21,6 +27,10 @@ export default function Login() {
     } catch (err) {
       setError(err.response?.data || err.message || 'Ошибка')
     }
+  }
+
+  if (loading) {
+      return null; 
   }
 
   return (
