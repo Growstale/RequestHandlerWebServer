@@ -10,6 +10,8 @@ import Users from './pages/Users'
 import Shops from './pages/Shops' 
 import WorkCategories from './pages/WorkCategories'
 import UrgencyCategories from './pages/UrgencyCategories'
+import Requests from './pages/Requests';
+import ArchivedRequests from './pages/ArchivedRequests';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -66,6 +68,14 @@ export default function App() {
                 <UrgencyCategories />
               </ProtectedRoute>
             }
+          />
+          <Route
+            path="/requests"
+            element={ <ProtectedRoute><Requests /></ProtectedRoute> }
+          />
+          <Route
+              path="/requests/archive"
+              element={ <ProtectedRoute><ArchivedRequests /></ProtectedRoute> }
           />
         </Routes>        
       </div>

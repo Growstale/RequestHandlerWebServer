@@ -3,6 +3,7 @@ package com.vodchyts.backend.feature.service;
 import com.vodchyts.backend.exception.InvalidTokenException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.UserInfoResponse;
+import com.vodchyts.backend.feature.entity.User;
 import com.vodchyts.backend.feature.repository.ReactiveRefreshTokenRepository;
 import com.vodchyts.backend.feature.repository.ReactiveRoleRepository;
 import com.vodchyts.backend.feature.repository.ReactiveUserRepository;
@@ -35,5 +36,9 @@ public class UserService {
                         roleRepository.findById(user.getRoleID())
                                 .map(role -> new UserInfoResponse(user.getLogin(), role.getRoleName()))
                 );
+    }
+
+    public Mono<User> findByLogin(String login) {
+        return userRepository.findByLogin(login);
     }
 }
