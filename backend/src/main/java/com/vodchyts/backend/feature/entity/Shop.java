@@ -1,9 +1,13 @@
 package com.vodchyts.backend.feature.entity;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
+@Setter
+@Getter
 @Table("Shops")
 public class Shop {
 
@@ -26,16 +30,4 @@ public class Shop {
     @Column("UserID")
     private Integer userID;
 
-    public Integer getShopID() { return shopID; }
-    public void setShopID(Integer shopID) { this.shopID = shopID; }
-    public String getShopName() { return shopName; }
-    public void setShopName(String shopName) { this.shopName = shopName; }
-    public String getAddress() { return address; }
-    public void setAddress(String address) { this.address = address; }
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
-    public Long getTelegramID() { return telegramID; }
-    public void setTelegramID(Long telegramID) { this.telegramID = telegramID; }
-    public Integer getUserID() { return userID; }
-    public void setUserID(Integer userID) { this.userID = userID; }
 }

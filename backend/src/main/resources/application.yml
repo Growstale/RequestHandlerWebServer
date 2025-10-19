@@ -6,4 +6,4 @@ frontend:
 jwt:
   secret: mySuperSecureSecretKeyThatIsLongEnough123456789
   accessExpirationMs: 1800000
-  refreshExpirationMs: 86400000
+  refreshExpirationMs: 345600000

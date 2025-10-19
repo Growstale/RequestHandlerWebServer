@@ -2,7 +2,6 @@ package com.vodchyts.backend.feature.controller;
 
 import com.vodchyts.backend.exception.UnauthorizedException;
 import com.vodchyts.backend.feature.dto.UserInfoResponse;
-import com.vodchyts.backend.feature.service.AuthService;
 import com.vodchyts.backend.feature.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
