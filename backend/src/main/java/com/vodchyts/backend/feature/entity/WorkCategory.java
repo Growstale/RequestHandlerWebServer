@@ -1,9 +1,13 @@
 package com.vodchyts.backend.feature.entity;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
+@Setter
+@Getter
 @Table("WorkCategories")
 public class WorkCategory {
 
@@ -14,19 +18,4 @@ public class WorkCategory {
     @Column("WorkCategoryName")
     private String workCategoryName;
 
-    public Integer getWorkCategoryID() {
-        return workCategoryID;
-    }
-
-    public void setWorkCategoryID(Integer workCategoryID) {
-        this.workCategoryID = workCategoryID;
-    }
-
-    public String getWorkCategoryName() {
-        return workCategoryName;
-    }
-
-    public void setWorkCategoryName(String workCategoryName) {
-        this.workCategoryName = workCategoryName;
-    }
 }

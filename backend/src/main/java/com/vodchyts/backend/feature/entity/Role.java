@@ -1,9 +1,13 @@
 package com.vodchyts.backend.feature.entity;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
 import org.springframework.data.relational.core.mapping.Column;
 
+@Setter
+@Getter
 @Table("Roles")
 public class Role {
 
@@ -14,19 +18,4 @@ public class Role {
     @Column("RoleName")
     private String roleName;
 
-    public Integer getRoleID() {
-        return roleID;
-    }
-
-    public void setRoleID(Integer roleID) {
-        this.roleID = roleID;
-    }
-
-    public String getRoleName() {
-        return roleName;
-    }
-
-    public void setRoleName(String roleName) {
-        this.roleName = roleName;
-    }
 }
