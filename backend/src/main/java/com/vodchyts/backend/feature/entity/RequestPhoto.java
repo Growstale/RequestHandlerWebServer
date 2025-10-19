@@ -1,9 +1,13 @@
 package com.vodchyts.backend.feature.entity;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
+@Setter
+@Getter
 @Table("RequestPhotos")
 public class RequestPhoto {
     @Id
@@ -14,11 +18,4 @@ public class RequestPhoto {
     @Column("ImageData")
     private byte[] imageData;
 
-    // Геттеры и сеттеры
-    public Integer getRequestPhotoID() { return requestPhotoID; }
-    public void setRequestPhotoID(Integer requestPhotoID) { this.requestPhotoID = requestPhotoID; }
-    public Integer getRequestID() { return requestID; }
-    public void setRequestID(Integer requestID) { this.requestID = requestID; }
-    public byte[] getImageData() { return imageData; }
-    public void setImageData(byte[] imageData) { this.imageData = imageData; }
 }

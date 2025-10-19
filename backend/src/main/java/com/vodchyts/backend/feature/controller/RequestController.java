@@ -12,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
@@ -113,7 +112,7 @@ public class RequestController {
                                 return null; // Пропускаем пустые файлы
                             }
                             // Объединяем все буферы в один
-                            DataBuffer joinedBuffer = dataBuffers.get(0).factory().join(dataBuffers);
+                            DataBuffer joinedBuffer = dataBuffers.getFirst().factory().join(dataBuffers);
                             // Освобождаем исходные буферы, чтобы избежать утечек памяти
                             dataBuffers.forEach(DataBufferUtils::release);
                             return joinedBuffer;
@@ -121,6 +120,7 @@ public class RequestController {
                         .filter(Objects::nonNull) // Убираем пустые файлы
                         // 3. Преобразуем итоговый DataBuffer в массив байт
                         .map(dataBuffer -> {
+                            assert dataBuffer != null;
                             byte[] bytes = new byte[dataBuffer.readableByteCount()];
                             dataBuffer.read(bytes);
                             DataBufferUtils.release(dataBuffer); // Финально освобождаем объединенный буфер
@@ -156,8 +156,6 @@ public class RequestController {
     @PutMapping("/{requestId}/restore")
     @PreAuthorize("hasRole('RetailAdmin')")
     public Mono<RequestResponse> restoreRequest(@PathVariable Integer requestId, @RequestBody(required = false) Mono<Void> body) {
-        // Добавление @RequestBody(required = false) Mono<Void> body
-        // явно говорит Spring, что тело может быть, но оно нам не нужно.
         return requestService.restoreRequest(requestId);
     }
 }

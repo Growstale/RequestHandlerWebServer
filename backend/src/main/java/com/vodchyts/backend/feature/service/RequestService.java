@@ -10,8 +10,6 @@ import org.springframework.data.relational.core.query.Query;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.util.function.Tuple2;
-import reactor.util.function.Tuples;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -19,9 +17,10 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+
+import static org.springframework.data.relational.core.query.Criteria.where;
+import static org.springframework.data.relational.core.query.Query.query;
 
 @Service
 public class RequestService {
@@ -63,16 +62,16 @@ public class RequestService {
             statuses = List.of("In work", "Done");
         }
 
-        Criteria criteria = Criteria.where("Status").in(statuses);
+        Criteria criteria = where("Status").in(statuses);
         if (searchTerm != null && !searchTerm.isBlank()) {
-            criteria = criteria.and(Criteria.where("Description").like("%" + searchTerm + "%").ignoreCase(true));
+            criteria = criteria.and(where("Description").like("%" + searchTerm + "%").ignoreCase(true));
         }
-        if (shopId != null) criteria = criteria.and(Criteria.where("ShopID").is(shopId));
-        if (workCategoryId != null) criteria = criteria.and(Criteria.where("WorkCategoryID").is(workCategoryId));
-        if (urgencyId != null) criteria = criteria.and(Criteria.where("UrgencyID").is(urgencyId));
-        if (contractorId != null) criteria = criteria.and(Criteria.where("AssignedContractorID").is(contractorId));
+        if (shopId != null) criteria = criteria.and(where("ShopID").is(shopId));
+        if (workCategoryId != null) criteria = criteria.and(where("WorkCategoryID").is(workCategoryId));
+        if (urgencyId != null) criteria = criteria.and(where("UrgencyID").is(urgencyId));
+        if (contractorId != null) criteria = criteria.and(where("AssignedContractorID").is(contractorId));
 
-        Query query = Query.query(criteria);
+        Query query = query(criteria);
 
         Mono<Long> countMono = template.count(query, Request.class);
         Flux<Request> requestsFlux = template.select(query.offset((long) page * size).limit(size), Request.class);
@@ -80,7 +79,7 @@ public class RequestService {
         return requestsFlux.collectList()
                 .flatMap(requests -> {
                     if (requests.isEmpty()) {
-                        return Mono.just(new PagedResponse<RequestResponse>(List.of(), page, 0L, 0));
+                        return Mono.just(new PagedResponse<>(List.of(), page, 0L, 0));
                     }
                     return enrichRequests(requests)
                             .collectList()
@@ -153,23 +152,30 @@ public class RequestService {
 
                     boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
                     Mono<Void> customDaysLogic = customDayRepository.findByRequestID(requestId)
+                            // 1. Обрабатываем случай, когда запись найдена
                             .flatMap(existingCustomDay -> {
                                 if (isCustomizable && dto.customDays() != null) {
+                                    // Если нужно обновить, обновляем и завершаем
                                     existingCustomDay.setDays(dto.customDays());
-                                    return customDayRepository.save(existingCustomDay).then();
+                                    return customDayRepository.save(existingCustomDay);
                                 } else {
-                                    return customDayRepository.delete(existingCustomDay);
+                                    // Если нужно удалить, удаляем и завершаем
+                                    return customDayRepository.delete(existingCustomDay).then(Mono.empty());
                                 }
                             })
+                            // 2. Обрабатываем случай, когда запись НЕ найдена
                             .switchIfEmpty(Mono.defer(() -> {
                                 if (isCustomizable && dto.customDays() != null) {
+                                    // Если нужно создать, создаем и завершаем
                                     RequestCustomDay newCustomDay = new RequestCustomDay();
                                     newCustomDay.setRequestID(requestId);
                                     newCustomDay.setDays(dto.customDays());
-                                    return customDayRepository.save(newCustomDay).then();
+                                    return customDayRepository.save(newCustomDay);
                                 }
+                                // Если ничего делать не нужно, просто завершаем
                                 return Mono.empty();
-                            }));
+                            }))
+                            .then(); // 3. В самом конце превращаем результат в Mono<Void>
 
                     return customDaysLogic.then(updatedRequestMono);
                 });
@@ -374,33 +380,39 @@ public class RequestService {
         if (requestIds.isEmpty()) {
             return Mono.just(Map.of());
         }
-        String sql = "SELECT RequestID, COUNT(CommentID) as comment_count FROM RequestComments WHERE RequestID IN (:requestIds) GROUP BY RequestID";
-        return template.getDatabaseClient()
-                .sql(sql)
-                .bind("requestIds", requestIds)
-                .map((row, metadata) -> Tuples.of(
-                        row.get("RequestID", Integer.class),
-                        row.get("comment_count", Long.class)
-                ))
-                .all()
-                .collectMap(Tuple2::getT1, Tuple2::getT2)
-                .defaultIfEmpty(Map.of());
-    }
 
+        // 1. Создаем критерий: RequestID должен быть в нашем списке
+        Criteria criteria = where("RequestID").in(requestIds);
+
+        // 2. Создаем запрос на основе критерия
+        Query query = query(criteria);
+
+        // 3. Выполняем запрос через R2dbcEntityTemplate
+        return template.select(query, RequestComment.class) // Получаем Flux<RequestComment>
+                // 4. Группируем комментарии по RequestID
+                .collect(Collectors.groupingBy(
+                        RequestComment::getRequestID,
+                        // 5. Для каждой группы считаем количество элементов
+                        Collectors.counting()
+                ))
+                .defaultIfEmpty(Map.of()); // Если результат пустой, возвращаем пустую Map
+    }
+    // ^^^
+
+    // vvv ЗАМЕНИТЕ СТАРЫЙ МЕТОД getPhotoCounts НА ЭТОТ vvv
     private Mono<Map<Integer, Long>> getPhotoCounts(List<Integer> requestIds) {
         if (requestIds.isEmpty()) {
             return Mono.just(Map.of());
         }
-        String sql = "SELECT RequestID, COUNT(RequestPhotoID) as photo_count FROM RequestPhotos WHERE RequestID IN (:requestIds) GROUP BY RequestID";
-        return template.getDatabaseClient()
-                .sql(sql)
-                .bind("requestIds", requestIds)
-                .map((row, metadata) -> Tuples.of(
-                        row.get("RequestID", Integer.class),
-                        row.get("photo_count", Long.class)
+
+        Criteria criteria = where("RequestID").in(requestIds);
+        Query query = query(criteria);
+
+        return template.select(query, RequestPhoto.class) // Получаем Flux<RequestPhoto>
+                .collect(Collectors.groupingBy(
+                        RequestPhoto::getRequestID,
+                        Collectors.counting()
                 ))
-                .all()
-                .collectMap(Tuple2::getT1, Tuple2::getT2)
                 .defaultIfEmpty(Map.of());
     }
 
