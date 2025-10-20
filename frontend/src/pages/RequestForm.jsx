@@ -39,7 +39,6 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
     };
 
     const handleSelectChange = (name, value) => {
-        // ↓↓↓ ИЗМЕНЕНИЕ 1: Обрабатываем специальное значение "NONE"
         const finalValue = value === 'NONE' ? null : parseInt(value, 10);
         setFormData(prev => ({ ...prev, [name]: finalValue }));
     };
@@ -100,12 +99,10 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
             )}
 
             <div className="space-y-2">
-                <Label htmlFor="assignedContractorID">Исполнитель</Label>
-                {/* ↓↓↓ ИЗМЕНЕНИЕ 2: Используем `|| 'NONE'` для значения Select */}
+                <Label htmlFor="assignedContractorID">Диспетчер</Label>
                 <Select onValueChange={(v) => handleSelectChange('assignedContractorID', v)} value={formData.assignedContractorID?.toString() || 'NONE'}>
                     <SelectTrigger><SelectValue placeholder="Не назначен" /></SelectTrigger>
                     <SelectContent>
-                        {/* ↓↓↓ ИЗМЕНЕНИЕ 3: Используем value="NONE" */}
                         <SelectItem value="NONE">Не назначен</SelectItem>
                         {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
                     </SelectContent>

@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+env/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Environment files
+.env
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node/Frontend
+node_modules/
+dist/
+build/
+*.lock
+
+# Java / Spring Boot
+target/
+*.iml
+*.class
+*.jar
+*.war
+*.ear
+application.yml
+application.properties

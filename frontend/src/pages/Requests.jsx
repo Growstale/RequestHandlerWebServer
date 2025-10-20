@@ -285,7 +285,34 @@ export default function Requests({ archived = false }) {
 
     return (
         <main className="container mx-auto p-6">
-            {/* ... */}
+            <div className="flex justify-between items-center mb-4">
+                <h1 className="text-3xl font-semibold">{archived ? 'Архив заявок' : 'Управление заявками'}</h1>
+                
+                {!archived && (
+                    <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+                        <DialogTrigger asChild><Button onClick={openCreateForm}><PlusCircle className="mr-2 h-4 w-4" /> Создать заявку</Button></DialogTrigger>
+                        <DialogContent className="max-w-3xl">
+                            <DialogHeader>
+                                <DialogTitle>{currentRequest ? 'Редактировать заявку' : 'Новая заявка'}</DialogTitle>
+                            </DialogHeader>
+                            <RequestForm
+                                key={currentRequest ? currentRequest.requestID : 'new'}
+                                currentRequest={currentRequest}
+                                onSubmit={handleFormSubmit}
+                                onCancel={() => setIsFormOpen(false)}
+                                apiError={formApiError}
+                                shops={shops}
+                                workCategories={workCategories}
+                                urgencyCategories={urgencyCategories}
+                                contractors={contractors}
+                            />
+                        </DialogContent>
+                    </Dialog>
+                )}
+            </div>
+
+            <p className="text-sm text-muted-foreground mb-4">Кликните на заголовок для сортировки. Удерживайте <strong>Shift</strong> для сортировки по нескольким столбцам.</p>
+
             <div className="flex items-center gap-4 mb-4">
                 {(sort.length > 1 || (sort.length === 1 && sort[0] !== 'requestID,asc')) && (
                     <Button variant="outline" onClick={handleResetSort}>
@@ -329,7 +356,7 @@ export default function Requests({ archived = false }) {
                 )}
 
                 <Select onValueChange={(v) => updateQueryParam('contractorId', v)} value={contractorId}>
-                    <SelectTrigger><SelectValue placeholder="Исполнитель" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Диспетчер" /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="ALL">Все диспетчеры</SelectItem>
                         {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
@@ -354,7 +381,7 @@ export default function Requests({ archived = false }) {
                                 <SortableHeader field="shopName">Магазин</SortableHeader>
                                 <SortableHeader field="workCategoryName">Вид работы</SortableHeader>
                                 <SortableHeader field="urgencyName">Срочность</SortableHeader>
-                                <SortableHeader field="assignedContractorName">Исполнитель</SortableHeader>
+                                <SortableHeader field="assignedContractorName">Диспетчер</SortableHeader>
                                 <SortableHeader field="status">Статус</SortableHeader>
                                 <SortableHeader field="daysRemaining">Срок</SortableHeader>
                                 <TableHead>Действия</TableHead>
