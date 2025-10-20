@@ -1,5 +1,6 @@
 package com.vodchyts.backend.config;
 
+import com.vodchyts.backend.security.BotAuthenticationFilter;
 import com.vodchyts.backend.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,10 +25,12 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final FrontendConfig frontendConfig;
+    private final BotAuthenticationFilter botAuthenticationFilter;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, FrontendConfig frontendConfig) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, FrontendConfig frontendConfig, BotAuthenticationFilter botAuthenticationFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.frontendConfig = frontendConfig;
+        this.botAuthenticationFilter = botAuthenticationFilter;
     }
 
     @Bean
@@ -52,8 +55,10 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .pathMatchers("/api/auth/**").permitAll()
                         .pathMatchers("/api/admin/**").hasRole("RetailAdmin")
+                        .pathMatchers("/api/bot/**").hasRole("BOT")
                         .anyExchange().authenticated()
                 )
+                .addFilterAt(botAuthenticationFilter, SecurityWebFiltersOrder.AUTHENTICATION)
                 .addFilterAt(jwtAuthenticationFilter, SecurityWebFiltersOrder.AUTHENTICATION)
                 .build();
     }
