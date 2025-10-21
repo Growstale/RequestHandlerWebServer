@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PlusCircle, Trash2, Edit, MessageSquare, Camera, Search, XCircle, RotateCcw, Eye, ArrowUpDown } from 'lucide-react'; 
 import Pagination from '@/components/Pagination';
@@ -113,7 +114,7 @@ export default function Requests({ archived = false }) {
 
     const updateQueryParam = (key, value) => {
         setSearchParams(prev => {
-            if (value === 'ALL' || value === '') {
+            if (value === 'ALL' || value === '' || value === false) {
                 prev.delete(key);
             } else {
                 prev.set(key, value);
@@ -155,6 +156,7 @@ export default function Requests({ archived = false }) {
                 urgencyId: currentParams.get('urgencyId') || null,
                 contractorId: currentParams.get('contractorId') || null,
                 status: currentParams.get('status') || null,
+                overdue: currentParams.get('overdue') === 'true',
                 sortConfig: (currentParams.getAll('sort').length > 0 ? currentParams.getAll('sort') : ['requestID,asc']).map(s => ({
                     field: s.split(',')[0],
                     direction: s.split(',')[1] || 'asc'
@@ -290,6 +292,7 @@ export default function Requests({ archived = false }) {
     const urgencyId = searchParams.get('urgencyId') || 'ALL';
     const contractorId = searchParams.get('contractorId') || 'ALL';
     const status = searchParams.get('status') || 'ALL';
+    const overdue = searchParams.get('overdue') === 'true';
     const sort = searchParams.getAll('sort');
 
     return (
@@ -376,6 +379,20 @@ export default function Requests({ archived = false }) {
                         </SelectContent>
                     </Select>
                 )}
+                {!archived && (
+                    <div className="flex items-center space-x-2 p-2 rounded-md justify-start xl:justify-center">
+                        <input
+                            type="checkbox"
+                            id="overdue-filter"
+                            checked={overdue}
+                            onChange={e => updateQueryParam('overdue', e.target.checked)}
+                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <Label htmlFor="overdue-filter" className="text-sm font-medium text-gray-700 select-none cursor-pointer">
+                            Просрочено
+                        </Label>
+                    </div>
+                )}
             </div>
 
 
@@ -403,7 +420,7 @@ export default function Requests({ archived = false }) {
                         </TableHeader>
                         <TableBody>
                             {requests.map(req => (
-                                <TableRow key={req.requestID} className={cn({ 'bg-red-100': req.daysRemaining < 0 && req.status === 'In work' })}>
+                                <TableRow key={req.requestID} className={cn({ 'bg-red-100': req.isOverdue && req.status === 'In work' })}>
                                     <TableCell>{req.requestID}</TableCell>
                                     <TableCell className="font-medium">
                                         {req.description?.substring(0, 50) + (req.description?.length > 50 ? '...' : '')}
@@ -413,7 +430,7 @@ export default function Requests({ archived = false }) {
                                     <TableCell>{getUrgencyDisplayName(req.urgencyName)}</TableCell>
                                     <TableCell>{req.assignedContractorName || '—'}</TableCell>
                                     <TableCell>{getStatusDisplayName(req.status)}</TableCell>
-                                    <TableCell className={cn({ 'font-bold text-red-600': req.daysRemaining < 0, 'text-green-600': req.daysRemaining > 0 })}>
+                                    <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 })}>
                                         {req.daysRemaining !== null ? req.daysRemaining : '—'}
                                     </TableCell>
                                     <TableCell>
@@ -467,7 +484,6 @@ export default function Requests({ archived = false }) {
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
-                        {/* vvv ИЗМЕНИТЕ ОПИСАНИЕ УДАЛЕНИЯ vvv */}
                         <AlertDialogDescription>
                             Вы собираетесь удалить заявку "{currentRequest?.description?.substring(0, 40)}...". Это действие нельзя будет отменить.
                         </AlertDialogDescription>

@@ -41,10 +41,11 @@ public class RequestController {
             @RequestParam(required = false) Integer workCategoryId,
             @RequestParam(required = false) Integer urgencyId,
             @RequestParam(required = false) Integer contractorId,
-            @RequestParam(required = false) String status
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean overdue
     ) {
         List<String> sortParams = exchange.getRequest().getQueryParams().get("sort");
-        return requestService.getAllRequests(archived, searchTerm, shopId, workCategoryId, urgencyId, contractorId, status, sortParams, page, size, username);
+        return requestService.getAllRequests(archived, searchTerm, shopId, workCategoryId, urgencyId, contractorId, status, overdue, sortParams, page, size, username);
     }
 
 
