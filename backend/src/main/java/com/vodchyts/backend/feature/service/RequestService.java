@@ -1,67 +1,103 @@
 package com.vodchyts.backend.feature.service;
 
 import com.vodchyts.backend.exception.OperationNotAllowedException;
+import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.*;
 import com.vodchyts.backend.feature.entity.*;
 import com.vodchyts.backend.feature.repository.*;
+import io.r2dbc.spi.Row;
+import io.r2dbc.spi.RowMetadata;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.data.relational.core.query.Criteria;
 import org.springframework.data.relational.core.query.Query;
 import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import com.vodchyts.backend.exception.UserNotFoundException;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
-
-import static org.springframework.data.relational.core.query.Criteria.where;
-import static org.springframework.data.relational.core.query.Query.query;
 
 @Service
 public class RequestService {
 
     private final R2dbcEntityTemplate template;
+    private final DatabaseClient databaseClient;
     private final ReactiveRequestRepository requestRepository;
-    private final ReactiveShopRepository shopRepository;
-    private final ReactiveWorkCategoryRepository workCategoryRepository;
-    private final ReactiveUrgencyCategoryRepository urgencyCategoryRepository;
-    private final ReactiveUserRepository userRepository;
     private final ReactiveRequestCustomDayRepository customDayRepository;
     private final ReactiveRequestCommentRepository commentRepository;
     private final ReactiveRequestPhotoRepository photoRepository;
     private final ReactiveRoleRepository roleRepository;
+    private final ReactiveUserRepository userRepository;
+    private final ReactiveShopRepository shopRepository;
 
-    public RequestService(R2dbcEntityTemplate template, ReactiveRequestRepository requestRepository, ReactiveShopRepository shopRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository, ReactiveUserRepository userRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository) {
+
+    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository) {
         this.template = template;
+        this.databaseClient = databaseClient;
         this.requestRepository = requestRepository;
-        this.shopRepository = shopRepository;
-        this.workCategoryRepository = workCategoryRepository;
-        this.urgencyCategoryRepository = urgencyCategoryRepository;
-        this.userRepository = userRepository;
         this.customDayRepository = customDayRepository;
         this.commentRepository = commentRepository;
         this.photoRepository = photoRepository;
         this.roleRepository = roleRepository;
+        this.userRepository = userRepository;
+        this.shopRepository = shopRepository;
     }
+
+
+    public static final BiFunction<Row, RowMetadata, RequestResponse> MAPPING_FUNCTION = (row, rowMetaData) -> new RequestResponse(
+            row.get("RequestID", Integer.class),
+            row.get("Description", String.class),
+            row.get("ShopName", String.class),
+            row.get("ShopID", Integer.class),
+            row.get("WorkCategoryName", String.class),
+            row.get("WorkCategoryID", Integer.class),
+            row.get("UrgencyName", String.class),
+            row.get("UrgencyID", Integer.class),
+            row.get("AssignedContractorName", String.class),
+            row.get("AssignedContractorID", Integer.class),
+            row.get("Status", String.class),
+            row.get("CreatedAt", LocalDateTime.class),
+            row.get("ClosedAt", LocalDateTime.class),
+            null,
+            row.get("DaysForTask", Integer.class),
+            row.get("IsOverdue", Boolean.class),
+            Optional.ofNullable(row.get("CommentCount", Long.class)).orElse(0L),
+            Optional.ofNullable(row.get("PhotoCount", Long.class)).orElse(0L)
+    );
 
     public Mono<PagedResponse<RequestResponse>> getAllRequests(
             boolean archived, String searchTerm, Integer shopId, Integer workCategoryId,
             Integer urgencyId, Integer contractorId, String status, Boolean overdue, List<String> sort, int page, int size,
-            String username // <-- Добавляем имя текущего пользователя
+            String username
     ) {
         return userRepository.findByLogin(username)
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Текущий пользователь не найден")))
                 .flatMap(user -> roleRepository.findById(user.getRoleID())
                         .flatMap(role -> {
+                            StringBuilder sqlBuilder = new StringBuilder(
+                                    "SELECT r.RequestID, r.Description, r.ShopID, r.WorkCategoryID, r.UrgencyID, r.AssignedContractorID, r.Status, r.CreatedAt, r.ClosedAt, r.IsOverdue, " +
+                                            "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, u.Login as AssignedContractorName, " +
+                                            "CASE WHEN uc.UrgencyName = 'Customizable' THEN rcd.Days ELSE uc.DefaultDays END as DaysForTask, " +
+                                            "(SELECT COUNT(*) FROM RequestComments rc WHERE rc.RequestID = r.RequestID) as CommentCount, " +
+                                            "(SELECT COUNT(*) FROM RequestPhotos rp WHERE rp.RequestID = r.RequestID) as PhotoCount " +
+                                            "FROM Requests r " +
+                                            "LEFT JOIN Shops s ON r.ShopID = s.ShopID " +
+                                            "LEFT JOIN WorkCategories wc ON r.WorkCategoryID = wc.WorkCategoryID " +
+                                            "LEFT JOIN UrgencyCategories uc ON r.UrgencyID = uc.UrgencyID " +
+                                            "LEFT JOIN Users u ON r.AssignedContractorID = u.UserID " +
+                                            "LEFT JOIN RequestCustomDays rcd ON r.RequestID = rcd.RequestID "
+                            );
+
+                            List<String> conditions = new ArrayList<>();
+                            Map<String, Object> bindings = new HashMap<>();
+
                             List<String> statuses;
                             if (archived) {
                                 statuses = List.of("Closed");
@@ -70,107 +106,204 @@ public class RequestService {
                             } else {
                                 statuses = List.of("In work", "Done");
                             }
-
-                            Criteria criteria = where("Status").in(statuses);
+                            conditions.add("r.Status IN (:statuses)");
+                            bindings.put("statuses", statuses);
 
                             if (overdue != null && overdue) {
-                                criteria = criteria.and(where("IsOverdue").is(true));
+                                conditions.add("r.IsOverdue = :isOverdue");
+                                bindings.put("isOverdue", true);
                             }
-
-                            // Применяем общие фильтры, если они есть
                             if (searchTerm != null && !searchTerm.isBlank()) {
-                                criteria = criteria.and(where("Description").like("%" + searchTerm + "%").ignoreCase(true));
+                                conditions.add("UPPER(r.Description) LIKE UPPER(:searchTerm)");
+                                bindings.put("searchTerm", "%" + searchTerm + "%");
                             }
-                            if (workCategoryId != null) criteria = criteria.and(where("WorkCategoryID").is(workCategoryId));
-                            if (urgencyId != null) criteria = criteria.and(where("UrgencyID").is(urgencyId));
-
-                            Mono<Criteria> roleBasedCriteriaMono = Mono.just(criteria);
-                            String userRole = role.getRoleName();
-
-                            if ("RetailAdmin".equals(userRole)) {
-                                if (shopId != null) criteria = criteria.and(where("ShopID").is(shopId));
-                                if (contractorId != null) criteria = criteria.and(where("AssignedContractorID").is(contractorId));
-                                roleBasedCriteriaMono = Mono.just(criteria);
-                            } else if ("Contractor".equals(userRole)) {
-                                criteria = criteria.and(where("AssignedContractorID").is(user.getUserID()));
-                                roleBasedCriteriaMono = Mono.just(criteria);
-                            } else if ("StoreManager".equals(userRole)) {
-                                Criteria finalCriteria1 = criteria;
-                                roleBasedCriteriaMono = shopRepository.findAllByUserID(user.getUserID())
-                                        .map(Shop::getShopID)
-                                        .collectList()
-                                        .map(shopIds -> {
-                                            if (shopIds.isEmpty()) {
-                                                return where("RequestID").isNull();
-                                            }
-                                            return finalCriteria1.and(where("ShopID").in(shopIds));
-                                        });
+                            if (workCategoryId != null) {
+                                conditions.add("r.WorkCategoryID = :workCatId");
+                                bindings.put("workCatId", workCategoryId);
+                            }
+                            if (urgencyId != null) {
+                                conditions.add("r.UrgencyID = :urgencyId");
+                                bindings.put("urgencyId", urgencyId);
                             }
 
-                            return roleBasedCriteriaMono.flatMap(finalCriteria -> {
-                                Query query = query(finalCriteria);
-                                Mono<Long> countMono = template.count(query, Request.class);
-                                Flux<Request> requestsFlux = template.select(query.offset((long) page * size).limit(size), Request.class);
-
-                                return requestsFlux.collectList()
-                                        .flatMap(requests -> {
-                                            if (requests.isEmpty()) {
-                                                return Mono.just(new PagedResponse<>(List.of(), page, 0L, 0));
-                                            }
-                                            return enrichRequests(requests)
-                                                    .collectList()
-                                                    .flatMap(enrichedRequests -> countMono.map(total -> {
-                                                        List<RequestResponse> sortedRequests = sortRequests(enrichedRequests, sort);
-                                                        int totalPages = (total == 0) ? 0 : (int) Math.ceil((double) total / size);
-                                                        return new PagedResponse<>(sortedRequests, page, total, totalPages);
-                                                    }));
-                                        });
+                            Mono<Void> roleConditionsMono = Mono.just(user).flatMap(u -> {
+                                String userRole = role.getRoleName();
+                                if ("RetailAdmin".equals(userRole)) {
+                                    if (shopId != null) {
+                                        conditions.add("r.ShopID = :shopId");
+                                        bindings.put("shopId", shopId);
+                                    }
+                                    if (contractorId != null) {
+                                        conditions.add("r.AssignedContractorID = :contractorId");
+                                        bindings.put("contractorId", contractorId);
+                                    }
+                                } else if ("Contractor".equals(userRole)) {
+                                    conditions.add("r.AssignedContractorID = :userId");
+                                    bindings.put("userId", u.getUserID());
+                                } else if ("StoreManager".equals(userRole)) {
+                                    return shopRepository.findAllByUserID(u.getUserID())
+                                            .map(Shop::getShopID)
+                                            .collectList()
+                                            .doOnNext(shopIds -> {
+                                                if (shopIds.isEmpty()) {
+                                                    conditions.add("1 = 0");
+                                                } else {
+                                                    conditions.add("r.ShopID IN (:shopIds)");
+                                                    bindings.put("shopIds", shopIds);
+                                                }
+                                            }).then();
+                                }
+                                return Mono.empty();
                             });
+
+                            return roleConditionsMono.then(Mono.defer(() -> {
+                                if (!conditions.isEmpty()) {
+                                    sqlBuilder.append(" WHERE ").append(String.join(" AND ", conditions));
+                                }
+
+                                String countSql = "SELECT COUNT(*) FROM (" + sqlBuilder.toString() + ") as count_subquery";
+                                DatabaseClient.GenericExecuteSpec countSpec = databaseClient.sql(countSql);
+                                for (Map.Entry<String, Object> entry : bindings.entrySet()) {
+                                    countSpec = countSpec.bind(entry.getKey(), entry.getValue());
+                                }
+                                Mono<Long> countMono = countSpec.map(row -> row.get(0, Long.class)).one();
+
+                                sqlBuilder.append(parseSortToSql(sort));
+                                sqlBuilder.append(" OFFSET ").append((long) page * size).append(" ROWS FETCH NEXT ").append(size).append(" ROWS ONLY");
+
+                                DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(sqlBuilder.toString());
+                                for (Map.Entry<String, Object> entry : bindings.entrySet()) {
+                                    spec = spec.bind(entry.getKey(), entry.getValue());
+                                }
+
+                                Flux<RequestResponse> resultFlux = spec.map(MAPPING_FUNCTION).all()
+                                        .map(this::withCalculatedDaysRemaining);
+
+                                return Mono.zip(resultFlux.collectList(), countMono)
+                                        .map(tuple -> {
+                                            List<RequestResponse> content = tuple.getT1();
+                                            long total = tuple.getT2();
+                                            int totalPages = (total == 0) ? 0 : (int) Math.ceil((double) total / size);
+                                            return new PagedResponse<>(content, page, total, totalPages);
+                                        });
+
+                            }));
                         }));
+    }
+
+    private String parseSortToSql(List<String> sortParams) {
+        if (sortParams == null || sortParams.isEmpty()) {
+            return " ORDER BY r.RequestID DESC";
+        }
+        final String deadlineExpression = "DATEADD(day, CASE WHEN uc.UrgencyName = 'Customizable' THEN rcd.Days ELSE uc.DefaultDays END, r.CreatedAt)";
+
+        Map<String, String> columnMapping = Map.of(
+                "requestID", "r.RequestID",
+                "description", "r.Description",
+                "shopName", "s.ShopName",
+                "workCategoryName", "wc.WorkCategoryName",
+                "urgencyName", "uc.UrgencyName",
+                "assignedContractorName", "AssignedContractorName",
+                "status", "r.Status",
+                "daysRemaining", deadlineExpression
+        );
+
+        String orders = sortParams.stream()
+                .map(param -> {
+                    String[] parts = param.split(",");
+                    String field = parts[0];
+                    String direction = (parts.length > 1 && "desc".equalsIgnoreCase(parts[1])) ? "DESC" : "ASC";
+                    String dbColumn = columnMapping.get(field);
+                    if (dbColumn == null) return null;
+                    return dbColumn + " " + direction;
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.joining(", "));
+
+        return orders.isEmpty() ? " ORDER BY r.RequestID DESC" : " ORDER BY " + orders;
     }
 
 
     public Mono<RequestResponse> createAndEnrichRequest(CreateRequestRequest dto, Integer createdByUserId) {
         return createRequest(dto, createdByUserId)
-                .flatMap(request -> enrichRequests(List.of(request)).single());
+                .flatMap(request -> enrichRequest(request.getRequestID()));
+    }
+
+    private Mono<RequestResponse> enrichRequest(Integer requestId) {
+        //noinspection SqlResolve
+        String sql = "SELECT r.RequestID, r.Description, r.ShopID, r.WorkCategoryID, r.UrgencyID, r.AssignedContractorID, r.Status, r.CreatedAt, r.ClosedAt, r.IsOverdue, " +
+                "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, u.Login as AssignedContractorName, " +
+                "CASE WHEN uc.UrgencyName = 'Customizable' THEN rcd.Days ELSE uc.DefaultDays END as DaysForTask, " +
+                "(SELECT COUNT(*) FROM RequestComments rc WHERE rc.RequestID = r.RequestID) as CommentCount, " +
+                "(SELECT COUNT(*) FROM RequestPhotos rp WHERE rp.RequestID = r.RequestID) as PhotoCount " +
+                "FROM Requests r " +
+                "LEFT JOIN Shops s ON r.ShopID = s.ShopID " +
+                "LEFT JOIN WorkCategories wc ON r.WorkCategoryID = wc.WorkCategoryID " +
+                "LEFT JOIN UrgencyCategories uc ON r.UrgencyID = uc.UrgencyID " +
+                "LEFT JOIN Users u ON r.AssignedContractorID = u.UserID " +
+                "LEFT JOIN RequestCustomDays rcd ON r.RequestID = rcd.RequestID " +
+                "WHERE r.RequestID = :requestId";
+
+        return databaseClient.sql(sql)
+                .bind("requestId", requestId)
+                .map(MAPPING_FUNCTION)
+                .one()
+                .map(this::withCalculatedDaysRemaining);
+    }
+
+    private RequestResponse withCalculatedDaysRemaining(RequestResponse response) {
+        Integer daysRemaining = null;
+        if (response.daysForTask() != null && !"Closed".equals(response.status())) {
+            LocalDateTime deadline = response.createdAt().plusDays(response.daysForTask());
+            daysRemaining = (int) Duration.between(LocalDateTime.now(), deadline).toDays();
+        }
+        return new RequestResponse(
+                response.requestID(), response.description(), response.shopName(), response.shopID(),
+                response.workCategoryName(), response.workCategoryID(), response.urgencyName(), response.urgencyID(),
+                response.assignedContractorName(), response.assignedContractorID(), response.status(),
+                response.createdAt(), response.closedAt(), daysRemaining, response.daysForTask(),
+                response.isOverdue(), response.commentCount(), response.photoCount()
+        );
     }
 
     protected Mono<Request> createRequest(CreateRequestRequest dto, Integer createdByUserId) {
-        return urgencyCategoryRepository.findById(dto.urgencyID())
-                .flatMap(urgency -> {
-                    Request request = new Request();
-                    request.setDescription(dto.description());
-                    request.setShopID(dto.shopID());
-                    request.setWorkCategoryID(dto.workCategoryID());
-                    request.setUrgencyID(dto.urgencyID());
-                    request.setAssignedContractorID(dto.assignedContractorID());
-                    request.setCreatedByUserID(createdByUserId);
-                    request.setStatus("In work");
-                    request.setCreatedAt(LocalDateTime.now());
-                    request.setIsOverdue(false);
+        Request request = new Request();
+        request.setDescription(dto.description());
+        request.setShopID(dto.shopID());
+        request.setWorkCategoryID(dto.workCategoryID());
+        request.setUrgencyID(dto.urgencyID());
+        request.setAssignedContractorID(dto.assignedContractorID());
+        request.setCreatedByUserID(createdByUserId);
+        request.setStatus("In work");
+        request.setCreatedAt(LocalDateTime.now());
+        request.setIsOverdue(false);
 
-                    Mono<Request> savedRequestMono = requestRepository.save(request);
-
-                    if ("Customizable".equalsIgnoreCase(urgency.getUrgencyName()) && dto.customDays() != null) {
-                        return savedRequestMono.flatMap(savedRequest -> {
-                            RequestCustomDay customDay = new RequestCustomDay();
-                            customDay.setRequestID(savedRequest.getRequestID());
-                            customDay.setDays(dto.customDays());
-                            return customDayRepository.save(customDay).thenReturn(savedRequest);
-                        });
+        return requestRepository.save(request)
+                .flatMap(savedRequest -> {
+                    if (dto.customDays() != null) {
+                        return template.selectOne(Query.query(Criteria.where("UrgencyID").is(dto.urgencyID())), UrgencyCategory.class)
+                                .flatMap(urgency -> {
+                                    if ("Customizable".equalsIgnoreCase(urgency.getUrgencyName())) {
+                                        RequestCustomDay customDay = new RequestCustomDay();
+                                        customDay.setRequestID(savedRequest.getRequestID());
+                                        customDay.setDays(dto.customDays());
+                                        return customDayRepository.save(customDay).thenReturn(savedRequest);
+                                    }
+                                    return Mono.just(savedRequest);
+                                });
                     }
-                    return savedRequestMono;
+                    return Mono.just(savedRequest);
                 });
     }
 
     public Mono<RequestResponse> updateAndEnrichRequest(Integer requestId, UpdateRequestRequest dto) {
         return updateRequest(requestId, dto)
-                .flatMap(request -> enrichRequests(List.of(request)).single());
+                .flatMap(request -> enrichRequest(request.getRequestID()));
     }
 
     protected Mono<Request> updateRequest(Integer requestId, UpdateRequestRequest dto) {
         return requestRepository.findById(requestId)
-                .zipWith(urgencyCategoryRepository.findById(dto.urgencyID()))
+                .zipWith(template.selectOne(Query.query(Criteria.where("UrgencyID").is(dto.urgencyID())), UrgencyCategory.class))
                 .flatMap(tuple -> {
                     Request request = tuple.getT1();
                     UrgencyCategory newUrgency = tuple.getT2();
@@ -207,11 +340,10 @@ public class RequestService {
                     Mono<Void> customDaysLogic = customDayRepository.findByRequestID(requestId)
                             .flatMap(existingCustomDay -> {
                                 if (isCustomizable && dto.customDays() != null) {
-                                    // Если нужно обновить, обновляем и завершаем
                                     existingCustomDay.setDays(dto.customDays());
-                                    return customDayRepository.save(existingCustomDay);
+                                    return customDayRepository.save(existingCustomDay).then();
                                 } else {
-                                    return customDayRepository.delete(existingCustomDay).then(Mono.empty());
+                                    return customDayRepository.delete(existingCustomDay);
                                 }
                             })
                             .switchIfEmpty(Mono.defer(() -> {
@@ -219,86 +351,18 @@ public class RequestService {
                                     RequestCustomDay newCustomDay = new RequestCustomDay();
                                     newCustomDay.setRequestID(requestId);
                                     newCustomDay.setDays(dto.customDays());
-                                    return customDayRepository.save(newCustomDay);
+                                    return customDayRepository.save(newCustomDay).then();
                                 }
                                 return Mono.empty();
-                            }))
-                            .then();
+                            }));
 
                     return customDaysLogic.then(updatedRequestMono);
                 });
     }
 
+
     public Mono<Void> deleteRequest(Integer requestId) {
         return requestRepository.deleteById(requestId);
-    }
-
-    public Flux<RequestResponse> enrichRequests(List<Request> requests) {
-        if (requests.isEmpty()) {
-            return Flux.empty();
-        }
-        List<Integer> shopIds = requests.stream().map(Request::getShopID).filter(Objects::nonNull).distinct().toList();
-        List<Integer> workCategoryIds = requests.stream().map(Request::getWorkCategoryID).filter(Objects::nonNull).distinct().toList();
-        List<Integer> urgencyIds = requests.stream().map(Request::getUrgencyID).filter(Objects::nonNull).distinct().toList();
-        List<Integer> contractorIds = requests.stream().map(Request::getAssignedContractorID).filter(Objects::nonNull).distinct().toList();
-        List<Integer> requestIds = requests.stream().map(Request::getRequestID).toList();
-
-        Mono<Map<Integer, Shop>> shopsMapMono = shopRepository.findAllById(shopIds).collectMap(Shop::getShopID);
-        Mono<Map<Integer, WorkCategory>> workCategoriesMapMono = workCategoryRepository.findAllById(workCategoryIds).collectMap(WorkCategory::getWorkCategoryID);
-        Mono<Map<Integer, UrgencyCategory>> urgencyCategoriesMapMono = urgencyCategoryRepository.findAllById(urgencyIds).collectMap(UrgencyCategory::getUrgencyID);
-        Mono<Map<Integer, User>> contractorsMapMono = userRepository.findAllById(contractorIds).collectMap(User::getUserID);
-        Mono<Map<Integer, RequestCustomDay>> customDaysMapMono = customDayRepository.findByRequestIDIn(requestIds).collectMap(RequestCustomDay::getRequestID);
-        Mono<Map<Integer, Long>> commentsCountMapMono = getCommentCounts(requestIds);
-        Mono<Map<Integer, Long>> photosCountMapMono = getPhotoCounts(requestIds);
-
-        return Mono.zip(shopsMapMono, workCategoriesMapMono, urgencyCategoriesMapMono, contractorsMapMono, customDaysMapMono, commentsCountMapMono, photosCountMapMono)
-                .flatMapMany(tuple -> {
-                    Map<Integer, Shop> shops = tuple.getT1();
-                    Map<Integer, WorkCategory> workCategories = tuple.getT2();
-                    Map<Integer, UrgencyCategory> urgencyCategories = tuple.getT3();
-                    Map<Integer, User> contractors = tuple.getT4();
-                    Map<Integer, RequestCustomDay> customDays = tuple.getT5();
-                    Map<Integer, Long> commentsCounts = tuple.getT6();
-                    Map<Integer, Long> photosCounts = tuple.getT7();
-
-                    return Flux.fromStream(requests.stream().map(req -> {
-                        Shop shop = shops.get(req.getShopID());
-                        WorkCategory workCategory = workCategories.get(req.getWorkCategoryID());
-                        UrgencyCategory urgency = urgencyCategories.get(req.getUrgencyID());
-                        User contractor = contractors.get(req.getAssignedContractorID());
-
-                        Integer daysForTask = "Customizable".equalsIgnoreCase(urgency.getUrgencyName())
-                                ? customDays.getOrDefault(req.getRequestID(), new RequestCustomDay()).getDays()
-                                : urgency.getDefaultDays();
-
-                        Integer daysRemaining = null;
-                        if (daysForTask != null && !"Closed".equals(req.getStatus())) {
-                            LocalDateTime deadline = req.getCreatedAt().plusDays(daysForTask);
-                            daysRemaining = (int) Duration.between(LocalDateTime.now(), deadline).toDays();
-                        }
-
-                        return new RequestResponse(
-                                req.getRequestID(),
-                                req.getDescription(),
-                                shop != null ? shop.getShopName() : "N/A",
-                                req.getShopID(),
-                                workCategory != null ? workCategory.getWorkCategoryName() : "N/A",
-                                req.getWorkCategoryID(),
-                                urgency.getUrgencyName(),
-                                req.getUrgencyID(),
-                                contractor != null ? contractor.getLogin() : null,
-                                req.getAssignedContractorID(),
-                                req.getStatus(),
-                                req.getCreatedAt(),
-                                req.getClosedAt(),
-                                daysRemaining,
-                                daysForTask,
-                                req.getIsOverdue(),
-                                commentsCounts.getOrDefault(req.getRequestID(), 0L),
-                                photosCounts.getOrDefault(req.getRequestID(), 0L)
-                        );
-                    }));
-                });
     }
 
     public Flux<Integer> getPhotoIdsForRequest(Integer requestId) {
@@ -311,39 +375,6 @@ public class RequestService {
                 .map(RequestPhoto::getImageData);
     }
 
-    private List<RequestResponse> sortRequests(List<RequestResponse> requests, List<String> sortParams) {
-        if (sortParams == null || sortParams.isEmpty()) {
-            return requests;
-        }
-
-        Comparator<RequestResponse> finalComparator = null;
-        for (String sortParam : sortParams) {
-            String[] parts = sortParam.split(",");
-            if (parts.length == 0 || parts[0].isBlank()) continue;
-
-            String field = parts[0];
-            boolean isDescending = parts.length > 1 && "desc".equalsIgnoreCase(parts[1]);
-
-            Comparator<RequestResponse> currentComparator = switch (field) {
-                case "requestID" -> Comparator.comparing(RequestResponse::requestID);
-                case "description" -> Comparator.comparing(RequestResponse::description, String.CASE_INSENSITIVE_ORDER);                case "shopName" -> Comparator.comparing(RequestResponse::shopName, String.CASE_INSENSITIVE_ORDER);
-                case "workCategoryName" -> Comparator.comparing(RequestResponse::workCategoryName, String.CASE_INSENSITIVE_ORDER);
-                case "urgencyName" -> Comparator.comparing(RequestResponse::urgencyName, String.CASE_INSENSITIVE_ORDER);
-                case "assignedContractorName" -> Comparator.comparing(RequestResponse::assignedContractorName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-                case "status" -> Comparator.comparing(RequestResponse::status, String.CASE_INSENSITIVE_ORDER);
-                case "createdAt" -> Comparator.comparing(RequestResponse::createdAt);
-                case "daysRemaining" -> Comparator.comparing(RequestResponse::daysRemaining, Comparator.nullsLast(Comparator.naturalOrder()));
-                default -> null;
-            };
-
-            if (currentComparator != null) {
-                if (isDescending) currentComparator = currentComparator.reversed();
-                finalComparator = finalComparator == null ? currentComparator : finalComparator.thenComparing(currentComparator);
-            }
-        }
-
-        return finalComparator != null ? requests.stream().sorted(finalComparator).toList() : requests;
-    }
     public Flux<CommentResponse> getCommentsForRequest(Integer requestId) {
         return commentRepository.findByRequestIDOrderByCreatedAtAsc(requestId)
                 .flatMap(comment -> userRepository.findById(comment.getUserID())
@@ -393,8 +424,6 @@ public class RequestService {
                 );
     }
 
-
-
     public Flux<byte[]> getPhotosForRequest(Integer requestId) {
         return photoRepository.findByRequestID(requestId)
                 .map(RequestPhoto::getImageData);
@@ -433,7 +462,6 @@ public class RequestService {
                         if ("Closed".equalsIgnoreCase(request.getStatus())) {
                             return Mono.error(new OperationNotAllowedException("Нельзя добавлять фото..."));
                         }
-                        // Используем наш преобразованный поток
                         return imagesDataFlux
                                 .flatMap(imageData -> {
                                     RequestPhoto photo = new RequestPhoto();
@@ -459,7 +487,7 @@ public class RequestService {
                     request.setStatus("Done");
                     return requestRepository.save(request);
                 })
-                .flatMap(savedRequest -> enrichRequests(List.of(savedRequest)).single());
+                .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()));
     }
 
     private Mono<Boolean> canUserModify(Request request, User user) {
@@ -475,8 +503,6 @@ public class RequestService {
         });
     }
 
-
-
     public Mono<RequestResponse> restoreRequest(Integer requestId) {
         return requestRepository.findById(requestId)
                 .switchIfEmpty(Mono.error(new RuntimeException("Заявка с ID " + requestId + " не найдена")))
@@ -488,40 +514,7 @@ public class RequestService {
                     request.setClosedAt(null);
                     return requestRepository.save(request);
                 })
-                .flatMap(savedRequest -> enrichRequests(List.of(savedRequest)).single());
-    }
-
-
-    private Mono<Map<Integer, Long>> getCommentCounts(List<Integer> requestIds) {
-        if (requestIds.isEmpty()) {
-            return Mono.just(Map.of());
-        }
-
-        Criteria criteria = where("RequestID").in(requestIds);
-        Query query = query(criteria);
-
-        return template.select(query, RequestComment.class)
-                .collect(Collectors.groupingBy(
-                        RequestComment::getRequestID,
-                        Collectors.counting()
-                ))
-                .defaultIfEmpty(Map.of());
-    }
-
-    private Mono<Map<Integer, Long>> getPhotoCounts(List<Integer> requestIds) {
-        if (requestIds.isEmpty()) {
-            return Mono.just(Map.of());
-        }
-
-        Criteria criteria = where("RequestID").in(requestIds);
-        Query query = query(criteria);
-
-        return template.select(query, RequestPhoto.class)
-                .collect(Collectors.groupingBy(
-                        RequestPhoto::getRequestID,
-                        Collectors.counting()
-                ))
-                .defaultIfEmpty(Map.of());
+                .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()));
     }
 
     public Mono<Void> deletePhoto(Integer photoId) {
