@@ -65,7 +65,7 @@ export default function RequestDetailsModal({ isOpen, onClose, request }) {
                             <p className="font-semibold text-gray-700">Срок:</p>
                             <p className={cn({
                                 'font-bold text-red-600': request.daysRemaining < 0,
-                                'text-green-600': request.daysRemaining > 0
+                                'text-gray-700': request.daysRemaining > 0
                             })}>
                                 {renderDeadlineInfo(request)}
                             </p>

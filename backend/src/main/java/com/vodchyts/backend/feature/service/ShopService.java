@@ -12,13 +12,18 @@ import com.vodchyts.backend.feature.entity.User;
 import com.vodchyts.backend.feature.repository.ReactiveRoleRepository;
 import com.vodchyts.backend.feature.repository.ReactiveShopRepository;
 import com.vodchyts.backend.feature.repository.ReactiveUserRepository;
+import io.r2dbc.spi.Row;
+import io.r2dbc.spi.RowMetadata;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 
 @Service
 public class ShopService {
@@ -26,33 +31,39 @@ public class ShopService {
     private final ReactiveShopRepository shopRepository;
     private final ReactiveUserRepository userRepository;
     private final ReactiveRoleRepository roleRepository;
+    private final DatabaseClient databaseClient;
 
-    public ShopService(ReactiveShopRepository shopRepository, ReactiveUserRepository userRepository, ReactiveRoleRepository roleRepository) {
+    public ShopService(ReactiveShopRepository shopRepository, ReactiveUserRepository userRepository, ReactiveRoleRepository roleRepository, DatabaseClient databaseClient) {
         this.shopRepository = shopRepository;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.databaseClient = databaseClient;
     }
 
+    public static final BiFunction<Row, RowMetadata, ShopResponse> SHOP_MAPPING_FUNCTION = (row, rowMetaData) -> new ShopResponse(
+            row.get("ShopID", Integer.class),
+            row.get("ShopName", String.class),
+            row.get("Address", String.class),
+            row.get("Email", String.class),
+            row.get("TelegramID", Long.class),
+            row.get("UserID", Integer.class),
+            row.get("UserLogin", String.class)
+    );
+
     public Mono<PagedResponse<ShopResponse>> getAllShops(List<String> sort, int page, int size) {
-        Flux<Shop> shopsFlux = shopRepository.findAll();
+        String sql = "SELECT s.ShopID, s.ShopName, s.Address, s.Email, s.TelegramID, s.UserID, u.Login as UserLogin " +
+                "FROM Shops s LEFT JOIN Users u ON s.UserID = u.UserID";
 
-        Flux<ShopResponse> shopResponses = shopsFlux.flatMap(this::mapShopToResponse);
+        String countSql = "SELECT COUNT(*) FROM Shops";
+        Mono<Long> countMono = databaseClient.sql(countSql).map(row -> row.get(0, Long.class)).one();
 
-        if (sort != null && !sort.isEmpty()) {
-            Comparator<ShopResponse> comparator = buildComparator(sort);
-            if (comparator != null) {
-                shopResponses = shopResponses.sort(comparator);
-            }
-        }
+        String sortedSql = sql + parseSortToSql(sort) + " OFFSET " + ((long) page * size) + " ROWS FETCH NEXT " + size + " ROWS ONLY";
 
-        Mono<Long> countMono = shopRepository.count();
+        Flux<ShopResponse> contentFlux = databaseClient.sql(sortedSql)
+                .map(SHOP_MAPPING_FUNCTION)
+                .all();
 
-        Mono<List<ShopResponse>> contentMono = shopResponses
-                .skip((long) page * size)
-                .take(size)
-                .collectList();
-
-        return Mono.zip(contentMono, countMono)
+        return Mono.zip(contentFlux.collectList(), countMono)
                 .map(tuple -> {
                     List<ShopResponse> content = tuple.getT1();
                     Long count = tuple.getT2();
@@ -61,41 +72,30 @@ public class ShopService {
                 });
     }
 
-    private Comparator<ShopResponse> buildComparator(List<String> sortParams) {
-        Comparator<ShopResponse> finalComparator = null;
-
-        for (String sortParam : sortParams) {
-            String[] parts = sortParam.split(",");
-            if (parts.length == 0 || parts[0].isBlank()) continue;
-
-            String field = parts[0];
-            boolean isDescending = parts.length > 1 && "desc".equalsIgnoreCase(parts[1]);
-
-            Comparator<ShopResponse> currentComparator = switch (field) {
-                case "shopID" ->
-                        Comparator.comparing(ShopResponse::shopID, Comparator.nullsLast(Comparator.naturalOrder()));
-                case "shopName" ->
-                        Comparator.comparing(ShopResponse::shopName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-                case "address" ->
-                        Comparator.comparing(ShopResponse::address, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-                case "userLogin" ->
-                        Comparator.comparing(ShopResponse::userLogin, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-                default -> null;
-            };
-
-            if (currentComparator != null) {
-                if (isDescending) {
-                    currentComparator = currentComparator.reversed();
-                }
-
-                if (finalComparator == null) {
-                    finalComparator = currentComparator;
-                } else {
-                    finalComparator = finalComparator.thenComparing(currentComparator);
-                }
-            }
+    private String parseSortToSql(List<String> sortParams) {
+        if (sortParams == null || sortParams.isEmpty()) {
+            return " ORDER BY s.ShopID ASC";
         }
-        return finalComparator;
+        Map<String, String> columnMapping = Map.of(
+                "shopID", "s.ShopID",
+                "shopName", "s.ShopName",
+                "address", "s.Address",
+                "userLogin", "UserLogin"
+        );
+
+        String orders = sortParams.stream()
+                .map(param -> {
+                    String[] parts = param.split(",");
+                    String field = parts[0];
+                    String direction = (parts.length > 1 && "desc".equalsIgnoreCase(parts[1])) ? "DESC" : "ASC";
+                    String dbColumn = columnMapping.get(field);
+                    if (dbColumn == null) return null;
+                    return dbColumn + " " + direction;
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.joining(", "));
+
+        return orders.isEmpty() ? " ORDER BY s.ShopID ASC" : " ORDER BY " + orders;
     }
 
     public Mono<Shop> createShop(CreateShopRequest request) {

@@ -23,6 +23,8 @@ import { getUrgencyDisplayName, getStatusDisplayName } from '@/lib/displayNames'
 import { logger } from '@/lib/logger';
 import { useAuth } from '@/context/AuthProvider'; 
 
+const filterKeys = ['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue'];
+
 export default function Requests({ archived = false }) {
     const { user } = useAuth();
     const isAdmin = user?.role === 'RetailAdmin';
@@ -51,6 +53,7 @@ export default function Requests({ archived = false }) {
 
     const searchParamsString = searchParams.toString();
 
+    const areFiltersActive = filterKeys.some(key => searchParams.has(key));
 
     useEffect(() => {
         if (!searchParams.has('sort')) {
@@ -61,7 +64,15 @@ export default function Requests({ archived = false }) {
         }
     }, []);
 
-        const handleResetSort = () => {
+    const handleResetFilters = () => {
+        setSearchParams(prev => {
+            filterKeys.forEach(key => prev.delete(key));
+            prev.set('page', '0');
+            return prev;
+        }, { replace: true });
+    };
+
+    const handleResetSort = () => {
         setSearchParams(prev => {
             prev.delete('sort');
             prev.set('sort', 'requestID,asc');
@@ -329,6 +340,11 @@ export default function Requests({ archived = false }) {
                 {(sort.length > 1 || (sort.length === 1 && sort[0] !== 'requestID,asc')) && (
                     <Button variant="outline" onClick={handleResetSort}>
                         <XCircle className="mr-2 h-4 w-4" />Сбросить сортировку
+                    </Button>
+                )}
+                {areFiltersActive && (
+                    <Button variant="outline" onClick={handleResetFilters}>
+                        <XCircle className="mr-2 h-4 w-4" />Сбросить фильтры
                     </Button>
                 )}
             </div>

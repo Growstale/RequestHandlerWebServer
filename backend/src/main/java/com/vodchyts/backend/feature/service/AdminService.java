@@ -8,16 +8,25 @@ import com.vodchyts.backend.feature.dto.CreateUserRequest;
 import com.vodchyts.backend.feature.dto.PagedResponse;
 import com.vodchyts.backend.feature.dto.UpdateUserRequest;
 import com.vodchyts.backend.feature.dto.UserResponse;
+import com.vodchyts.backend.feature.entity.Role;
 import com.vodchyts.backend.feature.entity.User;
 import com.vodchyts.backend.feature.repository.ReactiveRoleRepository;
 import com.vodchyts.backend.feature.repository.ReactiveUserRepository;
+import io.r2dbc.spi.Row;
+import io.r2dbc.spi.RowMetadata;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 
 @Service
 public class AdminService {
@@ -26,12 +35,14 @@ public class AdminService {
     private final ReactiveRoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordValidator passwordValidator;
+    private final DatabaseClient databaseClient; // Добавляем DatabaseClient
 
-    public AdminService(ReactiveUserRepository userRepository, ReactiveRoleRepository roleRepository, PasswordEncoder passwordEncoder, PasswordValidator passwordValidator) {
+    public AdminService(ReactiveUserRepository userRepository, ReactiveRoleRepository roleRepository, PasswordEncoder passwordEncoder, PasswordValidator passwordValidator, DatabaseClient databaseClient) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordValidator = passwordValidator;
+        this.databaseClient = databaseClient;
     }
 
     public Mono<User> createUser(CreateUserRequest request) {
@@ -59,76 +70,87 @@ public class AdminService {
                 });
     }
 
+    // Маппер для UserResponse
+    public static final BiFunction<Row, RowMetadata, UserResponse> USER_MAPPING_FUNCTION = (row, rowMetaData) -> new UserResponse(
+            row.get("UserID", Integer.class),
+            row.get("Login", String.class),
+            row.get("RoleName", String.class),
+            row.get("FullName", String.class),
+            row.get("ContactInfo", String.class),
+            row.get("TelegramID", Long.class)
+    );
+
     public Mono<PagedResponse<UserResponse>> getAllUsers(String roleName, List<String> sort, int page, int size) {
-        boolean b = roleName != null && !roleName.isEmpty() && !"Все".equalsIgnoreCase(roleName);
-        Flux<User> usersFlux = b
-                ? roleRepository.findByRoleName(roleName)
-                .flatMapMany(role -> userRepository.findAllByRoleID(role.getRoleID()))
-                : userRepository.findAll();
+        boolean applyRoleFilter = roleName != null && !roleName.isEmpty() && !"Все".equalsIgnoreCase(roleName);
 
-        Flux<UserResponse> userResponses = usersFlux.flatMap(this::mapUserToUserResponse);
+        StringBuilder sqlBuilder = new StringBuilder(
+                "SELECT u.UserID, u.Login, u.FullName, u.ContactInfo, u.TelegramID, r.RoleName " +
+                        "FROM Users u " +
+                        "LEFT JOIN Roles r ON u.RoleID = r.RoleID"
+        );
 
-        if (sort != null && !sort.isEmpty()) {
-            Comparator<UserResponse> comparator = buildComparator(sort);
-            if (comparator != null) {
-                userResponses = userResponses.sort(comparator);
-            }
+        Map<String, Object> bindings = new HashMap<>();
+
+        if (applyRoleFilter) {
+            sqlBuilder.append(" WHERE r.RoleName = :roleName");
+            bindings.put("roleName", roleName);
         }
 
-        Mono<Long> countMono = b
-                ? roleRepository.findByRoleName(roleName).flatMap(role -> userRepository.countByRoleID(role.getRoleID()))
-                : userRepository.count();
+        // Запрос для подсчета
+        String countSql = "SELECT COUNT(*) FROM (" + sqlBuilder.toString() + ") as count_subquery";
+        DatabaseClient.GenericExecuteSpec countSpec = databaseClient.sql(countSql);
+        for (Map.Entry<String, Object> entry : bindings.entrySet()) {
+            countSpec = countSpec.bind(entry.getKey(), entry.getValue());
+        }
+        Mono<Long> countMono = countSpec.map(row -> row.get(0, Long.class)).one();
 
-        Mono<List<UserResponse>> contentMono = userResponses
-                .skip((long) page * size)
-                .take(size)
-                .collectList();
+        // Добавляем сортировку и пагинацию
+        sqlBuilder.append(parseSortToSql(sort));
+        sqlBuilder.append(" OFFSET ").append((long) page * size).append(" ROWS FETCH NEXT ").append(size).append(" ROWS ONLY");
 
-        return Mono.zip(contentMono, countMono)
+        // Основной запрос
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(sqlBuilder.toString());
+        for (Map.Entry<String, Object> entry : bindings.entrySet()) {
+            spec = spec.bind(entry.getKey(), entry.getValue());
+        }
+
+        Flux<UserResponse> resultFlux = spec.map(USER_MAPPING_FUNCTION).all();
+
+        return Mono.zip(resultFlux.collectList(), countMono)
                 .map(tuple -> {
                     List<UserResponse> content = tuple.getT1();
-                    long count = tuple.getT2();
-                    int totalPages = (count == 0) ? 0 : (int) Math.ceil((double) count / size);
-                    return new PagedResponse<>(content, page, count, totalPages);
+                    long total = tuple.getT2();
+                    int totalPages = (total == 0) ? 0 : (int) Math.ceil((double) total / size);
+                    return new PagedResponse<>(content, page, total, totalPages);
                 });
     }
 
-    private Comparator<UserResponse> buildComparator(List<String> sortParams) {
-        if (sortParams == null) {
-            return null;
+    private String parseSortToSql(List<String> sortParams) {
+        if (sortParams == null || sortParams.isEmpty()) {
+            return " ORDER BY u.UserID ASC";
         }
-        Comparator<UserResponse> finalComparator = null;
+        Map<String, String> columnMapping = Map.of(
+                "userID", "u.UserID",
+                "login", "u.Login",
+                "fullName", "u.FullName",
+                "roleName", "r.RoleName",
+                "contactInfo", "u.ContactInfo",
+                "telegramID", "u.TelegramID"
+        );
 
-        for (String sortParam : sortParams) {
-            String[] parts = sortParam.split(",");
-            if (parts.length == 0 || parts[0].isBlank()) continue;
+        String orders = sortParams.stream()
+                .map(param -> {
+                    String[] parts = param.split(",");
+                    String field = parts[0];
+                    String direction = (parts.length > 1 && "desc".equalsIgnoreCase(parts[1])) ? "DESC" : "ASC";
+                    String dbColumn = columnMapping.get(field);
+                    if (dbColumn == null) return null;
+                    return dbColumn + " " + direction;
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.joining(", "));
 
-            String field = parts[0];
-            boolean isDescending = parts.length > 1 && "desc".equalsIgnoreCase(parts[1]);
-
-            Comparator<UserResponse> currentComparator = switch (field) {
-                case "userID" -> Comparator.comparing(UserResponse::userID, Comparator.nullsLast(Comparator.naturalOrder()));
-                case "login" -> Comparator.comparing(UserResponse::login, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-                case "roleName" -> Comparator.comparing(UserResponse::roleName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-                case "fullName" -> Comparator.comparing(UserResponse::fullName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-                case "contactInfo" -> Comparator.comparing(UserResponse::contactInfo, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-                case "telegramID" -> Comparator.comparing(UserResponse::telegramID, Comparator.nullsLast(Comparator.naturalOrder()));
-                default -> null;
-            };
-
-            if (currentComparator != null) {
-                if (isDescending) {
-                    currentComparator = currentComparator.reversed();
-                }
-
-                if (finalComparator == null) {
-                    finalComparator = currentComparator;
-                } else {
-                    finalComparator = finalComparator.thenComparing(currentComparator);
-                }
-            }
-        }
-        return finalComparator;
+        return orders.isEmpty() ? " ORDER BY u.UserID ASC" : " ORDER BY " + orders;
     }
 
     public Mono<Void> deleteUser(Integer userId) {
@@ -147,7 +169,6 @@ public class AdminService {
                 );
     }
 
-
     public Mono<UserResponse> updateUser(Integer userId, UpdateUserRequest request) {
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с ID " + userId + " не найден")))
@@ -156,21 +177,10 @@ public class AdminService {
                         passwordValidator.validate(request.password());
                         user.setPassword(passwordEncoder.encode(request.password()));
                     }
-
-                    if (request.contactInfo() != null) {
-                        user.setContactInfo(request.contactInfo());
-                    }
-
-                    if (request.fullName() != null) {
-                        user.setFullName(request.fullName());
-                    }
-
+                    if (request.contactInfo() != null) user.setContactInfo(request.contactInfo());
+                    if (request.fullName() != null) user.setFullName(request.fullName());
                     if (request.telegramID() != null) {
-                        if (request.telegramID().isEmpty()) {
-                            user.setTelegramID(null);
-                        } else {
-                            user.setTelegramID(Long.parseLong(request.telegramID()));
-                        }
+                        user.setTelegramID(request.telegramID().isEmpty() ? null : Long.parseLong(request.telegramID()));
                     }
 
                     Mono<User> userMono = Mono.just(user);
@@ -182,7 +192,6 @@ public class AdminService {
                                     return user;
                                 });
                     }
-
                     return userMono;
                 })
                 .flatMap(userRepository::save)
