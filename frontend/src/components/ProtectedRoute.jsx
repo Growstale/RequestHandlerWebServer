@@ -10,7 +10,6 @@ export default function ProtectedRoute({ children, allowedRoles }) {
   if (!accessToken) return <Navigate to="/login" replace />
 
   if (allowedRoles && !allowedRoles.includes(user?.role)) {
-    // Можно перенаправить на страницу "Нет доступа" или просто на главную
     return <Navigate to="/dashboard" replace />
   }
 

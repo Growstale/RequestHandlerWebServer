@@ -1,8 +1,6 @@
 import api from './axios'
 
-const PAGE_SIZE = 40; // Уменьшим, чтобы страницы не были слишком длинными
-
-// --- Заявки ---
+const PAGE_SIZE = 40;
 
 export const getRequests = (params = {}) => {
   const queryParams = new URLSearchParams();
@@ -39,8 +37,6 @@ export const deleteRequest = (id) => {
   return api.delete(`/api/requests/${id}`);
 }
 
-// --- Комментарии ---
-
 export const getComments = (requestId) => {
   return api.get(`/api/requests/${requestId}/comments`);
 }
@@ -49,12 +45,9 @@ export const addComment = (requestId, data) => {
   return api.post(`/api/requests/${requestId}/comments`, data);
 }
 
-// --- Фотографии ---
-
 export const getPhotos = (requestId) => {
-    // Этот метод будет немного другим, т.к. мы получаем массив картинок
     return api.get(`/api/requests/${requestId}/photos`, {
-        responseType: 'arraybuffer' // Важно для получения изображений
+        responseType: 'arraybuffer' 
     });
 }
 
@@ -91,4 +84,8 @@ export const deletePhoto = (photoId) => {
 
 export const restoreRequest = (id) => {
     return api.put(`/api/requests/${id}/restore`, {}); 
+}
+
+export const completeRequest = (id) => {
+  return api.put(`/api/requests/${id}/complete`);
 }

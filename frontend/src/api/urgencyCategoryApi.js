@@ -1,7 +1,7 @@
 import api from './axios'
 
 export const getUrgencyCategories = () => {
-  return api.get('/api/admin/urgency-categories');
+  return api.get('/api/urgency-categories');
 }
 
 export const updateUrgencyCategory = (urgencyId, data) => {

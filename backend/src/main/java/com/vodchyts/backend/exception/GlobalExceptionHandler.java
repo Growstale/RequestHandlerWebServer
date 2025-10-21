@@ -13,6 +13,8 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    record ErrorResponse(int status, String message) {}
+
     @ExceptionHandler(UserNotFoundException.class)
     public Mono<ResponseEntity<String>> handleUserNotFound(UserNotFoundException ex) {
         return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ex.getMessage()));
@@ -67,4 +69,12 @@ public class GlobalExceptionHandler {
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors));
     }
 
+    @ExceptionHandler(Exception.class)
+    public Mono<ResponseEntity<Object>> handleGenericException(Exception ex) {
+        var errorResponse = new ErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                "Произошла внутренняя ошибка сервера."
+        );
+        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse));
+    }
 }

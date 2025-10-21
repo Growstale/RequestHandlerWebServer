@@ -51,11 +51,9 @@ export default function Shops() {
     }
   }, [sortConfig, currentPage]);
   
-  // Этот useEffect загружает менеджеров для формы один раз при монтировании компонента
   useEffect(() => {
     const fetchStoreManagers = async () => {
         try {
-            // Загружаем только первую страницу менеджеров (до 40) для выпадающего списка
             const response = await getUsers({ role: 'StoreManager' });
             if (response.data && Array.isArray(response.data.content)) {
                 setStoreManagers(response.data.content);
@@ -65,14 +63,12 @@ export default function Shops() {
         }
     }
     fetchStoreManagers();
-  }, []); // Пустой массив зависимостей означает, что эффект выполнится один раз
+  }, []); 
 
-  // Этот useEffect перезагружает магазины при изменении сортировки или страницы
   useEffect(() => {
     reloadShops();
   }, [reloadShops]) 
 
-  // Сбрасываем страницу на первую при изменении сортировки
   useEffect(() => {
     setCurrentPage(0);
   }, [sortConfig]);
@@ -123,7 +119,6 @@ export default function Shops() {
     try {
       await deleteShop(currentShop.shopID)
       setIsAlertOpen(false)
-      // Если удалили последний элемент на странице, переходим на предыдущую
       if (shops.length === 1 && currentPage > 0) {
         setCurrentPage(currentPage - 1);
       } else {

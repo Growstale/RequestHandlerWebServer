@@ -4,12 +4,16 @@ import com.vodchyts.backend.exception.OperationNotAllowedException;
 import com.vodchyts.backend.feature.dto.*;
 import com.vodchyts.backend.feature.entity.*;
 import com.vodchyts.backend.feature.repository.*;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.data.relational.core.query.Criteria;
 import org.springframework.data.relational.core.query.Query;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import com.vodchyts.backend.exception.UserNotFoundException;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -34,8 +38,9 @@ public class RequestService {
     private final ReactiveRequestCustomDayRepository customDayRepository;
     private final ReactiveRequestCommentRepository commentRepository;
     private final ReactiveRequestPhotoRepository photoRepository;
+    private final ReactiveRoleRepository roleRepository;
 
-    public RequestService(R2dbcEntityTemplate template, ReactiveRequestRepository requestRepository, ReactiveShopRepository shopRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository, ReactiveUserRepository userRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository) {
+    public RequestService(R2dbcEntityTemplate template, ReactiveRequestRepository requestRepository, ReactiveShopRepository shopRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository, ReactiveUserRepository userRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository) {
         this.template = template;
         this.requestRepository = requestRepository;
         this.shopRepository = shopRepository;
@@ -45,51 +50,81 @@ public class RequestService {
         this.customDayRepository = customDayRepository;
         this.commentRepository = commentRepository;
         this.photoRepository = photoRepository;
+        this.roleRepository = roleRepository;
     }
 
     public Mono<PagedResponse<RequestResponse>> getAllRequests(
             boolean archived, String searchTerm, Integer shopId, Integer workCategoryId,
-            Integer urgencyId, Integer contractorId, String status, List<String> sort, int page, int size
+            Integer urgencyId, Integer contractorId, String status, List<String> sort, int page, int size,
+            String username // <-- Добавляем имя текущего пользователя
     ) {
-        List<String> statuses;
-        if (archived) {
-            statuses = List.of("Closed");
-        } else if (status != null && !status.isBlank()) {
-            // Если фильтр по статусу передан, используем его
-            statuses = List.of(status);
-        } else {
-            // Иначе, по умолчанию показываем оба активных статуса
-            statuses = List.of("In work", "Done");
-        }
+        return userRepository.findByLogin(username)
+                .switchIfEmpty(Mono.error(new UserNotFoundException("Текущий пользователь не найден")))
+                .flatMap(user -> roleRepository.findById(user.getRoleID())
+                        .flatMap(role -> {
+                            List<String> statuses;
+                            if (archived) {
+                                statuses = List.of("Closed");
+                            } else if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
+                                statuses = List.of(status);
+                            } else {
+                                statuses = List.of("In work", "Done");
+                            }
 
-        Criteria criteria = where("Status").in(statuses);
-        if (searchTerm != null && !searchTerm.isBlank()) {
-            criteria = criteria.and(where("Description").like("%" + searchTerm + "%").ignoreCase(true));
-        }
-        if (shopId != null) criteria = criteria.and(where("ShopID").is(shopId));
-        if (workCategoryId != null) criteria = criteria.and(where("WorkCategoryID").is(workCategoryId));
-        if (urgencyId != null) criteria = criteria.and(where("UrgencyID").is(urgencyId));
-        if (contractorId != null) criteria = criteria.and(where("AssignedContractorID").is(contractorId));
+                            Criteria criteria = where("Status").in(statuses);
 
-        Query query = query(criteria);
+                            // Применяем общие фильтры, если они есть
+                            if (searchTerm != null && !searchTerm.isBlank()) {
+                                criteria = criteria.and(where("Description").like("%" + searchTerm + "%").ignoreCase(true));
+                            }
+                            if (workCategoryId != null) criteria = criteria.and(where("WorkCategoryID").is(workCategoryId));
+                            if (urgencyId != null) criteria = criteria.and(where("UrgencyID").is(urgencyId));
 
-        Mono<Long> countMono = template.count(query, Request.class);
-        Flux<Request> requestsFlux = template.select(query.offset((long) page * size).limit(size), Request.class);
+                            Mono<Criteria> roleBasedCriteriaMono = Mono.just(criteria);
+                            String userRole = role.getRoleName();
 
-        return requestsFlux.collectList()
-                .flatMap(requests -> {
-                    if (requests.isEmpty()) {
-                        return Mono.just(new PagedResponse<>(List.of(), page, 0L, 0));
-                    }
-                    return enrichRequests(requests)
-                            .collectList()
-                            .flatMap(enrichedRequests -> countMono.map(total -> {
-                                List<RequestResponse> sortedRequests = sortRequests(enrichedRequests, sort);
-                                int totalPages = (total == 0) ? 0 : (int) Math.ceil((double) total / size);
-                                return new PagedResponse<>(sortedRequests, page, total, totalPages);
-                            }));
-                });
+                            if ("RetailAdmin".equals(userRole)) {
+                                if (shopId != null) criteria = criteria.and(where("ShopID").is(shopId));
+                                if (contractorId != null) criteria = criteria.and(where("AssignedContractorID").is(contractorId));
+                                roleBasedCriteriaMono = Mono.just(criteria);
+                            } else if ("Contractor".equals(userRole)) {
+                                criteria = criteria.and(where("AssignedContractorID").is(user.getUserID()));
+                                roleBasedCriteriaMono = Mono.just(criteria);
+                            } else if ("StoreManager".equals(userRole)) {
+                                Criteria finalCriteria1 = criteria;
+                                roleBasedCriteriaMono = shopRepository.findAllByUserID(user.getUserID())
+                                        .map(Shop::getShopID)
+                                        .collectList()
+                                        .map(shopIds -> {
+                                            if (shopIds.isEmpty()) {
+                                                return where("RequestID").isNull();
+                                            }
+                                            return finalCriteria1.and(where("ShopID").in(shopIds));
+                                        });
+                            }
+
+                            return roleBasedCriteriaMono.flatMap(finalCriteria -> {
+                                Query query = query(finalCriteria);
+                                Mono<Long> countMono = template.count(query, Request.class);
+                                Flux<Request> requestsFlux = template.select(query.offset((long) page * size).limit(size), Request.class);
+
+                                return requestsFlux.collectList()
+                                        .flatMap(requests -> {
+                                            if (requests.isEmpty()) {
+                                                return Mono.just(new PagedResponse<>(List.of(), page, 0L, 0));
+                                            }
+                                            return enrichRequests(requests)
+                                                    .collectList()
+                                                    .flatMap(enrichedRequests -> countMono.map(total -> {
+                                                        List<RequestResponse> sortedRequests = sortRequests(enrichedRequests, sort);
+                                                        int totalPages = (total == 0) ? 0 : (int) Math.ceil((double) total / size);
+                                                        return new PagedResponse<>(sortedRequests, page, total, totalPages);
+                                                    }));
+                                        });
+                            });
+                        }));
     }
+
 
     public Mono<RequestResponse> createAndEnrichRequest(CreateRequestRequest dto, Integer createdByUserId) {
         return createRequest(dto, createdByUserId)
@@ -142,7 +177,6 @@ public class RequestService {
                     request.setUrgencyID(dto.urgencyID());
                     request.setAssignedContractorID(dto.assignedContractorID());
 
-                    // Логика смены статуса
                     if (!request.getStatus().equals(dto.status()) && "Closed".equalsIgnoreCase(dto.status())) {
                         request.setClosedAt(LocalDateTime.now());
                     }
@@ -152,30 +186,25 @@ public class RequestService {
 
                     boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
                     Mono<Void> customDaysLogic = customDayRepository.findByRequestID(requestId)
-                            // 1. Обрабатываем случай, когда запись найдена
                             .flatMap(existingCustomDay -> {
                                 if (isCustomizable && dto.customDays() != null) {
                                     // Если нужно обновить, обновляем и завершаем
                                     existingCustomDay.setDays(dto.customDays());
                                     return customDayRepository.save(existingCustomDay);
                                 } else {
-                                    // Если нужно удалить, удаляем и завершаем
                                     return customDayRepository.delete(existingCustomDay).then(Mono.empty());
                                 }
                             })
-                            // 2. Обрабатываем случай, когда запись НЕ найдена
                             .switchIfEmpty(Mono.defer(() -> {
                                 if (isCustomizable && dto.customDays() != null) {
-                                    // Если нужно создать, создаем и завершаем
                                     RequestCustomDay newCustomDay = new RequestCustomDay();
                                     newCustomDay.setRequestID(requestId);
                                     newCustomDay.setDays(dto.customDays());
                                     return customDayRepository.save(newCustomDay);
                                 }
-                                // Если ничего делать не нужно, просто завершаем
                                 return Mono.empty();
                             }))
-                            .then(); // 3. В самом конце превращаем результат в Mono<Void>
+                            .then();
 
                     return customDaysLogic.then(updatedRequestMono);
                 });
@@ -307,26 +336,30 @@ public class RequestService {
     }
 
     public Mono<CommentResponse> addCommentToRequest(Integer requestId, CreateCommentRequest dto, Integer userId) {
-        // 1. Находим заявку по ID. Если не найдена - ошибка.
         return requestRepository.findById(requestId)
                 .switchIfEmpty(Mono.error(new RuntimeException("Заявка с ID " + requestId + " не найдена")))
-                .flatMap(request -> {
-                    // 2. Проверяем статус заявки. Если "Closed", выбрасываем исключение.
-                    if ("Closed".equalsIgnoreCase(request.getStatus())) {
-                        return Mono.error(new OperationNotAllowedException("Нельзя комментировать закрытую заявку."));
-                    }
+                .zipWith(userRepository.findById(userId))
+                .flatMap(tuple -> {
+                    Request request = tuple.getT1();
+                    User user = tuple.getT2();
 
-                    // 3. Если статус позволяет, создаем и настраиваем новый комментарий.
-                    RequestComment newComment = new RequestComment();
-                    newComment.setRequestID(requestId);
-                    newComment.setUserID(userId);
-                    newComment.setCommentText(dto.commentText());
-                    newComment.setCreatedAt(LocalDateTime.now());
+                    return canUserModify(request, user).flatMap(canModify -> {
+                        if (!canModify) {
+                            return Mono.error(new OperationNotAllowedException("У вас нет прав для комментирования этой заявки."));
+                        }
+                        if ("Closed".equalsIgnoreCase(request.getStatus())) {
+                            return Mono.error(new OperationNotAllowedException("Нельзя комментировать закрытую заявку."));
+                        }
 
-                    // 4. Сохраняем комментарий в репозитории.
-                    return commentRepository.save(newComment);
+                        RequestComment newComment = new RequestComment();
+                        newComment.setRequestID(requestId);
+                        newComment.setUserID(userId);
+                        newComment.setCommentText(dto.commentText());
+                        newComment.setCreatedAt(LocalDateTime.now());
+
+                        return commentRepository.save(newComment);
+                    });
                 })
-                // 5. После успешного сохранения "обогащаем" комментарий данными пользователя (его логином).
                 .flatMap(savedComment -> userRepository.findById(userId)
                         .map(user -> new CommentResponse(
                                 savedComment.getCommentID(),
@@ -339,27 +372,88 @@ public class RequestService {
     }
 
 
+
     public Flux<byte[]> getPhotosForRequest(Integer requestId) {
         return photoRepository.findByRequestID(requestId)
                 .map(RequestPhoto::getImageData);
     }
 
-    public Mono<Void> addPhotosToRequest(Integer requestId, Flux<byte[]> imagesData) { // Принимает Flux<byte[]>
+    public Mono<Void> addPhotosToRequest(Integer requestId, Flux<FilePart> filePartFlux, Integer userId) {
+        Flux<byte[]> imagesDataFlux = filePartFlux.flatMap(filePart ->
+                filePart.content()
+                        .collectList()
+                        .mapNotNull(dataBuffers -> {
+                            if (dataBuffers.isEmpty()) return null;
+                            DataBuffer joinedBuffer = dataBuffers.getFirst().factory().join(dataBuffers);
+                            dataBuffers.forEach(DataBufferUtils::release);
+                            return joinedBuffer;
+                        })
+                        .filter(Objects::nonNull)
+                        .map(dataBuffer -> {
+                            byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                            dataBuffer.read(bytes);
+                            DataBufferUtils.release(dataBuffer);
+                            return bytes;
+                        })
+        );
+
         return requestRepository.findById(requestId)
-                .flatMap(request -> {
-                    if ("Closed".equalsIgnoreCase(request.getStatus())) {
-                        return Mono.error(new OperationNotAllowedException("Нельзя добавлять фото в закрытую заявку."));
-                    }
-                    return imagesData
-                            .flatMap(imageData -> { // flatMap для каждого файла в потоке
-                                RequestPhoto photo = new RequestPhoto();
-                                photo.setRequestID(requestId);
-                                photo.setImageData(imageData);
-                                return photoRepository.save(photo);
-                            })
-                            .then();
+                .switchIfEmpty(Mono.error(new RuntimeException("Заявка с ID " + requestId + " не найдена")))
+                .zipWith(userRepository.findById(userId))
+                .flatMap(tuple -> {
+                    Request request = tuple.getT1();
+                    User user = tuple.getT2();
+
+                    return canUserModify(request, user).flatMap(canModify -> {
+                        if (!canModify) {
+                            return Mono.error(new OperationNotAllowedException("У вас нет прав..."));
+                        }
+                        if ("Closed".equalsIgnoreCase(request.getStatus())) {
+                            return Mono.error(new OperationNotAllowedException("Нельзя добавлять фото..."));
+                        }
+                        // Используем наш преобразованный поток
+                        return imagesDataFlux
+                                .flatMap(imageData -> {
+                                    RequestPhoto photo = new RequestPhoto();
+                                    photo.setRequestID(requestId);
+                                    photo.setImageData(imageData);
+                                    return photoRepository.save(photo);
+                                })
+                                .then();
+                    });
                 }).then();
     }
+
+    public Mono<RequestResponse> completeRequest(Integer requestId, Integer contractorId) {
+        return requestRepository.findById(requestId)
+                .switchIfEmpty(Mono.error(new RuntimeException("Заявка с ID " + requestId + " не найдена")))
+                .flatMap(request -> {
+                    if (!Objects.equals(request.getAssignedContractorID(), contractorId)) {
+                        return Mono.error(new OperationNotAllowedException("Вы не являетесь исполнителем по этой заявке."));
+                    }
+                    if (!"In work".equalsIgnoreCase(request.getStatus())) {
+                        return Mono.error(new OperationNotAllowedException("Заявку можно завершить только из статуса 'В работе'."));
+                    }
+                    request.setStatus("Done");
+                    return requestRepository.save(request);
+                })
+                .flatMap(savedRequest -> enrichRequests(List.of(savedRequest)).single());
+    }
+
+    private Mono<Boolean> canUserModify(Request request, User user) {
+        return roleRepository.findById(user.getRoleID()).flatMap(role -> {
+            String roleName = role.getRoleName();
+            if ("RetailAdmin".equals(roleName)) {
+                return Mono.just(true);
+            }
+            if ("Contractor".equals(roleName) && Objects.equals(user.getUserID(), request.getAssignedContractorID())) {
+                return Mono.just(true);
+            }
+            return Mono.just(false);
+        });
+    }
+
+
 
     public Mono<RequestResponse> restoreRequest(Integer requestId) {
         return requestRepository.findById(requestId)
@@ -369,7 +463,7 @@ public class RequestService {
                         return Mono.error(new OperationNotAllowedException("Можно восстановить только закрытую заявку."));
                     }
                     request.setStatus("In work");
-                    request.setClosedAt(null); // Убираем дату закрытия
+                    request.setClosedAt(null);
                     return requestRepository.save(request);
                 })
                 .flatMap(savedRequest -> enrichRequests(List.of(savedRequest)).single());
@@ -381,25 +475,17 @@ public class RequestService {
             return Mono.just(Map.of());
         }
 
-        // 1. Создаем критерий: RequestID должен быть в нашем списке
         Criteria criteria = where("RequestID").in(requestIds);
-
-        // 2. Создаем запрос на основе критерия
         Query query = query(criteria);
 
-        // 3. Выполняем запрос через R2dbcEntityTemplate
-        return template.select(query, RequestComment.class) // Получаем Flux<RequestComment>
-                // 4. Группируем комментарии по RequestID
+        return template.select(query, RequestComment.class)
                 .collect(Collectors.groupingBy(
                         RequestComment::getRequestID,
-                        // 5. Для каждой группы считаем количество элементов
                         Collectors.counting()
                 ))
-                .defaultIfEmpty(Map.of()); // Если результат пустой, возвращаем пустую Map
+                .defaultIfEmpty(Map.of());
     }
-    // ^^^
 
-    // vvv ЗАМЕНИТЕ СТАРЫЙ МЕТОД getPhotoCounts НА ЭТОТ vvv
     private Mono<Map<Integer, Long>> getPhotoCounts(List<Integer> requestIds) {
         if (requestIds.isEmpty()) {
             return Mono.just(Map.of());
@@ -408,7 +494,7 @@ public class RequestService {
         Criteria criteria = where("RequestID").in(requestIds);
         Query query = query(criteria);
 
-        return template.select(query, RequestPhoto.class) // Получаем Flux<RequestPhoto>
+        return template.select(query, RequestPhoto.class)
                 .collect(Collectors.groupingBy(
                         RequestPhoto::getRequestID,
                         Collectors.counting()

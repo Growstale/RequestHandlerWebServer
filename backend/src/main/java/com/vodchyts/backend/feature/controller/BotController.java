@@ -11,7 +11,6 @@ public class BotController {
 
     @GetMapping("/health")
     public Mono<String> checkHealth() {
-        // Здесь вы можете разместить логику, которую будет вызывать ваш бот
         return Mono.just("{\"status\": \"Bot endpoint is active\"}");
     }
 

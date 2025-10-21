@@ -15,7 +15,7 @@ export const getWorkCategories = (params = {}) => {
   }
   
   const queryString = queryParams.toString();
-  return api.get(`/api/admin/work-categories?${queryString}`);
+  return api.get(`/api/work-categories?${queryString}`);
 }
 
 export const createWorkCategory = (categoryData) => {

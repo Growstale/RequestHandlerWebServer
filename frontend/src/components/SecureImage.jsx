@@ -1,12 +1,10 @@
-// src/components/SecureImage.jsx
-
 import React, { useState, useEffect, useRef } from 'react';
 import { getPhotoBlob } from '@/api/requestApi';
 import { RefreshCw, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 
 export default function SecureImage({ photoId, className, alt }) {
     const [imageSrc, setImageSrc] = useState(null);
-    const [loading, setLoading] = useState(false); // Загрузка начнется только при видимости
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState(false);
     const [isVisible, setIsVisible] = useState(false);
     const placeholderRef = useRef(null);
@@ -15,14 +13,12 @@ export default function SecureImage({ photoId, className, alt }) {
     useEffect(() => {
         const observer = new IntersectionObserver(
             (entries) => {
-                // Когда элемент появляется в области видимости
                 if (entries[0].isIntersecting) {
                     setIsVisible(true);
-                    // Отписываемся, чтобы не срабатывать повторно
                     observer.disconnect();
                 }
             },
-            { rootMargin: "100px" } // Начать загрузку за 100px до появления на экране
+            { rootMargin: "100px" }
         );
 
         const currentRef = placeholderRef.current;
@@ -77,7 +73,7 @@ export default function SecureImage({ photoId, className, alt }) {
                 URL.revokeObjectURL(objectUrl);
             }
         };
-    }, [isVisible, photoId, imageSrc]); // Добавляем isVisible в зависимости
+    }, [isVisible, photoId, imageSrc]);
 
     if (loading) {
         return (
@@ -99,7 +95,6 @@ export default function SecureImage({ photoId, className, alt }) {
         return <img src={imageSrc} alt={alt || `Photo ${photoId}`} className={className} />;
     }
 
-    // В остальных случаях рендерим "заглушку"
     return (
         <div ref={placeholderRef} className={`flex items-center justify-center bg-gray-200 rounded-lg ${className}`}>
             {loading && <RefreshCw className="h-6 w-6 text-gray-500 animate-spin" />}

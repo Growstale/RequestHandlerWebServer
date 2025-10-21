@@ -1,10 +1,8 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthProvider'
-import { Input } from '@/components/ui/input' // <-- Импортируем Input
-import { Button } from '@/components/ui/button' // <-- Импортируем Button
-// Для селекта можно установить shadcn-ui/select, но для простоты оставим стилизованный select
-// import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 
 export default function Register() {
   const [login, setLogin] = useState('')
@@ -44,7 +42,6 @@ export default function Register() {
             placeholder="Пароль"
             required
           />
-          {/* Для лучшего вида стоит использовать компонент Select от shadcn-ui */}
           <select
             value={roleName}
             onChange={e => setRoleName(e.target.value)}

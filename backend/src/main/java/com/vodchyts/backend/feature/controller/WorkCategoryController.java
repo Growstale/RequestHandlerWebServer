@@ -13,7 +13,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin/work-categories")
-@PreAuthorize("hasRole('RetailAdmin')")
 public class WorkCategoryController {
 
     private final WorkCategoryService workCategoryService;

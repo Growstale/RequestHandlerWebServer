@@ -35,5 +35,8 @@ export const deleteUser = (userId) => {
   return api.delete(`/api/admin/users/${userId}`)
 }
 
-
 export const getRoles = () => api.get('/api/roles');
+
+export const getContractors = () => {
+    return api.get('/api/user/contractors');
+}

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getRequests, deleteRequest, createRequest, updateRequest, restoreRequest } from '@/api/requestApi';
+import { getRequests, deleteRequest, createRequest, updateRequest, restoreRequest, completeRequest } from '@/api/requestApi';
 import { getShops } from '@/api/shopApi';
 import { getWorkCategories } from '@/api/workCategoryApi';
 import { getUrgencyCategories } from '@/api/urgencyCategoryApi';
-import { getUsers } from '@/api/adminApi';
+import { getUsers, getContractors } from '@/api/adminApi';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -18,16 +18,16 @@ import CommentsModal from './CommentsModal';
 import PhotosModal from './PhotosModal';
 import RequestDetailsModal from './RequestDetailsModal';
 import { cn } from '@/lib/utils';
-import { getUrgencyDisplayName } from '@/lib/displayNames';
-import { logger } from '@/lib/logger'; // <-- ДОБАВЬТЕ ЭТОТ ИМПОРТ
-
-const statusDisplayNames = {
-    'In work': 'В работе',
-    'Done': 'Выполнена',
-    'Closed': 'Закрыта'
-};
+import { getUrgencyDisplayName, getStatusDisplayName } from '@/lib/displayNames'; 
+import { logger } from '@/lib/logger';
+import { useAuth } from '@/context/AuthProvider'; 
 
 export default function Requests({ archived = false }) {
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'RetailAdmin';
+    const isContractor = user?.role === 'Contractor';
+    const isStoreManager = user?.role === 'StoreManager';
+
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -78,29 +78,24 @@ export default function Requests({ archived = false }) {
 
             if (!isShiftPressed) {
                 if (existingSortIndex > -1) {
-                    // Если кликаем по уже отсортированному столбцу (без Shift), меняем направление
                     const direction = currentSortParams[existingSortIndex].split(',')[1];
                     newSort = [`${clickedField},${direction === 'asc' ? 'desc' : 'asc'}`];
                 } else {
-                    // Просто сортируем по новому столбцу
                     newSort = [`${clickedField},asc`];
                 }
-            } else { // Если Shift нажат
+            } else {
                 newSort = [...currentSortParams];
                 if (existingSortIndex > -1) {
-                    // Меняем направление у существующего
                     const direction = newSort[existingSortIndex].split(',')[1];
                     newSort[existingSortIndex] = `${clickedField},${direction === 'asc' ? 'desc' : 'asc'}`;
                 } else {
-                    // Добавляем новый столбец к сортировке
                     newSort.push(`${clickedField},asc`);
                 }
             }
 
-            // Удаляем старые параметры сортировки и добавляем новые
             prev.delete('sort');
             newSort.forEach(s => prev.append('sort', s));
-            prev.set('page', '0'); // Сбрасываем на первую страницу при смене сортировки
+            prev.set('page', '0');
             return prev;
         }, { replace: true });
     };
@@ -110,11 +105,9 @@ export default function Requests({ archived = false }) {
             await restoreRequest(requestId);
             reloadRequests();
         } catch (err) {
-            // vvv ЗАМЕНИТЕ СТАРЫЙ CATCH НА ЭТОТ vvv
             const errorMessage = err.response?.data || 'Не удалось восстановить заявку';
-            logger.error('Restore Request Failed', err); // Логируем полный объект ошибки
-            setError(errorMessage); // Показываем сообщение пользователю
-            // ^^^
+            logger.error('Restore Request Failed', err);
+            setError(errorMessage);
         }
     };
 
@@ -126,7 +119,6 @@ export default function Requests({ archived = false }) {
                 prev.set(key, value);
             }
 
-            // Сбрасываем страницу на первую ТОЛЬКО если изменен не параметр 'page'
             if (key !== 'page') {
                 prev.set('page', '0');
             }
@@ -136,11 +128,21 @@ export default function Requests({ archived = false }) {
     };
 
 
+    const handleComplete = async (requestId) => {
+        try {
+            await completeRequest(requestId);
+            reloadRequests();
+        } catch (err) {
+            const errorMessage = err.response?.data || 'Не удалось завершить заявку';
+            logger.error('Complete Request Failed', err);
+            setError(errorMessage);
+        }
+    };
+
     const reloadRequests = useCallback(async () => {
         setLoading(true);
         setError(null);
         
-        // Создаем новый объект URLSearchParams из строки, чтобы получить актуальные данные
         const currentParams = new URLSearchParams(searchParamsString);
         
         try {
@@ -167,7 +169,7 @@ export default function Requests({ archived = false }) {
         } finally {
             setLoading(false);
         }
-    }, [archived, searchParamsString]); // <-- ЗАВИСИМОСТЬ ТЕПЕРЬ СТАБИЛЬНА
+    }, [archived, searchParamsString]);
 
         const SortableHeader = ({ field, children }) => {
         const sort = searchParams.getAll('sort');
@@ -199,25 +201,32 @@ export default function Requests({ archived = false }) {
     };
 
     useEffect(() => {
-        // Загрузка данных для фильтров (один раз)
         const fetchFiltersData = async () => {
             try {
-                const [shopsRes, workCatsRes, urgencyCatsRes, contractorsRes] = await Promise.all([
-                    getShops({ size: 1000 }),
+                const [workCatsRes, urgencyCatsRes, contractorsRes] = await Promise.all([
                     getWorkCategories({ size: 1000 }),
                     getUrgencyCategories(),
-                    getUsers({ role: 'Contractor', size: 1000 })
+                    getContractors() 
                 ]);
-                setShops(shopsRes.data.content);
+
                 setWorkCategories(workCatsRes.data.content);
                 setUrgencyCategories(urgencyCatsRes.data);
-                setContractors(contractorsRes.data.content);
+                setContractors(contractorsRes.data);
+
+                if (isAdmin) {
+                    const shopsRes = await getShops({ size: 1000 });
+                    setShops(shopsRes.data.content);
+                }
             } catch (error) {
                 console.error("Failed to fetch filter data", error);
+                setError("Не удалось загрузить данные для фильтров.");
             }
         };
-        fetchFiltersData();
-    }, []);
+
+        if (user) {
+            fetchFiltersData();
+        }
+    }, [user, isAdmin]); 
 
 
     useEffect(() => {
@@ -288,7 +297,7 @@ export default function Requests({ archived = false }) {
             <div className="flex justify-between items-center mb-4">
                 <h1 className="text-3xl font-semibold">{archived ? 'Архив заявок' : 'Управление заявками'}</h1>
                 
-                {!archived && (
+                {isAdmin && !archived && (
                     <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
                         <DialogTrigger asChild><Button onClick={openCreateForm}><PlusCircle className="mr-2 h-4 w-4" /> Создать заявку</Button></DialogTrigger>
                         <DialogContent className="max-w-3xl">
@@ -323,13 +332,16 @@ export default function Requests({ archived = false }) {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2 mb-4 p-4 border rounded-lg bg-gray-50 items-center">
                  <Input placeholder="Поиск..." value={searchTerm} onChange={e => updateQueryParam('searchTerm', e.target.value)} className="xl:col-span-2" />
-                                <Select onValueChange={(v) => updateQueryParam('shopId', v)} value={shopId}>
-                    <SelectTrigger><SelectValue placeholder="Магазин" /></SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="ALL">Все магазины</SelectItem>
-                        {shops.map(s => <SelectItem key={s.shopID} value={s.shopID.toString()}>{s.shopName}</SelectItem>)}
-                    </SelectContent>
-                </Select>
+                 {isAdmin && (
+                    <Select onValueChange={(v) => updateQueryParam('shopId', v)} value={shopId}>
+                        <SelectTrigger><SelectValue placeholder="Магазин" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="ALL">Все магазины</SelectItem>
+                            {shops.map(s => <SelectItem key={s.shopID} value={s.shopID.toString()}>{s.shopName}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                 )}
+
                 <Select onValueChange={(v) => updateQueryParam('workCategoryId', v)} value={workCategoryId}>
                     <SelectTrigger><SelectValue placeholder="Вид работы" /></SelectTrigger>
                     <SelectContent>
@@ -355,13 +367,15 @@ export default function Requests({ archived = false }) {
                     </Select>
                 )}
 
-                <Select onValueChange={(v) => updateQueryParam('contractorId', v)} value={contractorId}>
-                    <SelectTrigger><SelectValue placeholder="Диспетчер" /></SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="ALL">Все диспетчеры</SelectItem>
-                        {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
-                    </SelectContent>
-                </Select>
+                {isAdmin && (
+                    <Select onValueChange={(v) => updateQueryParam('contractorId', v)} value={contractorId}>
+                        <SelectTrigger><SelectValue placeholder="Диспетчер" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="ALL">Все диспетчеры</SelectItem>
+                            {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                )}
             </div>
 
 
@@ -389,7 +403,7 @@ export default function Requests({ archived = false }) {
                         </TableHeader>
                         <TableBody>
                             {requests.map(req => (
-                                <TableRow key={req.requestID} className={cn({ 'bg-red-100': req.daysRemaining < 0 })}>
+                                <TableRow key={req.requestID} className={cn({ 'bg-red-100': req.daysRemaining < 0 && req.status === 'In work' })}>
                                     <TableCell>{req.requestID}</TableCell>
                                     <TableCell className="font-medium">
                                         {req.description?.substring(0, 50) + (req.description?.length > 50 ? '...' : '')}
@@ -398,7 +412,7 @@ export default function Requests({ archived = false }) {
                                     <TableCell>{req.workCategoryName}</TableCell>
                                     <TableCell>{getUrgencyDisplayName(req.urgencyName)}</TableCell>
                                     <TableCell>{req.assignedContractorName || '—'}</TableCell>
-                                    <TableCell>{statusDisplayNames[req.status]}</TableCell>
+                                    <TableCell>{getStatusDisplayName(req.status)}</TableCell>
                                     <TableCell className={cn({ 'font-bold text-red-600': req.daysRemaining < 0, 'text-green-600': req.daysRemaining > 0 })}>
                                         {req.daysRemaining !== null ? req.daysRemaining : '—'}
                                     </TableCell>
@@ -415,17 +429,27 @@ export default function Requests({ archived = false }) {
                                                 <Camera className="h-4 w-4"/>
                                                 <span className="text-xs ml-1">{req.photoCount}</span>
                                             </Button>
-                                {req.status !== 'Closed' && (
-                                    <Button variant="outline" size="icon" onClick={() => openEditForm(req)} title="Редактировать"><Edit className="h-4 w-4" /></Button>
-                                )}
 
-                                {archived && req.status === 'Closed' && (
-                                    <Button variant="outline" size="icon" onClick={() => handleRestore(req.requestID)} title="Восстановить"><RotateCcw className="h-4 w-4" /></Button>
-                                )}
+                                                                            {isContractor && req.status === 'In work' && !archived && (
+                                                <Button variant="outline" size="sm" onClick={() => handleComplete(req.requestID)} title="Завершить заявку">
+                                                    Завершить
+                                                </Button>
+                                            )}
 
-                                <Button variant="destructive" size="icon" onClick={() => openDeleteAlert(req)} title="Удалить"><Trash2 className="h-4 w-4" /></Button>
+                                            {isAdmin && req.status !== 'Closed' && (
+                                                <Button variant="outline" size="icon" onClick={() => openEditForm(req)} title="Редактировать"><Edit className="h-4 w-4" /></Button>
+                                            )}
+
+                                            {isAdmin && archived && req.status === 'Closed' && (
+                                                <Button variant="outline" size="icon" onClick={() => handleRestore(req.requestID)} title="Восстановить"><RotateCcw className="h-4 w-4" /></Button>
+                                            )}
+                                            
+                                            {isAdmin && (
+                                                <Button variant="destructive" size="icon" onClick={() => openDeleteAlert(req)} title="Удалить"><Trash2 className="h-4 w-4" /></Button>
+                                            )}
                                         </div>
                                     </TableCell>
+
                                 </TableRow>
                             ))}
                         </TableBody>

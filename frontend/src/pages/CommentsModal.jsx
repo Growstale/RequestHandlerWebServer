@@ -11,6 +11,7 @@ export default function CommentsModal({ isOpen, onClose, request }) {
     const [loading, setLoading] = useState(false);
     const { user } = useAuth();
     const isClosed = request?.status === 'Closed';
+    const canAddContent = !isClosed && user?.role !== 'StoreManager';
 
     useEffect(() => {
         if (request?.requestID && isOpen) {
@@ -52,15 +53,14 @@ export default function CommentsModal({ isOpen, onClose, request }) {
                         </div>
                     ))}
                 </div>
-                {!isClosed && (
+                {canAddContent && (
                     <div className="mt-4 pt-4 border-t">
                         <Textarea
                             placeholder="Написать комментарий..."
                             value={newComment}
                             onChange={e => setNewComment(e.target.value)}
-                            disabled={isClosed} // <-- Можно еще и так
                         />
-                        <Button onClick={handleAddComment} className="mt-2" disabled={isClosed}>Отправить</Button>
+                        <Button onClick={handleAddComment} className="mt-2">Отправить</Button>
                     </div>
                 )}
             </DialogContent>

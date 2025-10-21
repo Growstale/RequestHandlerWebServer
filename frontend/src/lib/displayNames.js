@@ -18,3 +18,13 @@ export const urgencyDisplayNames = {
 export const getUrgencyDisplayName = (urgencyName) => {
   return urgencyDisplayNames[urgencyName] || urgencyName
 }
+
+export const statusDisplayNames = {
+  'In work': 'В работе',
+  'Done': 'Выполнена',
+  'Closed': 'Закрыта',
+}
+
+export const getStatusDisplayName = (statusName) => {
+  return statusDisplayNames[statusName] || statusName;
+}

@@ -15,7 +15,7 @@ export const getShops = (params = {}) => {
   }
   
   const queryString = queryParams.toString();
-  return api.get(`/api/admin/shops?${queryString}`);
+  return api.get(`/api/shops?${queryString}`); 
 }
 
 export const createShop = (shopData) => {
