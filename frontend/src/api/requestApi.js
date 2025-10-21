@@ -14,6 +14,7 @@ export const getRequests = (params = {}) => {
   if (params.workCategoryId) queryParams.append('workCategoryId', params.workCategoryId);
   if (params.urgencyId) queryParams.append('urgencyId', params.urgencyId);
   if (params.contractorId) queryParams.append('contractorId', params.contractorId);
+  if (params.overdue) queryParams.append('overdue', 'true');
 
   if (params.sortConfig) {
     params.sortConfig.forEach(sort => {

@@ -55,7 +55,7 @@ public class RequestService {
 
     public Mono<PagedResponse<RequestResponse>> getAllRequests(
             boolean archived, String searchTerm, Integer shopId, Integer workCategoryId,
-            Integer urgencyId, Integer contractorId, String status, List<String> sort, int page, int size,
+            Integer urgencyId, Integer contractorId, String status, Boolean overdue, List<String> sort, int page, int size,
             String username // <-- Добавляем имя текущего пользователя
     ) {
         return userRepository.findByLogin(username)
@@ -72,6 +72,10 @@ public class RequestService {
                             }
 
                             Criteria criteria = where("Status").in(statuses);
+
+                            if (overdue != null && overdue) {
+                                criteria = criteria.and(where("IsOverdue").is(true));
+                            }
 
                             // Применяем общие фильтры, если они есть
                             if (searchTerm != null && !searchTerm.isBlank()) {
@@ -182,6 +186,21 @@ public class RequestService {
                     }
                     request.setStatus(dto.status());
 
+                    if (!"In work".equalsIgnoreCase(request.getStatus())) {
+                        request.setIsOverdue(false);
+                    } else {
+                        Integer daysForTask = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName())
+                                ? dto.customDays()
+                                : newUrgency.getDefaultDays();
+
+                        if (daysForTask != null) {
+                            LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
+                            request.setIsOverdue(LocalDateTime.now().isAfter(deadline));
+                        } else {
+                            request.setIsOverdue(false);
+                        }
+                    }
+
                     Mono<Request> updatedRequestMono = requestRepository.save(request);
 
                     boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
@@ -271,7 +290,10 @@ public class RequestService {
                                 req.getAssignedContractorID(),
                                 req.getStatus(),
                                 req.getCreatedAt(),
+                                req.getClosedAt(),
                                 daysRemaining,
+                                daysForTask,
+                                req.getIsOverdue(),
                                 commentsCounts.getOrDefault(req.getRequestID(), 0L),
                                 photosCounts.getOrDefault(req.getRequestID(), 0L)
                         );

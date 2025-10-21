@@ -15,7 +15,10 @@ public record RequestResponse(
         Integer assignedContractorID,
         String status,
         LocalDateTime createdAt,
+        LocalDateTime closedAt,
         Integer daysRemaining,
+        Integer daysForTask,
+        Boolean isOverdue,
         long commentCount,
         long photoCount
 ) {}
