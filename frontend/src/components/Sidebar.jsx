@@ -3,8 +3,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthProvider'
 import { Button } from './ui/button'
-import { Home as HomeIcon, LayoutDashboard, Users as UsersIcon, Building as ShopsIcon, ClipboardList, CalendarClock, Briefcase, Archive } from 'lucide-react';
-import { getRoleDisplayName } from '@/lib/displayNames'; // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
+import { Home as HomeIcon, LayoutDashboard, Users as UsersIcon, Building as ShopsIcon, ClipboardList, CalendarClock, Briefcase, Archive, MessageSquare } from 'lucide-react';
+import { getRoleDisplayName } from '@/lib/displayNames';
 
 const allLinks = [
   { href: '/dashboard', label: 'Дашборд', icon: LayoutDashboard, roles: ['RetailAdmin', 'StoreManager', 'Contractor'] },
@@ -12,6 +12,7 @@ const allLinks = [
   { href: '/requests/archive', label: 'Архив заявок', icon: Archive, roles: ['RetailAdmin', 'StoreManager', 'Contractor'] },
   { href: '/users', label: 'Пользователи', icon: UsersIcon, roles: ['RetailAdmin'] },
   { href: '/shops', label: 'Магазины', icon: ShopsIcon, roles: ['RetailAdmin'] },
+  { href: '/shop-contractor-chats', label: 'Чаты', icon: MessageSquare, roles: ['RetailAdmin'] },
   { href: '/work-categories', label: 'Виды работ', icon: ClipboardList, roles: ['RetailAdmin'] },
   { href: '/urgency-categories', label: 'Сроки заявок', icon: CalendarClock, roles: ['RetailAdmin'] },
 ];

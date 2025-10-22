@@ -45,13 +45,12 @@ public class ShopService {
             row.get("ShopName", String.class),
             row.get("Address", String.class),
             row.get("Email", String.class),
-            row.get("TelegramID", Long.class),
             row.get("UserID", Integer.class),
             row.get("UserLogin", String.class)
     );
 
     public Mono<PagedResponse<ShopResponse>> getAllShops(List<String> sort, int page, int size) {
-        String sql = "SELECT s.ShopID, s.ShopName, s.Address, s.Email, s.TelegramID, s.UserID, u.Login as UserLogin " +
+        String sql = "SELECT s.ShopID, s.ShopName, s.Address, s.Email, s.UserID, u.Login as UserLogin " +
                 "FROM Shops s LEFT JOIN Users u ON s.UserID = u.UserID";
 
         String countSql = "SELECT COUNT(*) FROM Shops";
@@ -111,9 +110,6 @@ public class ShopService {
                                 shop.setShopName(request.shopName());
                                 shop.setAddress(request.address());
                                 shop.setEmail(request.email());
-                                if (request.telegramID() != null && !request.telegramID().isBlank()) {
-                                    shop.setTelegramID(Long.parseLong(request.telegramID()));
-                                }
                                 shop.setUserID(request.userID());
                                 return shopRepository.save(shop);
                             }));
@@ -139,11 +135,6 @@ public class ShopService {
                     shop.setAddress(request.address());
                     shop.setEmail(request.email());
                     shop.setUserID(request.userID());
-                    if (request.telegramID() != null && !request.telegramID().isBlank()) {
-                        shop.setTelegramID(Long.parseLong(request.telegramID()));
-                    } else {
-                        shop.setTelegramID(null);
-                    }
                     return shopRepository.save(shop);
                 })
                 .flatMap(this::mapShopToResponse);
@@ -165,7 +156,6 @@ public class ShopService {
                 shop.getShopName(),
                 shop.getAddress(),
                 shop.getEmail(),
-                shop.getTelegramID(),
                 shop.getUserID(),
                 userLogin
         ));

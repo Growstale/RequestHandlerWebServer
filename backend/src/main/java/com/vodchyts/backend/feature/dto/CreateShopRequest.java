@@ -17,9 +17,5 @@ public record CreateShopRequest(
         @Size(max = 150, message = "Email не может превышать 150 символов")
         String email,
 
-        @Pattern(regexp = "^[0-9]*$", message = "Telegram ID должен состоять только из цифр")
-        @Size(max = 19, message = "Telegram ID слишком длинный")
-        String telegramID,
-
         Integer userID
 ) {}

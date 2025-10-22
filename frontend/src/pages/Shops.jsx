@@ -18,7 +18,6 @@ import { cn } from '@/lib/utils'
 
 export default function Shops() {
   const [shops, setShops] = useState([])
-  // Это состояние теперь хранит только менеджеров для формы
   const [storeManagers, setStoreManagers] = useState([]) 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -33,7 +32,6 @@ export default function Shops() {
   const [currentShop, setCurrentShop] = useState(null)
   const [formApiError, setFormApiError] = useState(null)
 
-  // Эта функция теперь отвечает только за перезагрузку магазинов
   const reloadShops = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -54,7 +52,7 @@ export default function Shops() {
   useEffect(() => {
     const fetchStoreManagers = async () => {
         try {
-            const response = await getUsers({ role: 'StoreManager' });
+            const response = await getUsers({ role: 'StoreManager', size: 1000 });
             if (response.data && Array.isArray(response.data.content)) {
                 setStoreManagers(response.data.content);
             }
@@ -210,7 +208,7 @@ export default function Shops() {
                 <SortableHeader field="shopID">ID</SortableHeader>
                 <SortableHeader field="shopName">Название</SortableHeader>
                 <SortableHeader field="address">Адрес</SortableHeader>
-                <SortableHeader field="userLogin">Пользователь</SortableHeader>
+                <SortableHeader field="userLogin">Ответственный</SortableHeader>
                 <TableHead>Действия</TableHead>
               </TableRow>
             </TableHeader>
