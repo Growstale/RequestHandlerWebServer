@@ -145,4 +145,17 @@ public class ShopContractorChatService {
                     return Mono.empty();
                 }).then();
     }
+
+    public Mono<ShopContractorChatResponse> findByTelegramId(Long telegramId) {
+        String sql = "SELECT scc.ShopContractorChatID, scc.ShopID, s.ShopName, scc.ContractorID, u.Login as ContractorLogin, scc.TelegramID " +
+                "FROM ShopContractorChats scc " +
+                "JOIN Shops s ON scc.ShopID = s.ShopID " +
+                "JOIN Users u ON scc.ContractorID = u.UserID " +
+                "WHERE scc.TelegramID = :telegramId";
+
+        return databaseClient.sql(sql)
+                .bind("telegramId", telegramId)
+                .map(MAPPING_FUNCTION)
+                .one();
+    }
 }

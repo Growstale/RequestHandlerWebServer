@@ -12,4 +12,5 @@ public interface ReactiveUserRepository extends ReactiveCrudRepository<User, Int
     Mono<Boolean> existsByLogin(String login);
     Flux<User> findAllByRoleID(Integer roleID);
     Mono<Long> countByRoleID(Integer roleID);
+    Mono<User> findByTelegramID(Long telegramId);
 }
