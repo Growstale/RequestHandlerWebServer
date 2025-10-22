@@ -12,6 +12,7 @@ import WorkCategories from './pages/WorkCategories'
 import UrgencyCategories from './pages/UrgencyCategories'
 import Requests from './pages/Requests';
 import ArchivedRequests from './pages/ArchivedRequests';
+import ShopContractorChats from './pages/ShopContractorChats'; 
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -50,6 +51,15 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={['RetailAdmin']}>
                 <Shops />
+              </ProtectedRoute>
+            }
+          />
+          {/* V-- Новые маршруты --V */}
+          <Route
+            path="/shop-contractor-chats"
+            element={
+              <ProtectedRoute allowedRoles={['RetailAdmin']}>
+                <ShopContractorChats />
               </ProtectedRoute>
             }
           />

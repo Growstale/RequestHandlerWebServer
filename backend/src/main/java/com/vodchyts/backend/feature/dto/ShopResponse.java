@@ -5,7 +5,6 @@ public record ShopResponse(
         String shopName,
         String address,
         String email,
-        Long telegramID,
         Integer userID,
         String userLogin
 ) {}
