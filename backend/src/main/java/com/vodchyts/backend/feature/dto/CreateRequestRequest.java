@@ -19,6 +19,7 @@ public record CreateRequestRequest(
         @NotNull(message = "Необходимо выбрать срочность")
         Integer urgencyID,
 
+        @NotNull(message = "Необходимо выбрать исполнителя")
         Integer assignedContractorID,
 
         @Min(value = 1, message = "Количество дней должно быть больше 0")

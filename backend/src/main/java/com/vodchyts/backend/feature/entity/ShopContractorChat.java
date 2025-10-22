@@ -8,23 +8,19 @@ import org.springframework.data.relational.core.mapping.Table;
 
 @Setter
 @Getter
-@Table("Shops")
-public class Shop {
+@Table("ShopContractorChats")
+public class ShopContractorChat {
 
     @Id
+    @Column("ShopContractorChatID")
+    private Integer shopContractorChatID;
+
     @Column("ShopID")
     private Integer shopID;
 
-    @Column("ShopName")
-    private String shopName;
+    @Column("ContractorID")
+    private Integer contractorID;
 
-    @Column("Address")
-    private String address;
-
-    @Column("Email")
-    private String email;
-
-    @Column("UserID")
-    private Integer userID;
-
+    @Column("TelegramID")
+    private Long telegramID;
 }

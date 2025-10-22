@@ -5,23 +5,23 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { getUrgencyDisplayName } from '@/lib/displayNames';
+import { checkShopContractorChatExists } from '@/api/shopContractorChatApi';
 
 const getInitialFormData = (req) => {
   return {
-    title: req?.title || '',
     description: req?.description || '',
     shopID: req?.shopID || null,
     workCategoryID: req?.workCategoryID || null,
     urgencyID: req?.urgencyID || null,
     assignedContractorID: req?.assignedContractorID || null,
     status: req?.status || 'In work',
-    customDays: req?.customDays || '',
+    customDays: req?.daysForTask || '',
   };
 };
 
-
 export default function RequestForm({ currentRequest, onSubmit, onCancel, apiError, shops, workCategories, urgencyCategories, contractors }) {
     const [formData, setFormData] = useState(() => getInitialFormData(currentRequest));
+    const [chatWarning, setChatWarning] = useState(null);
     const isEditing = !!currentRequest;
 
     const selectedUrgency = urgencyCategories.find(u => u.urgencyID === formData.urgencyID);
@@ -32,6 +32,23 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
             setFormData(prev => ({ ...prev, customDays: selectedUrgency.defaultDays || 30 }));
         }
     }, [isCustomizable, selectedUrgency, formData.customDays]);
+
+    useEffect(() => {
+      const checkChat = async () => {
+        setChatWarning(null);
+        if (formData.shopID && formData.assignedContractorID) {
+          try {
+            const res = await checkShopContractorChatExists(formData.shopID, formData.assignedContractorID);
+            if (!res.data) {
+              setChatWarning('Внимание: Для этой пары "Магазин-Исполнитель" не настроен Telegram-чат. Уведомления отправляться не будут.');
+            }
+          } catch (error) {
+            console.error("Ошибка проверки чата", error);
+          }
+        }
+      };
+      checkChat();
+    }, [formData.shopID, formData.assignedContractorID]);
     
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -65,6 +82,17 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
                     </SelectContent>
                 </Select>
             </div>
+            
+            <div className="space-y-2">
+                <Label htmlFor="assignedContractorID">Исполнитель <span className="text-destructive">*</span></Label>
+                <Select onValueChange={(v) => handleSelectChange('assignedContractorID', v)} value={formData.assignedContractorID?.toString() || ''}>
+                    <SelectTrigger><SelectValue placeholder="Выберите исполнителя..." /></SelectTrigger>
+                    <SelectContent>
+                        {/* === ИЗМЕНЕНИЕ ЗДЕСЬ === */}
+                        {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
+                    </SelectContent>
+                </Select>
+            </div>
 
             <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="description">Описание <span className="text-destructive">*</span></Label>
@@ -92,22 +120,12 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
             </div>
             
             {isCustomizable && (
-                <div className="space-y-2">
+                <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="customDays">Дней на выполнение (настраиваемая) <span className="text-destructive">*</span></Label>
                     <Input id="customDays" name="customDays" type="number" min="1" max="365" value={formData.customDays} onChange={handleChange} required />
                 </div>
             )}
 
-            <div className="space-y-2">
-                <Label htmlFor="assignedContractorID">Диспетчер</Label>
-                <Select onValueChange={(v) => handleSelectChange('assignedContractorID', v)} value={formData.assignedContractorID?.toString() || 'NONE'}>
-                    <SelectTrigger><SelectValue placeholder="Не назначен" /></SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="NONE">Не назначен</SelectItem>
-                        {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-            </div>
 
             {isEditing && (
                 <div className="space-y-2">
@@ -123,6 +141,10 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
                 </div>
             )}
             
+            {chatWarning && (
+              <p className="md:col-span-2 text-orange-600 text-sm p-3 bg-orange-50 rounded-md border border-orange-200">{chatWarning}</p>
+            )}
+
             <div className="md:col-span-2 flex justify-end gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={onCancel}>Отмена</Button>
                 <Button type="submit">{isEditing ? 'Сохранить' : 'Создать'}</Button>

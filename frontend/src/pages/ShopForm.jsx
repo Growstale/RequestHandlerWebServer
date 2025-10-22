@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,7 +15,6 @@ const getInitialFormData = (shop) => {
     shopName: shop?.shopName || '',
     address: shop?.address || '',
     email: shop?.email || '',
-    telegramID: shop?.telegramID?.toString() || '',
     userID: shop?.userID || null,
   }
 }
@@ -58,11 +56,6 @@ export default function ShopForm({ currentShop, users = [], onSubmit, onCancel, 
         <div className="grid grid-cols-4 items-center gap-4">
           <Label htmlFor="email" className="text-right">Email</Label>
           <Input id="email" name="email" type="email" value={formData.email} onChange={handleChange} className="col-span-3" />
-        </div>
-
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label htmlFor="telegramID" className="text-right">Telegram ID</Label>
-          <Input id="telegramID" name="telegramID" value={formData.telegramID} onChange={handleChange} className="col-span-3" />
         </div>
 
         <div className="grid grid-cols-4 items-center gap-4">

@@ -19,6 +19,7 @@ public record UpdateRequestRequest(
         @NotNull(message = "Необходимо выбрать срочность")
         Integer urgencyID,
 
+        @NotNull(message = "Необходимо выбрать исполнителя")
         Integer assignedContractorID,
 
         @NotBlank(message = "Статус не может быть пустым")
