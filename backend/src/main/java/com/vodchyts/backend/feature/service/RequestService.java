@@ -529,4 +529,19 @@ public class RequestService {
                         })
                 );
     }
+
+    public Mono<RequestResponse> createAndEnrichRequestFromBot(CreateRequestFromBotRequest dto) {
+        // Создаем временный CreateRequestRequest для передачи в общий метод
+        CreateRequestRequest baseDto = new CreateRequestRequest(
+                dto.description(),
+                dto.shopID(),
+                dto.workCategoryID(),
+                dto.urgencyID(),
+                dto.assignedContractorID(),
+                dto.customDays()
+        );
+        return createRequest(baseDto, dto.createdByUserID())
+                .flatMap(request -> enrichRequest(request.getRequestID()));
+    }
+
 }

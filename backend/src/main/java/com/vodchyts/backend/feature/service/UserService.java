@@ -4,7 +4,6 @@ import com.vodchyts.backend.exception.InvalidTokenException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.UserInfoResponse;
 import com.vodchyts.backend.feature.entity.User;
-import com.vodchyts.backend.feature.repository.ReactiveRefreshTokenRepository;
 import com.vodchyts.backend.feature.repository.ReactiveRoleRepository;
 import com.vodchyts.backend.feature.repository.ReactiveUserRepository;
 import com.vodchyts.backend.security.JwtUtils;
@@ -40,5 +39,9 @@ public class UserService {
 
     public Mono<User> findByLogin(String login) {
         return userRepository.findByLogin(login);
+    }
+
+    public Mono<User> findByTelegramId(Long telegramId) {
+        return userRepository.findByTelegramID(telegramId);
     }
 }
