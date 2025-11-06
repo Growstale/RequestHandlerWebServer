@@ -544,4 +544,8 @@ public class RequestService {
                 .flatMap(request -> enrichRequest(request.getRequestID()));
     }
 
+    public Mono<RequestResponse> getRequestById(Integer requestId) {
+        return enrichRequest(requestId);
+    }
+
 }

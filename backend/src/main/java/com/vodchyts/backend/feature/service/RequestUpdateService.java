@@ -37,16 +37,15 @@ public class RequestUpdateService {
         this.customDayRepository = customDayRepository;
     }
 
-    @Scheduled(cron = "0 0 * * * *")
-    public void updateOverdueStatus() {
-        log.info("Запуск плановой задачи по обновлению статусов просроченных заявок.");
+    public Mono<Long> updateOverdueStatus() {
+        log.info("Запуск задачи по обновлению статусов просроченных заявок.");
 
         Flux<Request> activeRequests = template.select(query(where("Status").is("In work")), Request.class);
 
         Mono<Map<Integer, UrgencyCategory>> urgencyMapMono = urgencyCategoryRepository.findAll().collectMap(UrgencyCategory::getUrgencyID);
         Mono<Map<Integer, RequestCustomDay>> customDaysMapMono = customDayRepository.findAll().collectMap(RequestCustomDay::getRequestID);
 
-        Mono.zip(urgencyMapMono, customDaysMapMono)
+        return Mono.zip(urgencyMapMono, customDaysMapMono)
                 .flatMapMany(tuple -> {
                     Map<Integer, UrgencyCategory> urgencyMap = tuple.getT1();
                     Map<Integer, RequestCustomDay> customDaysMap = tuple.getT2();
@@ -63,25 +62,35 @@ public class RequestUpdateService {
 
                         LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
                         boolean isNowOverdue = LocalDateTime.now().isAfter(deadline);
+                        boolean isCurrentlyOverdueInDb = request.getIsOverdue() != null && request.getIsOverdue();
 
-                        return isNowOverdue && (request.getIsOverdue() == null || !request.getIsOverdue());
-                    }).map(request -> {
-                        request.setIsOverdue(true);
-                        return request;
+                        if (isNowOverdue != isCurrentlyOverdueInDb) {
+                            request.setIsOverdue(isNowOverdue);
+                            return true;
+                        }
+                        return false;
                     });
                 })
                 .collectList()
-                .flatMapMany(requestRepository::saveAll)
+                .flatMapMany(requestsToUpdate -> {
+                    if (requestsToUpdate.isEmpty()) {
+                        return Mono.empty();
+                    }
+                    return requestRepository.saveAll(requestsToUpdate);
+                })
                 .count()
-                .subscribe(
-                        count -> {
-                            if (count > 0) {
-                                log.info("Успешно обновлено {} заявок как просроченные.", count);
-                            } else {
-                                log.info("Новых просроченных заявок не найдено.");
-                            }
-                        },
-                        error -> log.error("Ошибка во время планового обновления статусов просроченных заявок.", error)
-                );
+                .doOnSuccess(count -> {
+                    if (count > 0) {
+                        log.info("Успешно обновлен статус просрочки для {} заявок.", count);
+                    } else {
+                        log.info("Все статусы просрочки актуальны, обновления не требуются.");
+                    }
+                })
+                .doOnError(error -> log.error("Ошибка во время обновления статусов просроченных заявок.", error));
+    }
+
+    @Scheduled(cron = "0 0 * * * *")
+    public void scheduledUpdate() {
+        updateOverdueStatus().subscribe();
     }
 }

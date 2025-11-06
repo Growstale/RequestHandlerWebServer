@@ -6,14 +6,17 @@ import com.vodchyts.backend.feature.repository.ReactiveUrgencyCategoryRepository
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @Service
 public class UrgencyCategoryService {
 
     private final ReactiveUrgencyCategoryRepository urgencyCategoryRepository;
+    private final RequestUpdateService requestUpdateService;
 
-    public UrgencyCategoryService(ReactiveUrgencyCategoryRepository urgencyCategoryRepository) {
+    public UrgencyCategoryService(ReactiveUrgencyCategoryRepository urgencyCategoryRepository, RequestUpdateService requestUpdateService) {
         this.urgencyCategoryRepository = urgencyCategoryRepository;
+        this.requestUpdateService = requestUpdateService;
     }
 
     public Flux<UrgencyCategoryResponse> getAllUrgencyCategories() {
@@ -32,10 +35,16 @@ public class UrgencyCategoryService {
                     category.setDefaultDays(request.defaultDays());
                     return urgencyCategoryRepository.save(category);
                 })
+                .doOnSuccess(savedCategory -> {
+                    requestUpdateService.updateOverdueStatus()
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .subscribe();
+                })
                 .map(updatedCategory -> new UrgencyCategoryResponse(
                         updatedCategory.getUrgencyID(),
                         updatedCategory.getUrgencyName(),
                         updatedCategory.getDefaultDays()
                 ));
     }
+
 }
