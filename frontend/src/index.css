@@ -1,3 +1,5 @@
+/* src/index.css */
+
 @import "tailwindcss";
 
 @layer base {
@@ -23,9 +25,6 @@
     --ring: 222.2 84% 4.9%;
     --radius: 0.5rem;
   }
-
-  /*.dark {
-  }*/
 }
 
 @layer base {
@@ -33,7 +32,6 @@
     border-color: hsl(var(--border));
   }
   body {
-
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
   }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getRequests, deleteRequest, createRequest, updateRequest, restoreRequest, completeRequest } from '@/api/requestApi';
 import { getShops } from '@/api/shopApi';
@@ -12,7 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { PlusCircle, Trash2, Edit, MessageSquare, Camera, Search, XCircle, RotateCcw, Eye, ArrowUpDown } from 'lucide-react'; 
+import { BarChart3, List, PlusCircle, Trash2, Edit, MessageSquare, Camera, Search, XCircle, RotateCcw, Eye, ArrowUpDown } from 'lucide-react'; 
 import Pagination from '@/components/Pagination';
 import RequestForm from './RequestForm';
 import CommentsModal from './CommentsModal';
@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { getUrgencyDisplayName, getStatusDisplayName } from '@/lib/displayNames'; 
 import { logger } from '@/lib/logger';
 import { useAuth } from '@/context/AuthProvider'; 
+import GanttChartView from './GanttChartView';
 
 const filterKeys = ['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue'];
 
@@ -30,6 +31,7 @@ export default function Requests({ archived = false }) {
     const isAdmin = user?.role === 'RetailAdmin';
     const isContractor = user?.role === 'Contractor';
     const isStoreManager = user?.role === 'StoreManager';
+    const [viewMode, setViewMode] = useState('table'); 
 
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -71,6 +73,21 @@ export default function Requests({ archived = false }) {
             return prev;
         }, { replace: true });
     };
+
+    const currentFilters = useMemo(() => ({
+        archived,
+        searchTerm: searchParams.get('searchTerm') || null,
+        shopId: searchParams.get('shopId') || null,
+        workCategoryId: searchParams.get('workCategoryId') || null,
+        urgencyId: searchParams.get('urgencyId') || null,
+        contractorId: searchParams.get('contractorId') || null,
+        status: searchParams.get('status') || null,
+        overdue: searchParams.get('overdue') === 'true',
+        sortConfig: (searchParams.getAll('sort').length > 0 ? searchParams.getAll('sort') : ['requestID,asc']).map(s => ({
+            field: s.split(',')[0],
+            direction: s.split(',')[1] || 'asc'
+        }))
+    }), [archived, searchParamsString]);
 
     const handleResetSort = () => {
         setSearchParams(prev => {
@@ -311,27 +328,42 @@ export default function Requests({ archived = false }) {
             <div className="flex justify-between items-center mb-4">
                 <h1 className="text-3xl font-semibold">{archived ? 'Архив заявок' : 'Управление заявками'}</h1>
                 
-                {isAdmin && !archived && (
-                    <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-                        <DialogTrigger asChild><Button onClick={openCreateForm}><PlusCircle className="mr-2 h-4 w-4" /> Создать заявку</Button></DialogTrigger>
-                        <DialogContent className="max-w-3xl">
-                            <DialogHeader>
-                                <DialogTitle>{currentRequest ? 'Редактировать заявку' : 'Новая заявка'}</DialogTitle>
-                            </DialogHeader>
-                            <RequestForm
-                                key={currentRequest ? currentRequest.requestID : 'new'}
-                                currentRequest={currentRequest}
-                                onSubmit={handleFormSubmit}
-                                onCancel={() => setIsFormOpen(false)}
-                                apiError={formApiError}
-                                shops={shops}
-                                workCategories={workCategories}
-                                urgencyCategories={urgencyCategories}
-                                contractors={contractors}
-                            />
-                        </DialogContent>
-                    </Dialog>
-                )}
+                <div className="flex items-center gap-2">
+                    {!archived && (
+                        <>
+                            <Button variant={viewMode === 'table' ? 'secondary' : 'outline'} onClick={() => setViewMode('table')}>
+                                <List className="mr-2 h-4 w-4" /> Таблица
+                            </Button>
+                            <Button variant={viewMode === 'gantt' ? 'secondary' : 'outline'} onClick={() => setViewMode('gantt')}>
+                                <BarChart3 className="mr-2 h-4 w-4" /> Диаграмма
+                            </Button>
+                        </>
+                    )}
+
+
+                    {isAdmin && !archived && (
+                        <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+                            <DialogTrigger asChild><Button onClick={openCreateForm}><PlusCircle className="mr-2 h-4 w-4" /> Создать заявку</Button></DialogTrigger>
+                            <DialogContent className="max-w-3xl">
+                                <DialogHeader>
+                                    <DialogTitle>{currentRequest ? 'Редактировать заявку' : 'Новая заявка'}</DialogTitle>
+                                </DialogHeader>
+                                <RequestForm
+                                    key={currentRequest ? currentRequest.requestID : 'new'}
+                                    currentRequest={currentRequest}
+                                    onSubmit={handleFormSubmit}
+                                    onCancel={() => setIsFormOpen(false)}
+                                    apiError={formApiError}
+                                    shops={shops}
+                                    workCategories={workCategories}
+                                    urgencyCategories={urgencyCategories}
+                                    contractors={contractors}
+                                />
+                            </DialogContent>
+                        </Dialog>
+                    )}
+                </div>
+
             </div>
 
             <p className="text-sm text-muted-foreground mb-4">Кликните на заголовок для сортировки. Удерживайте <strong>Shift</strong> для сортировки по нескольким столбцам.</p>
@@ -419,7 +451,10 @@ export default function Requests({ archived = false }) {
             {error && <p className="text-red-500">{error}</p>}
             
             {!loading && !error && (
-                <div className="rounded-md border">
+                <>
+                    {viewMode === 'table' && (
+                        <>
+                            <div className="rounded-md border">
                     <Table>
                         <TableHeader>
                             <TableRow>
@@ -487,14 +522,24 @@ export default function Requests({ archived = false }) {
                             ))}
                         </TableBody>
                     </Table>
-                </div>
+                            </div>
+                            <Pagination 
+                                currentPage={page}
+                                totalPages={paginationData.totalPages}
+                                onPageChange={(p) => updateQueryParam('page', p)}
+                            />
+                        </>
+                    )}
+
+                    {viewMode === 'gantt' && (
+                        <GanttChartView 
+                            filters={currentFilters} 
+                            onTaskClick={openDetails}
+                        />
+                    )}
+                </>
             )}
             
-            <Pagination 
-                currentPage={page}
-                totalPages={paginationData.totalPages}
-                onPageChange={(p) => updateQueryParam('page', p)}
-            />
 
             <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
                 <AlertDialogContent>
