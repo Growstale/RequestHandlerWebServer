@@ -292,10 +292,10 @@ export default function Requests({ archived = false }) {
         }
     };
     
-    const openDetails = (req) => {
+    const openDetails = useCallback((req) => {
         setCurrentRequest(req);
         setIsDetailsOpen(true);
-    };
+    }, []);
 
     const openCreateForm = () => { setCurrentRequest(null); setFormApiError(null); setIsFormOpen(true); };
     const openEditForm = (req) => { setCurrentRequest(req); setFormApiError(null); setIsFormOpen(true); };
