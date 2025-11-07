@@ -90,3 +90,7 @@ export const restoreRequest = (id) => {
 export const completeRequest = (id) => {
   return api.put(`/api/requests/${id}/complete`);
 }
+
+export const deleteComment = (commentId) => {
+  return api.delete(`/api/requests/comments/${commentId}`);
+}

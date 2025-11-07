@@ -133,4 +133,11 @@ public class RequestController {
     public Mono<RequestResponse> restoreRequest(@PathVariable Integer requestId, @RequestBody(required = false) Mono<Void> body) {
         return requestService.restoreRequest(requestId);
     }
+
+    @DeleteMapping("/comments/{commentId}")
+    @PreAuthorize("hasRole('RetailAdmin')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public Mono<Void> deleteComment(@PathVariable Integer commentId) {
+        return requestService.deleteComment(commentId);
+    }
 }

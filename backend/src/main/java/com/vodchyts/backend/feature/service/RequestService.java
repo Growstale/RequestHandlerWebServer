@@ -548,4 +548,9 @@ public class RequestService {
         return enrichRequest(requestId);
     }
 
+    public Mono<Void> deleteComment(Integer commentId) {
+        return commentRepository.findById(commentId)
+                .switchIfEmpty(Mono.error(new RuntimeException("Комментарий с ID " + commentId + " не найден")))
+                .flatMap(commentRepository::delete);
+    }
 }
