@@ -471,7 +471,10 @@ export default function Requests({ archived = false }) {
                         </TableHeader>
                         <TableBody>
                             {requests.map(req => (
-                                <TableRow key={req.requestID} className={cn({ 'bg-red-100': req.isOverdue && req.status === 'In work' })}>
+                                <TableRow key={req.requestID} className={cn({ 
+                                    'bg-red-100': req.isOverdue && req.status === 'In work',
+                                    'bg-blue-100': req.status === 'Done' 
+                                })}>
                                     <TableCell>{req.requestID}</TableCell>
                                     <TableCell className="font-medium">
                                         {req.description?.substring(0, 50) + (req.description?.length > 50 ? '...' : '')}
@@ -553,7 +556,29 @@ export default function Requests({ archived = false }) {
                 </AlertDialogContent>
             </AlertDialog>
 
-            <RequestDetailsModal isOpen={isDetailsOpen} onClose={() => setIsDetailsOpen(false)} request={currentRequest} />
+            <RequestDetailsModal 
+                isOpen={isDetailsOpen} 
+                onClose={() => setIsDetailsOpen(false)} 
+                request={currentRequest} 
+                footerContent={
+                    viewMode === 'gantt' && currentRequest ? (
+                        <div className="flex justify-end gap-2 w-full">
+                            <Button variant="outline" onClick={() => {
+                                setIsDetailsOpen(false);
+                                openComments(currentRequest);
+                            }}>
+                                <MessageSquare className="mr-2 h-4 w-4" /> Комментарии ({currentRequest.commentCount})
+                            </Button>
+                            <Button variant="outline" onClick={() => {
+                                setIsDetailsOpen(false);
+                                openPhotos(currentRequest);
+                            }}>
+                                <Camera className="mr-2 h-4 w-4" /> Фото ({currentRequest.photoCount})
+                            </Button>
+                        </div>
+                    ) : null
+                }
+            />
             <CommentsModal isOpen={isCommentsOpen} onClose={handleCommentsModalClose} request={currentRequest} />
             <PhotosModal isOpen={isPhotosOpen} onClose={handlePhotosModalClose} request={currentRequest} />
         </main>

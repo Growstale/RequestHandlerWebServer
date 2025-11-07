@@ -1,5 +1,5 @@
 import React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"; 
 import { getUrgencyDisplayName, getStatusDisplayName } from '@/lib/displayNames';
 import { cn } from '@/lib/utils';
 
@@ -25,7 +25,7 @@ const renderDeadlineInfo = (request) => {
 };
 
 
-export default function RequestDetailsModal({ isOpen, onClose, request }) {
+export default function RequestDetailsModal({ isOpen, onClose, request, footerContent }) {
     if (!request) return null;
 
     return (
@@ -64,8 +64,7 @@ export default function RequestDetailsModal({ isOpen, onClose, request }) {
                          <div>
                             <p className="font-semibold text-gray-700">Срок:</p>
                             <p className={cn({
-                                'font-bold text-red-600': request.daysRemaining < 0,
-                                'text-gray-700': request.daysRemaining > 0
+                                'font-bold text-red-600': request.isOverdue && request.status === 'In work'
                             })}>
                                 {renderDeadlineInfo(request)}
                             </p>
@@ -93,6 +92,12 @@ export default function RequestDetailsModal({ isOpen, onClose, request }) {
                         </p>
                     </div>
                 </div>
+                {footerContent && (
+                    <DialogFooter className="pt-4 mt-4 border-t">
+                        {footerContent}
+                    </DialogFooter>
+                )}
+
             </DialogContent>
         </Dialog>
     );
