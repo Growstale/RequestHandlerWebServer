@@ -10,7 +10,7 @@ import {
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog"
-import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle } from 'lucide-react'
+import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle, AlertCircle } from 'lucide-react'
 import WorkCategoryForm from './WorkCategoryForm'
 import Pagination from '@/components/Pagination'
 import { cn } from '@/lib/utils'
@@ -29,6 +29,8 @@ export default function WorkCategories() {
   const [isAlertOpen, setIsAlertOpen] = useState(false)
   const [currentCategory, setCurrentCategory] = useState(null)
   const [formApiError, setFormApiError] = useState(null)
+
+  const [deleteError, setDeleteError] = useState(null);
 
   const reloadCategories = useCallback(async () => {
     setLoading(true);
@@ -106,8 +108,9 @@ export default function WorkCategories() {
         reloadCategories();
       }
     } catch (err) {
-      console.error("Ошибка удаления:", err.response?.data)
-      setIsAlertOpen(false)
+      console.error("Ошибка удаления:", err.response?.data);
+      setDeleteError(err.response?.data || "Произошла непредвиденная ошибка.");
+      setIsAlertOpen(false);
     }
   }
 
@@ -189,6 +192,7 @@ export default function WorkCategories() {
               <TableRow>
                 <SortableHeader field="workCategoryID">ID</SortableHeader>
                 <SortableHeader field="workCategoryName">Название</SortableHeader>
+                <SortableHeader field="requestCount">Заявок</SortableHeader>
                 <TableHead>Действия</TableHead>
               </TableRow>
             </TableHeader>
@@ -197,10 +201,19 @@ export default function WorkCategories() {
                 <TableRow key={category.workCategoryID}>
                   <TableCell>{category.workCategoryID}</TableCell>
                   <TableCell className="font-medium">{category.workCategoryName}</TableCell>
+                  <TableCell>{category.requestCount}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
                       <Button variant="outline" size="icon" onClick={() => openEditForm(category)}><Edit className="h-4 w-4" /></Button>
-                      <Button variant="destructive" size="icon" onClick={() => openDeleteAlert(category)}><Trash2 className="h-4 w-4" /></Button>
+                                            <Button 
+                                                variant="destructive" 
+                                                size="icon" 
+                                                onClick={() => openDeleteAlert(category)}
+                                                disabled={category.requestCount > 0}
+                                                title={category.requestCount > 0 ? "Нельзя удалить, т.к. категория используется" : "Удалить"}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -216,18 +229,37 @@ export default function WorkCategories() {
         onPageChange={setCurrentPage}
       />
 
-      <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
-            <AlertDialogDescription>Вы собираетесь удалить вид работы <span className="font-bold">{currentCategory?.workCategoryName}</span>. Это действие нельзя будет отменить.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm}>Удалить</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+                  <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Вы собираетесь удалить категорию <span className="font-bold">{currentCategory?.workCategoryName}</span>. Это действие нельзя будет отменить.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Отмена</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteConfirm}>Удалить</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={!!deleteError} onOpenChange={() => setDeleteError(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                            <AlertCircle className="text-destructive" />
+                            Ошибка удаления
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {deleteError}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction onClick={() => setDeleteError(null)}>OK</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
     </main>
   )
 }

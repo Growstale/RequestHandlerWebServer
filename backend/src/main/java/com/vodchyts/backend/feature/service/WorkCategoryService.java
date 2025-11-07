@@ -1,8 +1,10 @@
 package com.vodchyts.backend.feature.service;
 
+import com.vodchyts.backend.exception.OperationNotAllowedException;
 import com.vodchyts.backend.exception.WorkCategoryAlreadyExistsException;
 import com.vodchyts.backend.feature.dto.*;
 import com.vodchyts.backend.feature.entity.WorkCategory;
+import com.vodchyts.backend.feature.repository.ReactiveRequestRepository;
 import com.vodchyts.backend.feature.repository.ReactiveWorkCategoryRepository;
 import io.r2dbc.spi.Row;
 import io.r2dbc.spi.RowMetadata;
@@ -22,19 +24,26 @@ public class WorkCategoryService {
 
     private final ReactiveWorkCategoryRepository workCategoryRepository;
     private final DatabaseClient databaseClient;
+    private final ReactiveRequestRepository requestRepository;
 
-    public WorkCategoryService(ReactiveWorkCategoryRepository workCategoryRepository, DatabaseClient databaseClient) {
+    public WorkCategoryService(ReactiveWorkCategoryRepository workCategoryRepository, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository) {
         this.workCategoryRepository = workCategoryRepository;
         this.databaseClient = databaseClient;
+        this.requestRepository = requestRepository;
     }
 
     public static final BiFunction<Row, RowMetadata, WorkCategoryResponse> WC_MAPPING_FUNCTION = (row, rowMetaData) -> new WorkCategoryResponse(
             row.get("WorkCategoryID", Integer.class),
-            row.get("WorkCategoryName", String.class)
+            row.get("WorkCategoryName", String.class),
+            row.get("RequestCount", Long.class)
     );
 
+
     public Mono<PagedResponse<WorkCategoryResponse>> getAllWorkCategories(List<String> sort, int page, int size) {
-        String sql = "SELECT WorkCategoryID, WorkCategoryName FROM WorkCategories";
+        String sql = "SELECT wc.WorkCategoryID, wc.WorkCategoryName, COUNT(r.RequestID) as RequestCount " +
+                "FROM WorkCategories wc " +
+                "LEFT JOIN Requests r ON wc.WorkCategoryID = r.WorkCategoryID " +
+                "GROUP BY wc.WorkCategoryID, wc.WorkCategoryName";
 
         String countSql = "SELECT COUNT(*) FROM WorkCategories";
         Mono<Long> countMono = databaseClient.sql(countSql).map(row -> row.get(0, Long.class)).one();
@@ -48,7 +57,7 @@ public class WorkCategoryService {
         return Mono.zip(contentFlux.collectList(), countMono)
                 .map(tuple -> {
                     List<WorkCategoryResponse> content = tuple.getT1();
-                    Long count = tuple.getT2();
+                    long count = tuple.getT2();
                     int totalPages = (count == 0) ? 0 : (int) Math.ceil((double) count / size);
                     return new PagedResponse<>(content, page, count, totalPages);
                 });
@@ -56,11 +65,12 @@ public class WorkCategoryService {
 
     private String parseSortToSql(List<String> sortParams) {
         if (sortParams == null || sortParams.isEmpty()) {
-            return " ORDER BY WorkCategoryID ASC";
+            return " ORDER BY wc.WorkCategoryID ASC";
         }
         Map<String, String> columnMapping = Map.of(
-                "workCategoryID", "WorkCategoryID",
-                "workCategoryName", "WorkCategoryName"
+                "workCategoryID", "wc.WorkCategoryID",
+                "workCategoryName", "wc.WorkCategoryName",
+                "requestCount", "RequestCount" // Сортируем по псевдониму
         );
 
         String orders = sortParams.stream()
@@ -75,7 +85,7 @@ public class WorkCategoryService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.joining(", "));
 
-        return orders.isEmpty() ? " ORDER BY WorkCategoryID ASC" : " ORDER BY " + orders;
+        return orders.isEmpty() ? " ORDER BY wc.WorkCategoryID ASC" : " ORDER BY " + orders;
     }
 
     public Mono<WorkCategory> createWorkCategory(CreateWorkCategoryRequest request) {
@@ -111,13 +121,23 @@ public class WorkCategoryService {
     }
 
     public Mono<Void> deleteWorkCategory(Integer categoryId) {
-        return workCategoryRepository.deleteById(categoryId);
+        return requestRepository.countByWorkCategoryID(categoryId)
+                .flatMap(count -> {
+                    if (count > 0) {
+                        return Mono.error(new OperationNotAllowedException(
+                                "Нельзя удалить категорию, так как она используется в " + count + " заявках."
+                        ));
+                    }
+                    return workCategoryRepository.deleteById(categoryId);
+                });
     }
 
     public WorkCategoryResponse mapWorkCategoryToResponse(WorkCategory category) {
         return new WorkCategoryResponse(
                 category.getWorkCategoryID(),
-                category.getWorkCategoryName()
+                category.getWorkCategoryName(),
+                0
         );
     }
+
 }
