@@ -12,7 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BarChart3, List, PlusCircle, Trash2, Edit, MessageSquare, Camera, Search, XCircle, RotateCcw, Eye, ArrowUpDown } from 'lucide-react'; 
+import { BarChart3, List, PlusCircle, Trash2, Edit, MessageSquare, Camera, Search, XCircle, RotateCcw, Eye, ArrowUpDown, Store } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 import RequestForm from './RequestForm';
 import CommentsModal from './CommentsModal';
@@ -34,6 +34,7 @@ export default function Requests({ archived = false }) {
     const [viewMode, setViewMode] = useState('table'); 
 
     const [requests, setRequests] = useState([]);
+    const [groupedRequests, setGroupedRequests] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [paginationData, setPaginationData] = useState({ totalPages: 0, totalItems: 0 });
@@ -56,6 +57,20 @@ export default function Requests({ archived = false }) {
     const searchParamsString = searchParams.toString();
 
     const areFiltersActive = filterKeys.some(key => searchParams.has(key));
+
+    useEffect(() => {
+        if (viewMode === 'byShop' && requests.length > 0) {
+            const grouped = requests.reduce((acc, req) => {
+                const shopName = req.shopName || 'Без магазина';
+                if (!acc[shopName]) {
+                    acc[shopName] = [];
+                }
+                acc[shopName].push(req);
+                return acc;
+            }, {});
+            setGroupedRequests(grouped);
+        }
+    }, [viewMode, requests]);
 
     useEffect(() => {
         if (!searchParams.has('sort')) {
@@ -175,6 +190,7 @@ export default function Requests({ archived = false }) {
         const currentParams = new URLSearchParams(searchParamsString);
         
         try {
+            const isByShopView = currentParams.get('view') === 'byShop';
             const params = {
                 page: parseInt(currentParams.get('page') || '0', 10),
                 archived,
@@ -337,6 +353,9 @@ export default function Requests({ archived = false }) {
                             <Button variant={viewMode === 'gantt' ? 'secondary' : 'outline'} onClick={() => setViewMode('gantt')}>
                                 <BarChart3 className="mr-2 h-4 w-4" /> Диаграмма
                             </Button>
+                            <Button variant={viewMode === 'byShop' ? 'secondary' : 'outline'} onClick={() => setViewMode('byShop')}>
+                                <Store className="mr-2 h-4 w-4" /> По магазинам
+                            </Button>
                         </>
                     )}
 
@@ -477,7 +496,10 @@ export default function Requests({ archived = false }) {
                                 })}>
                                     <TableCell>{req.requestID}</TableCell>
                                     <TableCell className="font-medium">
-                                        {req.description?.substring(0, 50) + (req.description?.length > 50 ? '...' : '')}
+                                        {req.description?.length > 50 
+                                            ? req.description.substring(0, 50) + '...' 
+                                            : req.description
+                                        }
                                     </TableCell>
                                     <TableCell>{req.shopName}</TableCell>
                                     <TableCell>{req.workCategoryName}</TableCell>
@@ -539,6 +561,62 @@ export default function Requests({ archived = false }) {
                             filters={currentFilters} 
                             onTaskClick={openDetails}
                         />
+                    )}
+
+                                        {viewMode === 'byShop' && (
+                        <div className="space-y-8">
+                            {Object.keys(groupedRequests).sort().map(shopName => (
+                                <div key={shopName}>
+                                    <h2 className="text-xl font-bold mb-2 border-b pb-2">{shopName}</h2>
+                                    <div className="rounded-md border">
+                                        <Table>
+                                            <TableHeader>
+                                                {/* Копируем заголовок из основного вида, но без магазина */}
+                                                <TableRow>
+                                                    <SortableHeader field="requestID">ID</SortableHeader>
+                                                    <SortableHeader field="description">Описание</SortableHeader>
+                                                    <SortableHeader field="workCategoryName">Вид работы</SortableHeader>
+                                                    <SortableHeader field="urgencyName">Срочность</SortableHeader>
+                                                    <SortableHeader field="assignedContractorName">Диспетчер</SortableHeader>
+                                                    <SortableHeader field="status">Статус</SortableHeader>
+                                                    <SortableHeader field="daysRemaining">Срок</SortableHeader>
+                                                    <TableHead>Действия</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {groupedRequests[shopName].map(req => (
+                                                    <TableRow key={req.requestID} className={cn({ 
+                                                        'bg-red-100': req.isOverdue && req.status === 'In work',
+                                                        'bg-blue-100': req.status === 'Done' 
+                                                    })}>
+                                                        {/* Копируем ячейки, но без магазина */}
+                                                        <TableCell>{req.requestID}</TableCell>
+                                                        <TableCell className="font-medium">{req.description?.substring(0, 50)}...</TableCell>
+                                                        <TableCell>{req.workCategoryName}</TableCell>
+                                                        <TableCell>{getUrgencyDisplayName(req.urgencyName)}</TableCell>
+                                                        <TableCell>{req.assignedContractorName || '—'}</TableCell>
+                                                        <TableCell>{getStatusDisplayName(req.status)}</TableCell>
+                                                        <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 })}>{req.daysRemaining !== null ? req.daysRemaining : '—'}</TableCell>
+                                                        <TableCell>
+                                                            {/* Копируем блок с кнопками действий */}
+                                                            <div className="flex gap-1">
+                                                                <Button variant="ghost" size="icon" onClick={() => openDetails(req)} title="Просмотр деталей"><Eye className="h-4 w-4"/></Button>
+                                                                <Button variant="ghost" size="icon" onClick={() => openComments(req)}><MessageSquare className="h-4 w-4"/><span className="text-xs ml-1">{req.commentCount}</span></Button>
+                                                                <Button variant="ghost" size="icon" onClick={() => openPhotos(req)}><Camera className="h-4 w-4"/><span className="text-xs ml-1">{req.photoCount}</span></Button>
+                                                                {isContractor && req.status === 'In work' && !archived && (<Button variant="outline" size="sm" onClick={() => handleComplete(req.requestID)}>Завершить</Button>)}
+                                                                {isAdmin && req.status !== 'Closed' && (<Button variant="outline" size="icon" onClick={() => openEditForm(req)}><Edit className="h-4 w-4" /></Button>)}
+                                                                {isAdmin && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" onClick={() => handleRestore(req.requestID)}><RotateCcw className="h-4 w-4" /></Button>)}
+                                                                {isAdmin && (<Button variant="destructive" size="icon" onClick={() => openDeleteAlert(req)}><Trash2 className="h-4 w-4" /></Button>)}
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     )}
                 </>
             )}
