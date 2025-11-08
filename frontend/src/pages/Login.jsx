@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthProvider'
 import { Label } from "@/components/ui/label"
 
@@ -11,10 +11,12 @@ export default function Login() {
   const [error, setError] = useState(null)
   const { login: doLogin, accessToken, loading } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const from = location.state?.from?.pathname || "/"
 
   useEffect(() => {
     if (!loading && accessToken) {
-      navigate('/dashboard', { replace: true });
+      navigate(from, { replace: true });
     }
   }, [accessToken, loading, navigate])
 
@@ -23,7 +25,7 @@ export default function Login() {
     setError(null)
     try {
       await doLogin(login, password)
-      navigate('/dashboard')
+      navigate(from, { replace: true })
     } catch (err) {
       setError(err.response?.data || err.message || 'Ошибка')
     }
