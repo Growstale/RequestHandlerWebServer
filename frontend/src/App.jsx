@@ -13,6 +13,7 @@ import UrgencyCategories from './pages/UrgencyCategories'
 import Requests from './pages/Requests';
 import ArchivedRequests from './pages/ArchivedRequests';
 import ShopContractorChats from './pages/ShopContractorChats'; 
+import Messaging from './pages/Messaging';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -28,7 +29,14 @@ export default function App() {
 
       <div className="pt-16 md:pl-64">
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route 
+            path="/" 
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            } 
+          />
           <Route path="/login" element={<Login />} />
           <Route
             path="/dashboard"
@@ -54,12 +62,19 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          {/* V-- Новые маршруты --V */}
           <Route
             path="/shop-contractor-chats"
             element={
               <ProtectedRoute allowedRoles={['RetailAdmin']}>
                 <ShopContractorChats />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/messaging"
+            element={
+              <ProtectedRoute allowedRoles={['RetailAdmin']}>
+                <Messaging />
               </ProtectedRoute>
             }
           />
