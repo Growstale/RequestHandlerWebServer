@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthProvider'
 import { Button } from './ui/button'
-import { Home as HomeIcon, LayoutDashboard, Users as UsersIcon, Building as ShopsIcon, ClipboardList, CalendarClock, Briefcase, Archive, MessageSquare } from 'lucide-react';
+import { Home as HomeIcon, LayoutDashboard, Users as UsersIcon, Building as ShopsIcon, ClipboardList, CalendarClock, Briefcase, Archive, MessageSquare, Mail } from 'lucide-react';
 import { getRoleDisplayName } from '@/lib/displayNames';
 
 const allLinks = [
@@ -13,6 +13,7 @@ const allLinks = [
   { href: '/users', label: 'Пользователи', icon: UsersIcon, roles: ['RetailAdmin'] },
   { href: '/shops', label: 'Магазины', icon: ShopsIcon, roles: ['RetailAdmin'] },
   { href: '/shop-contractor-chats', label: 'Чаты', icon: MessageSquare, roles: ['RetailAdmin'] },
+  { href: '/messaging', label: 'Рассылки', icon: Mail, roles: ['RetailAdmin'] },
   { href: '/work-categories', label: 'Виды работ', icon: ClipboardList, roles: ['RetailAdmin'] },
   { href: '/urgency-categories', label: 'Сроки заявок', icon: CalendarClock, roles: ['RetailAdmin'] },
 ];
@@ -40,17 +41,6 @@ export default function Sidebar({ open, onClose }) {
           open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <Link
-            to="/"
-            className={cn(
-            'flex items-center gap-3 px-3 py-2 rounded hover:bg-gray-100 transition-colors',
-            location.pathname === '/' && 'bg-gray-200 font-semibold'
-            )}
-            onClick={onClose}
-        >
-            <HomeIcon className="h-4 w-4" />
-            Главная
-        </Link>
         
         {links.map(link => (
             <Link
@@ -58,7 +48,7 @@ export default function Sidebar({ open, onClose }) {
                 to={link.href}
                 className={cn(
                 'flex items-center gap-3 px-3 py-2 rounded hover:bg-gray-100 transition-colors',
-                location.pathname === link.href && 'bg-gray-200 font-semibold'
+                (location.pathname === link.href || (link.href === '/dashboard' && location.pathname === '/')) && 'bg-gray-200 font-semibold'
                 )}
                 onClick={onClose}
             >
@@ -66,6 +56,7 @@ export default function Sidebar({ open, onClose }) {
                 {link.label}
             </Link>
         ))}
+
 
         <div className="mt-auto border-t pt-4 flex flex-col gap-2">
           {user ? (
