@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { getShopContractorChats } from '@/api/shopContractorChatApi';
-import { getMessageTemplates, createMessageTemplate, updateMessageTemplate, deleteMessageTemplate, sendMessage } from '@/api/messagingApi';
+import { getMessageTemplates, createMessageTemplate, updateMessageTemplate, deleteMessageTemplate, sendMessage, sendMessageWithImage, getTemplateImageBlob } from '@/api/messagingApi';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from '@/components/ui/label';
-import { PlusCircle, Trash2, Edit, Send, BookCopy, AlertCircle, FileText } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { PlusCircle, Trash2, Edit, Send, BookCopy, AlertCircle, FileText, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MessageTemplateForm from './MessageTemplateForm';
 import RecipientSelector from './RecipientSelector'; 
@@ -15,14 +16,14 @@ import MessageTemplateSelectorModal from './MessageTemplateSelectorModal';
 
 export default function Messaging() {
     const [activeTab, setActiveTab] = useState('send');
-
     const [message, setMessage] = useState('');
+    const [imageFile, setImageFile] = useState(null);
+    const [previewUrl, setPreviewUrl] = useState(null);
     const [allChats, setAllChats] = useState([]);
     const [selectedChatIds, setSelectedChatIds] = useState(new Set());
     const [templates, setTemplates] = useState([]);
     const [sendError, setSendError] = useState('');
     const [sendSuccess, setSendSuccess] = useState('');
-
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isFormOpen, setIsFormOpen] = useState(false);
@@ -42,7 +43,6 @@ export default function Messaging() {
             setTemplates(templatesRes.data);
         } catch (err) {
             setError('Не удалось загрузить данные.');
-            console.error(err);
         } finally {
             setLoading(false);
         }
@@ -52,54 +52,101 @@ export default function Messaging() {
         loadInitialData();
     }, []);
     
-    const groupedChats = useMemo(() => {
-        return allChats.reduce((acc, chat) => {
-            const shopName = chat.shopName || 'Без магазина';
-            if (!acc[shopName]) {
-                acc[shopName] = [];
+    useEffect(() => {
+        return () => {
+            if (previewUrl) {
+                URL.revokeObjectURL(previewUrl);
             }
-            acc[shopName].push(chat);
-            return acc;
-        }, {});
-    }, [allChats]);
+        };
+    }, [previewUrl]);
 
-    const handleSelectChat = useCallback((chatId, checked) => {
-        setSelectedChatIds(prev => {
-            const newSet = new Set(prev);
-            if (checked) newSet.add(chatId);
-            else newSet.delete(chatId);
-            return newSet;
-        });
-    }, []);
+    const groupedChats = useMemo(() => allChats.reduce((acc, chat) => {
+        const shopName = chat.shopName || 'Без магазина';
+        if (!acc[shopName]) acc[shopName] = [];
+        acc[shopName].push(chat);
+        return acc;
+    }, {}), [allChats]);
+
+    const handleSelectChat = useCallback((chatId, checked) => setSelectedChatIds(prev => {
+        const newSet = new Set(prev);
+        if (checked) newSet.add(chatId);
+        else newSet.delete(chatId);
+        return newSet;
+    }), []);
 
     const handleSelectAll = useCallback((checked) => {
         setSelectedChatIds(checked ? new Set(allChats.map(c => c.shopContractorChatID)) : new Set());
     }, [allChats]);
 
-    const handleSelectTemplateFromModal = useCallback((template) => {
+    const handleSelectTemplateFromModal = useCallback(async (template) => {
         if (template) {
             setMessage(template.message || '');
             setSelectedChatIds(new Set(template.recipientChatIds));
+            
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            setPreviewUrl(null);
+            setImageFile(null);
+
+            if (template.hasImage) {
+                try {
+                    const response = await getTemplateImageBlob(template.messageID);
+                    const blob = response.data;
+                    const fileName = `template_image_${template.messageID}.jpg`;
+                    const file = new File([blob], fileName, { type: blob.type });
+                    
+                    setImageFile(file);
+                    setPreviewUrl(URL.createObjectURL(blob));
+                } catch (error) {
+                    console.error("Не удалось загрузить изображение из шаблона", error);
+                    setSendError("Не удалось загрузить изображение из шаблона.");
+                }
+            }
         }
         setIsTemplateSelectorOpen(false);
-    }, []);
+    }, [previewUrl]);
+
+
+    const handleSendImageChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setImageFile(file);
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            setPreviewUrl(URL.createObjectURL(file));
+        }
+    };
+
+    const handleClearSendImage = () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setImageFile(null);
+        setPreviewUrl(null);
+    };
 
     const handleSend = async () => {
         setSendError('');
         setSendSuccess('');
-        if (!message.trim() || selectedChatIds.size === 0) {
+        if (!message.trim() && !imageFile) {
             setSendError('Текст сообщения и получатели не могут быть пустыми.');
             return;
         }
 
         try {
-            await sendMessage({
-                message: message,
-                recipientChatIds: Array.from(selectedChatIds)
-            });
+            if (imageFile) {
+                const formData = new FormData();
+                formData.append('message', message);
+                const chatIdsString = Array.from(selectedChatIds).join(',');
+                formData.append('recipientChatIds', chatIdsString);
+                formData.append('image', imageFile);
+                await sendMessageWithImage(formData);
+            } else {
+                await sendMessage({
+                    message: message,
+                    recipientChatIds: Array.from(selectedChatIds)
+                });
+            }
             setSendSuccess(`Сообщение успешно отправлено (в консоль) ${selectedChatIds.size} получателям.`);
             setMessage('');
             setSelectedChatIds(new Set());
+            handleClearSendImage();
         } catch(err) {
             setSendError(err.response?.data || 'Ошибка при отправке.');
         }
@@ -172,25 +219,37 @@ export default function Messaging() {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-4">
                         <div className="space-y-2">
+                            <Label>Вставить из шаблона</Label>
                             <Button variant="outline" className="w-full justify-start" onClick={() => setIsTemplateSelectorOpen(true)}>
                                 <FileText className="mr-2 h-4 w-4" />
                                 Выбрать шаблон...
                             </Button>
                         </div>
-
                         <div className="space-y-2">
-                            <Label htmlFor="message-text">Текст сообщения <span className="text-destructive">*</span></Label>
+                            <Label htmlFor="message-text">Текст сообщения</Label>
                             <Textarea 
                                 id="message-text"
                                 placeholder="Введите ваше сообщение здесь..."
                                 value={message}
                                 onChange={(e) => setMessage(e.target.value)}
-                                rows={15}
+                                rows={10}
                             />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="send-image">Прикрепить фото (необязательно)</Label>
+                            <Input id="send-image" type="file" accept="image/jpeg, image/png" onChange={handleSendImageChange} />
+                            {previewUrl && (
+                                <div className="mt-2 relative w-40 h-40 border rounded-md p-1 bg-gray-50">
+                                    <img src={previewUrl} alt="Предпросмотр" className="w-full h-full object-contain rounded"/>
+                                    <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full" onClick={handleClearSendImage}>
+                                        <X className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                          {sendError && <p className="text-sm text-red-600 flex items-center gap-2"><AlertCircle className="h-4 w-4"/> {sendError}</p>}
                          {sendSuccess && <p className="text-sm text-green-600">{sendSuccess}</p>}
-                        <Button onClick={handleSend} disabled={!message.trim() || selectedChatIds.size === 0}>
+                        <Button onClick={handleSend} disabled={(!message.trim() && !imageFile) || selectedChatIds.size === 0}>
                             <Send className="mr-2 h-4 w-4" /> Отправить ({selectedChatIds.size})
                         </Button>
                     </div>
