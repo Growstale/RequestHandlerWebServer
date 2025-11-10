@@ -86,6 +86,7 @@ export default function Messaging() {
             if (previewUrl) URL.revokeObjectURL(previewUrl);
             setPreviewUrl(null);
             setImageFile(null);
+            setSendError(''); // Очищаем предыдущие ошибки
 
             if (template.hasImage) {
                 try {
@@ -98,7 +99,11 @@ export default function Messaging() {
                     setPreviewUrl(URL.createObjectURL(blob));
                 } catch (error) {
                     console.error("Не удалось загрузить изображение из шаблона", error);
-                    setSendError("Не удалось загрузить изображение из шаблона.");
+                    // Показываем ошибку только если шаблон должен содержать изображение
+                    // и произошла реальная ошибка (не 404)
+                    if (error.response?.status !== 404) {
+                        setSendError("Не удалось загрузить изображение из шаблона.");
+                    }
                 }
             }
         }
@@ -119,6 +124,11 @@ export default function Messaging() {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setImageFile(null);
         setPreviewUrl(null);
+        // Очищаем значение input файла
+        const fileInput = document.getElementById('send-image');
+        if (fileInput) {
+            fileInput.value = '';
+        }
     };
 
     const handleSend = async () => {
@@ -237,7 +247,16 @@ export default function Messaging() {
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="send-image">Прикрепить фото (необязательно)</Label>
-                            <Input id="send-image" type="file" accept="image/jpeg, image/png" onChange={handleSendImageChange} />
+                            <Input 
+                                id="send-image" 
+                                type="file" 
+                                accept="image/jpeg, image/png" 
+                                onChange={handleSendImageChange}
+                                className="file:mr-4 file:py-1 file:px-2 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                                style={{ 
+                                    color: (previewUrl || imageFile) ? 'transparent' : 'inherit'
+                                }}
+                            />
                             {previewUrl && (
                                 <div className="mt-2 relative w-40 h-40 border rounded-md p-1 bg-gray-50">
                                     <img src={previewUrl} alt="Предпросмотр" className="w-full h-full object-contain rounded"/>

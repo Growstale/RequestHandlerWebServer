@@ -51,7 +51,7 @@ public class ShopContractorChatService {
         String sql = "SELECT scc.ShopContractorChatID, scc.ShopID, s.ShopName, scc.ContractorID, u.Login as ContractorLogin, scc.TelegramID " +
                 "FROM ShopContractorChats scc " +
                 "JOIN Shops s ON scc.ShopID = s.ShopID " +
-                "JOIN Users u ON scc.ContractorID = u.UserID";
+                "LEFT JOIN Users u ON scc.ContractorID = u.UserID";
 
         String countSql = "SELECT COUNT(*) FROM ShopContractorChats";
         Mono<Long> countMono = databaseClient.sql(countSql).map(row -> row.get(0, Long.class)).one();
@@ -88,38 +88,153 @@ public class ShopContractorChatService {
     }
 
     public Mono<ShopContractorChat> createChat(CreateShopContractorChatRequest request) {
-        return chatRepository.existsByShopIDAndContractorID(request.shopID(), request.contractorID())
-                .flatMap(exists -> {
-                    if (exists) {
-                        return Mono.error(new OperationNotAllowedException("Связь для этой пары магазина и подрядчика уже существует."));
+        // Проверяем уникальность TelegramID
+        Mono<Void> telegramIdCheck = databaseClient.sql("SELECT COUNT(*) FROM ShopContractorChats WHERE TelegramID = :telegramId")
+                .bind("telegramId", request.telegramID())
+                .map(row -> row.get(0, Long.class))
+                .one()
+                .flatMap(count -> {
+                    if (count > 0) {
+                        return Mono.error(new OperationNotAllowedException("Чат с таким Telegram ID уже существует."));
                     }
-                    return validateUserIsContractor(request.contractorID());
-                })
+                    return Mono.empty();
+                });
+        
+        Mono<Void> validationMono;
+        if (request.contractorID() != null) {
+            validationMono = chatRepository.existsByShopIDAndContractorID(request.shopID(), request.contractorID())
+                    .flatMap(exists -> {
+                        if (exists) {
+                            return Mono.error(new OperationNotAllowedException("Связь для этой пары магазина и подрядчика уже существует."));
+                        }
+                        return validateUserIsContractor(request.contractorID());
+                    });
+        } else {
+            // Проверяем, существует ли уже чат для этого магазина без подрядчика
+            String checkSql = "SELECT COUNT(*) FROM ShopContractorChats WHERE ShopID = :shopId AND ContractorID IS NULL";
+            validationMono = databaseClient.sql(checkSql)
+                    .bind("shopId", request.shopID())
+                    .map(row -> row.get(0, Long.class))
+                    .one()
+                    .flatMap(count -> {
+                        if (count > 0) {
+                            return Mono.error(new OperationNotAllowedException("Связь для этого магазина без подрядчика уже существует."));
+                        }
+                        return Mono.empty();
+                    });
+        }
+        
+        return Mono.zip(telegramIdCheck, validationMono)
                 .then(Mono.defer(() -> {
                     ShopContractorChat chat = new ShopContractorChat();
                     chat.setShopID(request.shopID());
                     chat.setContractorID(request.contractorID());
                     chat.setTelegramID(request.telegramID());
-                    return chatRepository.save(chat);
+                    return chatRepository.save(chat)
+                            .onErrorMap(ex -> {
+                                String message = ex.getMessage();
+                                if (message != null) {
+                                    if (message.contains("UQ_ShopContractorChats_TelegramID")) {
+                                        return new OperationNotAllowedException("Чат с таким Telegram ID уже существует.");
+                                    }
+                                    if (message.contains("UQ_ShopContractorChats_Shop_User")) {
+                                        if (request.contractorID() != null) {
+                                            return new OperationNotAllowedException("Связь для этой пары магазина и подрядчика уже существует.");
+                                        } else {
+                                            return new OperationNotAllowedException("Связь для этого магазина без подрядчика уже существует.");
+                                        }
+                                    }
+                                }
+                                return ex;
+                            });
                 }));
     }
 
     public Mono<ShopContractorChat> updateChat(Integer chatId, UpdateShopContractorChatRequest request) {
-        return chatRepository.existsByShopIDAndContractorIDAndShopContractorChatIDNot(request.shopID(), request.contractorID(), chatId)
-                .flatMap(exists -> {
-                    if (exists) {
-                        return Mono.error(new OperationNotAllowedException("Связь для этой пары магазина и подрядчика уже существует."));
+        return chatRepository.findById(chatId)
+                .switchIfEmpty(Mono.error(new RuntimeException("Чат не найден")))
+                .flatMap(existingChat -> {
+                    // Проверяем, изменилась ли пара ShopID+ContractorID
+                    boolean shopContractorPairChanged = !existingChat.getShopID().equals(request.shopID()) ||
+                            !Objects.equals(existingChat.getContractorID(), request.contractorID());
+                    
+                    // Проверяем уникальность TelegramID только если он изменился
+                    Mono<Void> telegramIdCheck;
+                    if (existingChat.getTelegramID() != null && existingChat.getTelegramID().equals(request.telegramID())) {
+                        // Если TelegramID не изменился, пропускаем проверку
+                        telegramIdCheck = Mono.empty();
+                    } else {
+                        // Иначе проверяем уникальность (исключая текущий чат)
+                        telegramIdCheck = databaseClient.sql("SELECT COUNT(*) FROM ShopContractorChats WHERE TelegramID = :telegramId AND ShopContractorChatID != :currentId")
+                                .bind("telegramId", request.telegramID())
+                                .bind("currentId", chatId)
+                                .map(row -> row.get(0, Long.class))
+                                .one()
+                                .flatMap(count -> {
+                                    if (count > 0) {
+                                        return Mono.error(new OperationNotAllowedException("Чат с таким Telegram ID уже существует."));
+                                    }
+                                    return Mono.empty();
+                                });
                     }
-                    return chatRepository.findById(chatId)
-                            .switchIfEmpty(Mono.error(new RuntimeException("Чат не найден")))
-                            .flatMap(chat -> validateUserIsContractor(request.contractorID())
-                                    .thenReturn(chat));
+                    
+                    // Проверяем уникальность пары ShopID+ContractorID только если она изменилась
+                    Mono<Void> validationMono;
+                    if (!shopContractorPairChanged) {
+                        // Если пара не изменилась, пропускаем проверку, но все равно валидируем подрядчика
+                        if (request.contractorID() != null) {
+                            validationMono = validateUserIsContractor(request.contractorID());
+                        } else {
+                            validationMono = Mono.empty();
+                        }
+                    } else if (request.contractorID() != null) {
+                        validationMono = chatRepository.existsByShopIDAndContractorIDAndShopContractorChatIDNot(request.shopID(), request.contractorID(), chatId)
+                                .flatMap(exists -> {
+                                    if (exists) {
+                                        return Mono.error(new OperationNotAllowedException("Связь для этой пары магазина и подрядчика уже существует."));
+                                    }
+                                    return validateUserIsContractor(request.contractorID());
+                                });
+                    } else {
+                        // Проверяем, существует ли уже чат для этого магазина без подрядчика
+                        String checkSql = "SELECT COUNT(*) FROM ShopContractorChats WHERE ShopID = :shopId AND ContractorID IS NULL AND ShopContractorChatID != :currentId";
+                        validationMono = databaseClient.sql(checkSql)
+                                .bind("shopId", request.shopID())
+                                .bind("currentId", chatId)
+                                .map(row -> row.get(0, Long.class))
+                                .one()
+                                .flatMap(count -> {
+                                    if (count > 0) {
+                                        return Mono.error(new OperationNotAllowedException("Связь для этого магазина без подрядчика уже существует."));
+                                    }
+                                    return Mono.empty();
+                                });
+                    }
+                    
+                    return Mono.zip(telegramIdCheck, validationMono)
+                            .thenReturn(existingChat);
                 })
                 .flatMap(chat -> {
                     chat.setShopID(request.shopID());
                     chat.setContractorID(request.contractorID());
                     chat.setTelegramID(request.telegramID());
-                    return chatRepository.save(chat);
+                    return chatRepository.save(chat)
+                            .onErrorMap(ex -> {
+                                String message = ex.getMessage();
+                                if (message != null) {
+                                    if (message.contains("UQ_ShopContractorChats_TelegramID")) {
+                                        return new OperationNotAllowedException("Чат с таким Telegram ID уже существует.");
+                                    }
+                                    if (message.contains("UQ_ShopContractorChats_Shop_User")) {
+                                        if (request.contractorID() != null) {
+                                            return new OperationNotAllowedException("Связь для этой пары магазина и подрядчика уже существует.");
+                                        } else {
+                                            return new OperationNotAllowedException("Связь для этого магазина без подрядчика уже существует.");
+                                        }
+                                    }
+                                }
+                                return ex;
+                            });
                 });
     }
 
@@ -133,7 +248,7 @@ public class ShopContractorChatService {
 
     private Mono<Void> validateUserIsContractor(Integer userId) {
         if (userId == null) {
-            return Mono.error(new UserNotFoundException("ID подрядчика не может быть пустым"));
+            return Mono.empty(); // Разрешаем null
         }
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с ID " + userId + " не найден")))
@@ -150,7 +265,7 @@ public class ShopContractorChatService {
         String sql = "SELECT scc.ShopContractorChatID, scc.ShopID, s.ShopName, scc.ContractorID, u.Login as ContractorLogin, scc.TelegramID " +
                 "FROM ShopContractorChats scc " +
                 "JOIN Shops s ON scc.ShopID = s.ShopID " +
-                "JOIN Users u ON scc.ContractorID = u.UserID " +
+                "LEFT JOIN Users u ON scc.ContractorID = u.UserID " +
                 "WHERE scc.TelegramID = :telegramId";
 
         return databaseClient.sql(sql)

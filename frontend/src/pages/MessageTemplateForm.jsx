@@ -19,6 +19,7 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
     const [imageFile, setImageFile] = useState(null);
     const [previewUrl, setPreviewUrl] = useState(null);
     const [existingImage, setExistingImage] = useState(currentTemplate?.hasImage);
+    const [shouldDeleteImage, setShouldDeleteImage] = useState(false);
     const [imageKey, setImageKey] = useState(Date.now());
     
     const isEditing = !!currentTemplate;
@@ -35,6 +36,9 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
                     console.error("Не удалось загрузить изображение шаблона:", err);
                 });
         }
+        
+        // Сброс флагов при открытии формы
+        setShouldDeleteImage(false);
         
         return () => {
             if (objectUrl) {
@@ -66,18 +70,15 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
         e.target.value = null;
     };
     
-    const handleDeleteImage = async () => {
+    const handleDeleteImage = () => {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setImageFile(null);
         setPreviewUrl(null);
         
         if (isEditing && existingImage) {
-             try {
-                await deleteTemplateImage(currentTemplate.messageID);
-                setExistingImage(false);
-             } catch (error) {
-                console.error("Ошибка при попытке удаления изображения:", error);
-            }
+            // Помечаем изображение для удаления, но не удаляем сразу
+            setShouldDeleteImage(true);
+            setExistingImage(false);
         }
     };
 
@@ -99,8 +100,18 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
         setSelectedChatIds(checked ? new Set(allChats.map(c => c.shopContractorChatID)) : new Set());
     }, [allChats]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
+        
+        // Если нужно удалить изображение, удаляем его перед сохранением
+        if (shouldDeleteImage && isEditing) {
+            try {
+                await deleteTemplateImage(currentTemplate.messageID);
+            } catch (error) {
+                console.error("Ошибка при попытке удаления изображения:", error);
+            }
+        }
+        
         const finalFormData = new FormData();
         finalFormData.append('title', formData.title);
         finalFormData.append('message', formData.message || '');
@@ -116,7 +127,7 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
     };
 
     return (
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 max-h-[80vh] overflow-y-auto pr-2">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 max-h-[80vh] overflow-y-auto px-3">
             {apiError && <p className="col-span-2 text-red-600 p-2 bg-red-50 rounded-md">{apiError}</p>}
             
             <div className="space-y-4 flex flex-col">
@@ -130,8 +141,17 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="image">Изображение (необязательно)</Label>
-                    <Input id="image" type="file" accept="image/jpeg, image/png" onChange={handleFileChange} />
-                    {(previewUrl || (isEditing && existingImage)) && (
+                    <Input 
+                        id="image" 
+                        type="file" 
+                        accept="image/jpeg, image/png" 
+                        onChange={handleFileChange}
+                        className="file:mr-4 file:py-1 file:px-2 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                        style={{ 
+                            color: (previewUrl || (isEditing && existingImage)) ? 'transparent' : 'inherit'
+                        }}
+                    />
+                    {previewUrl && (
                         <div className="mt-2 relative w-40 h-40 border rounded-md p-1 bg-gray-50">
                             <img 
                                 key={imageKey}
@@ -163,8 +183,24 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
                 loading={false}
             />
 
-            <div className="md:col-span-2 flex justify-end gap-2 pt-4 border-t mt-4">
-                <Button type="button" variant="outline" onClick={onCancel}>Отмена</Button>
+                <div className="md:col-span-2 flex justify-end gap-2 pt-4 border-t mt-4">
+                <Button type="button" variant="outline" onClick={() => {
+                    // При отмене восстанавливаем состояние, если изображение было удалено
+                    if (shouldDeleteImage && isEditing && currentTemplate?.hasImage) {
+                        setShouldDeleteImage(false);
+                        setExistingImage(true);
+                        // Перезагружаем изображение
+                        getTemplateImageBlob(currentTemplate.messageID)
+                            .then(response => {
+                                const objectUrl = URL.createObjectURL(response.data);
+                                setPreviewUrl(objectUrl);
+                            })
+                            .catch(err => {
+                                console.error("Не удалось загрузить изображение шаблона:", err);
+                            });
+                    }
+                    onCancel();
+                }}>Отмена</Button>
                 <Button type="submit">{isEditing ? 'Сохранить' : 'Создать'}</Button>
             </div>
         </form>

@@ -30,11 +30,6 @@ public class GlobalExceptionHandler {
         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage()));
     }
 
-    @ExceptionHandler(RuntimeException.class)
-    public Mono<ResponseEntity<String>> handleOther(RuntimeException ex) {
-        return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage()));
-    }
-
     @ExceptionHandler(UnauthorizedException.class)
     public Mono<ResponseEntity<String>> handleUnauthorized(UnauthorizedException ex) {
         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage()));
@@ -48,6 +43,26 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(OperationNotAllowedException.class)
     public Mono<ResponseEntity<String>> handleOperationNotAllowed(OperationNotAllowedException ex) {
         return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(ex.getMessage()));
+    }
+
+    @ExceptionHandler(RuntimeException.class)
+    public Mono<ResponseEntity<String>> handleRuntimeException(RuntimeException ex) {
+        String message = ex.getMessage();
+        // Обрабатываем ошибки нарушения уникального ключа для чатов
+        if (message != null) {
+            if (message.contains("UQ_ShopContractorChats_TelegramID")) {
+                return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body("Чат с таким Telegram ID уже существует."));
+            }
+            if (message.contains("UQ_ShopContractorChats_Shop_User")) {
+                // Определяем, есть ли подрядчик в сообщении об ошибке
+                if (message.contains("<NULL>")) {
+                    return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body("Связь для этого магазина без подрядчика уже существует."));
+                } else {
+                    return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body("Связь для этой пары магазина и подрядчика уже существует."));
+                }
+            }
+        }
+        return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(message != null ? message : "Произошла ошибка."));
     }
 
     @ExceptionHandler(ShopAlreadyExistsException.class)

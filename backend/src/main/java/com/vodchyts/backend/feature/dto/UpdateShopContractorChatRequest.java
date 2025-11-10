@@ -6,7 +6,6 @@ public record UpdateShopContractorChatRequest(
         @NotNull(message = "Магазин не может быть пустым")
         Integer shopID,
 
-        @NotNull(message = "Подрядчик не может быть пустым")
         Integer contractorID,
 
         @NotNull(message = "Telegram ID не может быть пустым")

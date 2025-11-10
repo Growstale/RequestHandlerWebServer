@@ -192,7 +192,7 @@ export default function ShopContractorChats() {
                 <TableRow key={chat.shopContractorChatID}>
                   <TableCell>{chat.shopContractorChatID}</TableCell>
                   <TableCell className="font-medium">{chat.shopName}</TableCell>
-                  <TableCell>{chat.contractorLogin}</TableCell>
+                  <TableCell>{chat.contractorLogin || 'Без подрядчика'}</TableCell>
                   <TableCell>{chat.telegramID}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
@@ -213,7 +213,7 @@ export default function ShopContractorChats() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
-            <AlertDialogDescription>Это действие удалит связь чата для магазина "{currentChat?.shopName}" и подрядчика "{currentChat?.contractorLogin}".</AlertDialogDescription>
+            <AlertDialogDescription>Это действие удалит связь чата для магазина "{currentChat?.shopName}" {currentChat?.contractorLogin ? `и подрядчика "${currentChat?.contractorLogin}"` : 'без подрядчика'}.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>

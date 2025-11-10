@@ -30,7 +30,7 @@ const MemoizedChatItem = memo(function ChatItem({ chat, isSelected, onSelectChat
                 onChange={(e) => onSelectChat(chat.shopContractorChatID, e.target.checked)}
             />
             <Label htmlFor={`chat-${chat.shopContractorChatID}`} className="font-normal cursor-pointer">
-                {chat.contractorLogin}
+                {chat.contractorLogin || 'Без подрядчика'}
             </Label>
         </div>
     );

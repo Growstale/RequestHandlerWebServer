@@ -44,9 +44,10 @@ export default function ShopContractorChatForm({ currentChat, shops, contractors
 
             <div className="space-y-2">
                 <Label htmlFor="contractorID">Подрядчик <span className="text-destructive">*</span></Label>
-                <Select onValueChange={(v) => handleSelectChange('contractorID', v)} value={formData.contractorID?.toString() || ''}>
+                <Select onValueChange={(v) => handleSelectChange('contractorID', v === 'none' ? null : v)} value={formData.contractorID?.toString() || 'none'}>
                     <SelectTrigger><SelectValue placeholder="Выберите подрядчика..." /></SelectTrigger>
                     <SelectContent>
+                        <SelectItem value="none">Без подрядчика</SelectItem>
                         {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
                     </SelectContent>
                 </Select>
