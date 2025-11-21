@@ -14,6 +14,7 @@ import Requests from './pages/Requests';
 import ArchivedRequests from './pages/ArchivedRequests';
 import ShopContractorChats from './pages/ShopContractorChats'; 
 import Messaging from './pages/Messaging';
+import Notifications from './pages/Notifications';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -75,6 +76,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={['RetailAdmin']}>
                 <Messaging />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute allowedRoles={['RetailAdmin']}>
+                <Notifications />
               </ProtectedRoute>
             }
           />

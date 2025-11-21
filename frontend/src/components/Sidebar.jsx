@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthProvider'
 import { Button } from './ui/button'
-import { Home as HomeIcon, LayoutDashboard, Users as UsersIcon, Building as ShopsIcon, ClipboardList, CalendarClock, Briefcase, Archive, MessageSquare, Mail } from 'lucide-react';
+import { Home as HomeIcon, LayoutDashboard, Users as UsersIcon, Building as ShopsIcon, ClipboardList, CalendarClock, Briefcase, Archive, MessageSquare, Mail, Bell } from 'lucide-react';
 import { getRoleDisplayName } from '@/lib/displayNames';
 
 const allLinks = [
@@ -14,6 +14,7 @@ const allLinks = [
   { href: '/shops', label: 'Магазины', icon: ShopsIcon, roles: ['RetailAdmin'] },
   { href: '/shop-contractor-chats', label: 'Чаты', icon: MessageSquare, roles: ['RetailAdmin'] },
   { href: '/messaging', label: 'Рассылки', icon: Mail, roles: ['RetailAdmin'] },
+  { href: '/notifications', label: 'Уведомления', icon: Bell, roles: ['RetailAdmin'] },
   { href: '/work-categories', label: 'Виды работ', icon: ClipboardList, roles: ['RetailAdmin'] },
   { href: '/urgency-categories', label: 'Сроки заявок', icon: CalendarClock, roles: ['RetailAdmin'] },
 ];
