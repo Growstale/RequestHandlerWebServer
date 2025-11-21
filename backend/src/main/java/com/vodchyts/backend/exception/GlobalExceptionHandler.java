@@ -75,6 +75,11 @@ public class GlobalExceptionHandler {
         return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getMessage()));
     }
 
+    @ExceptionHandler(NotificationAlreadyExistsException.class)
+    public Mono<ResponseEntity<String>> handleNotificationAlreadyExists(NotificationAlreadyExistsException ex) {
+        return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getMessage()));
+    }
+
     @ExceptionHandler(WebExchangeBindException.class)
     public Mono<ResponseEntity<String>> handleValidationExceptions(WebExchangeBindException ex) {
         String errors = ex.getBindingResult()
