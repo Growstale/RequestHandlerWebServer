@@ -67,10 +67,15 @@ public class BotController {
         // Находим пользователя по telegramId, чтобы делать запрос от его имени
         return userService.findByTelegramId(telegram_id)
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с таким Telegram ID не найден.")))
-                .flatMap(user -> requestService.getAllRequests(
-                        archived, searchTerm, null, null, null, null,
-                        null, null, List.of("requestID,desc"), page, size, user.getLogin()
-                ));
+                .flatMap(user -> {
+                    List<String> sortParams = (sort != null && !sort.isEmpty())
+                            ? sort
+                            : List.of("requestID,asc");
+                    return requestService.getAllRequests(
+                            archived, searchTerm, null, null, null, null,
+                            null, null, sortParams, page, size, user.getLogin()
+                    );
+                });
     }
 
     @GetMapping("/requests/{requestId}")

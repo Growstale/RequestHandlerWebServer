@@ -1,10 +1,12 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 import datetime
+import math
 
-from typing import Dict, Any, Coroutine
+from typing import Dict, Any, Coroutine, List, Tuple
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler, CallbackContext, ExtBot
 from telegram.constants import ParseMode, ChatType
+from telegram.error import BadRequest, TimedOut
 import api_client
 from utils import create_paginated_keyboard
 from bot_logging import logger
@@ -17,6 +19,40 @@ class CustomContext(CallbackContext[ExtBot, Dict, Dict, Dict]):
         return cls(application=application, chat_id=update.effective_chat.id, user_id=update.effective_user.id)
 
 Context = CustomContext
+
+SORT_FIELDS: List[tuple[str, str]] = [
+    ("requestID", "ID"),
+    ("description", "Описание"),
+    ("shopName", "Магазин"),
+    ("workCategoryName", "Вид работы"),
+    ("urgencyName", "Срочность"),
+    ("assignedContractorName", "Исполнитель"),
+    ("status", "Статус"),
+    ("daysRemaining", "Срок"),
+]
+SORT_LABELS = dict(SORT_FIELDS)
+SORT_EXTRACTORS = {
+    "requestID": lambda r: r.get("requestID", 0),
+    "description": lambda r: (r.get("description") or "").lower(),
+    "shopName": lambda r: (r.get("shopName") or "").lower(),
+    "workCategoryName": lambda r: (r.get("workCategoryName") or "").lower(),
+    "urgencyName": lambda r: (r.get("urgencyName") or "").lower(),
+    "assignedContractorName": lambda r: (r.get("assignedContractorName") or "").lower(),
+    "status": lambda r: (r.get("status") or "").lower(),
+    "daysRemaining": lambda r: (
+        r.get("daysRemaining") if r.get("daysRemaining") is not None else float("inf")
+    ),
+}
+
+BOT_PAGE_SIZE = 5
+API_BATCH_SIZE = 50
+async def safe_answer_query(query, **kwargs):
+    try:
+        await query.answer(**kwargs)
+    except TimedOut:
+        logger.warning("Timeout while answering callback '%s'", query.data)
+    except Exception as exc:
+        logger.error("Error answering callback '%s': %s", query.data, exc)
 
 
 (CREATE_SELECT_SHOP, CREATE_SELECT_CONTRACTOR, CREATE_SELECT_WORK_CATEGORY,
@@ -80,6 +116,149 @@ def format_request_details(req: dict) -> str:
     return text
 
 
+def _get_sort_list(filters: Dict[str, Any]) -> List[str]:
+    sort_list = filters.get('sort')
+    if not sort_list:
+        sort_list = ['requestID,asc']
+        filters['sort'] = sort_list
+    return sort_list
+
+
+def _apply_local_sort(requests: List[dict], sort_list: List[str]) -> List[dict]:
+    if not requests:
+        return requests
+    parsed: List[Tuple] = []
+    for entry in sort_list:
+        parts = entry.split(",", 1)
+        field = parts[0]
+        direction = parts[1].lower() if len(parts) > 1 else "asc"
+        extractor = SORT_EXTRACTORS.get(field)
+        if extractor:
+            parsed.append((extractor, direction == "desc"))
+    for extractor, reverse in reversed(parsed):
+        try:
+            requests.sort(key=extractor, reverse=reverse)
+        except Exception as exc:
+            logger.warning("Local sort failed for field: %s (%s)", extractor, exc)
+    return requests
+
+
+def _build_cache_key(filters: Dict[str, Any]) -> Tuple:
+    key_parts = []
+    for key, value in filters.items():
+        if key == 'page':
+            continue
+        if isinstance(value, list):
+            key_parts.append((key, tuple(value)))
+        else:
+            key_parts.append((key, value))
+    return tuple(sorted(key_parts))
+
+
+async def _fetch_full_dataset(user_id: int, filters: Dict[str, Any]) -> List[dict] | None:
+    base_filters = {k: v for k, v in filters.items() if k != 'page'}
+    base_filters['size'] = API_BATCH_SIZE
+    aggregated: List[dict] = []
+    page = 0
+    total_pages = 1
+    while page < total_pages:
+        base_filters['page'] = page
+        response = await api_client.get_requests(user_id, base_filters)
+        if response is None:
+            return None
+        aggregated.extend(response.get('content', []))
+        total_pages = response.get('totalPages', page + 1)
+        page += 1
+        if page > 500:
+            logger.warning("Aborting fetch: too many pages for filters %s", filters)
+            break
+    return aggregated
+
+
+async def _get_sorted_dataset(user_id: int, context: Context) -> List[dict] | None:
+    filters = context.user_data.get('view_filters', {})
+    cache_key = _build_cache_key(filters)
+    if context.user_data.get('requests_cache_key') == cache_key:
+        cached = context.user_data.get('requests_cache')
+        if cached is not None:
+            return cached
+
+    dataset = await _fetch_full_dataset(user_id, filters)
+    if dataset is None:
+        return None
+
+    sort_list = _get_sort_list(filters)
+    dataset = _apply_local_sort(dataset, sort_list)
+    context.user_data['requests_cache_key'] = cache_key
+    context.user_data['requests_cache'] = dataset
+    return dataset
+
+
+def _slice_page(requests: List[dict], page: int) -> tuple[List[dict], int]:
+    if not requests:
+        return [], 0
+    total_pages = math.ceil(len(requests) / BOT_PAGE_SIZE)
+    page = min(max(page, 0), total_pages - 1)
+    start = page * BOT_PAGE_SIZE
+    end = start + BOT_PAGE_SIZE
+    return requests[start:end], total_pages
+
+
+def _invalidate_requests_cache(context: Context):
+    context.user_data.pop('requests_cache', None)
+    context.user_data.pop('requests_cache_key', None)
+
+
+def _format_sort_list(sort_list: List[str]) -> str:
+    if not sort_list:
+        sort_list = ['requestID,asc']
+    lines = []
+    for idx, sort_param in enumerate(sort_list, start=1):
+        field, *direction = sort_param.split(',', 1)
+        dir_value = (direction[0] if direction else 'asc').lower()
+        arrow = "⬆️" if dir_value == 'asc' else "⬇️"
+        label = escape_markdown(SORT_LABELS.get(field, field))
+        lines.append(f"{idx}\\.\u00A0{label} {arrow}")
+    return "\n".join(lines)
+
+
+def _build_sort_overview(filters: Dict[str, Any]) -> str:
+    sort_list = _get_sort_list(filters)
+    overview = _format_sort_list(sort_list)
+    return f"{escape_markdown('Текущая сортировка:')}\n{overview}\n\n{escape_markdown('Выберите поле, чтобы настроить порядок.')}"
+
+
+def _get_sort_field_keyboard(filters: Dict[str, Any]) -> InlineKeyboardMarkup:
+    sort_list = _get_sort_list(filters)
+    buttons = []
+    for field, label in SORT_FIELDS:
+        active_index = next((i for i, s in enumerate(sort_list) if s.startswith(field + ",")), None)
+        if active_index is not None:
+            direction = sort_list[active_index].split(',')[1]
+            arrow = "⬆️" if direction == 'asc' else "⬇️"
+            suffix = f" {arrow} ({active_index + 1})"
+        else:
+            suffix = ""
+        buttons.append([InlineKeyboardButton(f"{label}{suffix}", callback_data=f"sort_field_{field}")])
+
+    buttons.append([
+        InlineKeyboardButton("🧹 Очистить", callback_data="sort_clear"),
+        InlineKeyboardButton("✅ Готово", callback_data="sort_done")
+    ])
+    buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="view_back_main")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def _get_sort_direction_keyboard(field: str) -> InlineKeyboardMarkup:
+    label = SORT_LABELS.get(field, field)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"⬆️ {label} (возр.)", callback_data=f"sort_set_{field}_asc")],
+        [InlineKeyboardButton(f"⬇️ {label} (убыв.)", callback_data=f"sort_set_{field}_desc")],
+        [InlineKeyboardButton("🗑 Удалить из сортировки", callback_data=f"sort_remove_{field}")],
+        [InlineKeyboardButton("◀️ Назад", callback_data="sort_back")]
+    ])
+
+
 async def view_requests_start(update: Update, context: Context) -> int:
     user_id = update.effective_user.id
     user_info = await api_client.get_user_by_telegram_id(user_id)
@@ -87,7 +266,8 @@ async def view_requests_start(update: Update, context: Context) -> int:
         await update.message.reply_text("❌ Ваш Telegram ID не найден в системе.")
         return ConversationHandler.END
 
-    context.user_data['view_filters'] = {'archived': False, 'page': 0, 'sort': ['requestID,desc']}
+    context.user_data['view_filters'] = {'archived': False, 'page': 0, 'sort': ['requestID,asc']}
+    _invalidate_requests_cache(context)
     context.user_data['user_info'] = user_info
 
     placeholder_message = await update.message.reply_text("🔄 Загружаю список заявок...")
@@ -100,8 +280,9 @@ async def view_requests_start(update: Update, context: Context) -> int:
 async def render_main_view_menu(update: Update, context: Context, is_callback: bool = False) -> int:
     user_id = update.effective_user.id
     filters = context.user_data.get('view_filters', {})
-    response = await api_client.get_requests(user_id, filters)
-    if response is None:
+    logger.debug("Bot filters for requests: %s", filters)
+    dataset = await _get_sorted_dataset(user_id, context)
+    if dataset is None:
         # Если не удалось получить данные, лучше отправить сообщение об ошибке
         # и остаться в том же состоянии.
         error_text = "❌ Не удалось загрузить список заявок. Попробуйте позже."
@@ -111,14 +292,17 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
             await context.bot.send_message(update.effective_chat.id, error_text)
         return VIEW_MAIN_MENU
 
-    requests = response.get('content', [])
+    page = filters.get('page', 0)
+    requests, total_pages = _slice_page(dataset, page)
+    if total_pages:
+        filters['page'] = min(max(page, 0), total_pages - 1)
+    else:
+        filters['page'] = 0
     filter_lines = []
     if filters.get('archived'): filter_lines.append("Тип: Архив")
     if filters.get('searchTerm'): filter_lines.append(f"Поиск: '{escape_markdown(filters['searchTerm'])}'")
-    sort_map = {'requestID,desc': 'ID ⬇️', 'requestID,asc': 'ID ⬆️', 'daysRemaining,desc': 'Срок ⬇️',
-                'daysRemaining,asc': 'Срок ⬆️'}
-    current_sort = filters.get('sort', ['requestID,desc'])[0]
-    filter_lines.append(f"Сортировка: {sort_map.get(current_sort, current_sort)}")
+    sort_list = _get_sort_list(filters)
+    filter_lines.append(f"{escape_markdown('Сортировка:')}\n{_format_sort_list(sort_list)}")
 
     filter_text = "\n".join(filter_lines)
     message_text = f"⚙️ *Активные фильтры:*\n{filter_text}\n\n"
@@ -127,12 +311,15 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
     else:
         message_text += "\n\n".join(format_request_list_item(req) for req in requests)
 
-    page = response.get('currentPage', 0)
-    total_pages = response.get('totalPages', 0)
     nav_row = []
-    if page > 0: nav_row.append(InlineKeyboardButton("⬅️", callback_data="view_page_prev"))
-    if total_pages > 1: nav_row.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="noop"))
-    if page < total_pages - 1: nav_row.append(InlineKeyboardButton("➡️", callback_data="view_page_next"))
+    current_page = filters.get('page', 0)
+    if total_pages:
+        if current_page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️", callback_data="view_page_prev"))
+        if total_pages > 1:
+            nav_row.append(InlineKeyboardButton(f"{current_page + 1}/{total_pages}", callback_data="noop"))
+        if current_page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton("➡️", callback_data="view_page_next"))
 
     keyboard = [[
         InlineKeyboardButton("🔎 Поиск", callback_data="view_search"),
@@ -176,7 +363,7 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
 
 async def view_menu_callback(update: Update, context: Context) -> int:
     query = update.callback_query
-    await query.answer()
+    await safe_answer_query(query)
     action = query.data.split('_', 1)[1]
     filters = context.user_data.get('view_filters', {})
 
@@ -191,47 +378,103 @@ async def view_menu_callback(update: Update, context: Context) -> int:
     elif action == 'toggle_archive':
         filters['archived'] = not filters.get('archived', False)
         filters['page'] = 0
+        _invalidate_requests_cache(context)
     elif action == 'reset':
-        context.user_data['view_filters'] = {'archived': False, 'page': 0, 'sort': ['requestID,desc']}
+        context.user_data['view_filters'] = {'archived': False, 'page': 0, 'sort': ['requestID,asc']}
+        _invalidate_requests_cache(context)
     elif action == 'search':
         await query.edit_message_text("Введите текст для поиска по описанию заявки:")
         return VIEW_SET_SEARCH_TERM
     elif action == 'sort':
-        await query.edit_message_text("Выберите поле для сортировки:", reply_markup=get_sort_keyboard())
+        await _show_sort_menu(query, context)
         return VIEW_SET_SORTING
 
     await render_main_view_menu(update, context, is_callback=True)
     return VIEW_MAIN_MENU
 
 
-def get_sort_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("ID ⬇️", callback_data="view_sort_requestID_desc"),
-        InlineKeyboardButton("ID ⬆️", callback_data="view_sort_requestID_asc"),
-    ], [
-        InlineKeyboardButton("Срок ⬇️", callback_data="view_sort_daysRemaining_desc"),
-        InlineKeyboardButton("Срок ⬆️", callback_data="view_sort_daysRemaining_asc"),
-    ], [InlineKeyboardButton("◀️ Назад", callback_data="view_back_main")]])
+async def _show_sort_menu(query, context: Context):
+    filters = context.user_data.get('view_filters', {})
+    text = _build_sort_overview(filters)
+    await _edit_message_markdown(query, text, _get_sort_field_keyboard(filters))
+
+
+async def _edit_message_markdown(query, text, reply_markup=None):
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            await safe_answer_query(query, text="Без изменений", show_alert=False)
+        else:
+            logger.error(f"Ошибка отображения сортировки: {e} | текст: {text}")
+            await safe_answer_query(query, text="Ошибка отображения. Попробуйте ещё раз.", show_alert=True)
+
 
 
 async def view_sort_callback(update: Update, context: Context) -> int:
     query = update.callback_query
-    await query.answer()
-    if query.data == "view_back_main":
-        return await render_main_view_menu(update, context, is_callback=True)
-
-    field, direction = query.data.split('_')[2:]
+    await safe_answer_query(query)
+    data = query.data
     filters = context.user_data.get('view_filters', {})
-    filters['sort'] = [f"{field},{direction}"]
-    filters['page'] = 0
-    await query.edit_message_text("🔄 Применяю сортировку...")
-    return await render_main_view_menu(update, context, is_callback=True)
+
+    if data == "view_back_main":
+        await render_main_view_menu(update, context, is_callback=True)
+        return VIEW_MAIN_MENU
+
+    if data == "sort_done":
+        filters['page'] = 0
+        await render_main_view_menu(update, context, is_callback=True)
+        return VIEW_MAIN_MENU
+
+    if data == "sort_clear":
+        filters['sort'] = ['requestID,asc']
+        filters['page'] = 0
+        _invalidate_requests_cache(context)
+        await _show_sort_menu(query, context)
+        return VIEW_SET_SORTING
+
+    if data == "sort_back":
+        await _show_sort_menu(query, context)
+        return VIEW_SET_SORTING
+
+    if data.startswith("sort_field_"):
+        field = data.split("_", 2)[2]
+        label = escape_markdown(SORT_LABELS.get(field, field))
+        text = f"*Поле:* {label}\n{escape_markdown('Выберите направление сортировки:')}"
+        await _edit_message_markdown(query, text, _get_sort_direction_keyboard(field))
+        return VIEW_SET_SORTING
+
+    if data.startswith("sort_set_"):
+        _, _, field, direction = data.split("_", 3)
+        sort_list = [s for s in _get_sort_list(filters) if not s.startswith(field + ",")]
+        sort_list.append(f"{field},{direction}")
+        filters['sort'] = sort_list
+        filters['page'] = 0
+        _invalidate_requests_cache(context)
+        await render_main_view_menu(update, context, is_callback=True)
+        return VIEW_MAIN_MENU
+
+    if data.startswith("sort_remove_"):
+        field = data.split("_", 2)[2]
+        sort_list = [s for s in _get_sort_list(filters) if not s.startswith(field + ",")]
+        filters['sort'] = sort_list if sort_list else ['requestID,asc']
+        filters['page'] = 0
+        _invalidate_requests_cache(context)
+        await _show_sort_menu(query, context)
+        return VIEW_SET_SORTING
+
+    return VIEW_SET_SORTING
 
 
 async def view_search_handler(update: Update, context: Context) -> int:
     filters = context.user_data.get('view_filters', {})
     filters['searchTerm'] = update.message.text
     filters['page'] = 0
+    _invalidate_requests_cache(context)
     await update.message.delete()
     return await render_main_view_menu(update, context)
 
@@ -287,7 +530,7 @@ async def view_request_details(update: Update, context: Context) -> int | None:
 
 async def action_callback_handler(update: Update, context: Context) -> int | None:
     query = update.callback_query
-    await query.answer()
+    await safe_answer_query(query)
 
     parts = query.data.split('_')
     action = "_".join(parts[1:-1]) if len(parts) > 2 else parts[1]
@@ -332,6 +575,7 @@ async def complete_request_action(query, context, request_id):
     await query.edit_message_text(f"Завершаю заявку \\#{request_id}\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
     response = await api_client.complete_request(query.from_user.id, request_id)
     if response:
+        _invalidate_requests_cache(context)
         await query.edit_message_text(f"✅ Заявка \\#{request_id} успешно завершена\\.",
                                       parse_mode=ParseMode.MARKDOWN_V2)
     else:
@@ -342,7 +586,7 @@ async def complete_request_action(query, context, request_id):
 async def show_comments(query, context, request_id):
     comments = await api_client.get_comments(request_id)
     if not comments:
-        await query.answer("Комментариев пока нет.", show_alert=True)
+        await safe_answer_query(query, text="Комментариев пока нет.", show_alert=True)
         return
 
     text = f"💬 *Комментарии к заявке \\#{request_id}*\n\n"
@@ -358,7 +602,7 @@ async def show_comments(query, context, request_id):
 async def show_photos(query, context, request_id):
     photo_ids = await api_client.get_photo_ids(request_id)
     if not photo_ids:
-        await query.answer("Фотографий нет.", show_alert=True)
+        await safe_answer_query(query, text="Фотографий нет.", show_alert=True)
         return
 
     await query.message.reply_text(f"Загружаю {len(photo_ids)} фото для заявки #{request_id}...")
@@ -450,7 +694,7 @@ async def ask_shop(update: Update, context: CallbackContext) -> int:
 
 async def select_shop_callback(update: Update, context: CallbackContext) -> int | None:
     query = update.callback_query
-    await query.answer()
+    await safe_answer_query(query)
 
     action, value = query.data.split('_', 2)[1:]
 
@@ -485,7 +729,7 @@ async def ask_contractor(update: Update, context: CallbackContext) -> int:
 
 async def select_contractor_callback(update: Update, context: CallbackContext) -> int | None:
     query = update.callback_query
-    await query.answer()
+    await safe_answer_query(query)
 
     action, value = query.data.split('_', 2)[1:]
 
@@ -521,7 +765,7 @@ async def ask_work_category(update: Update, context: CallbackContext) -> int:
 
 async def select_work_category_callback(update: Update, context: CallbackContext) -> int | None:
     query = update.callback_query
-    await query.answer()
+    await safe_answer_query(query)
 
     action, value = query.data.split('_', 2)[1:]
 
@@ -558,7 +802,7 @@ async def ask_urgency(update: Update, context: CallbackContext) -> int:
 
 async def select_urgency_callback(update: Update, context: CallbackContext) -> int | None:
     query = update.callback_query
-    await query.answer()
+    await safe_answer_query(query)
 
     action, value = query.data.split('_', 2)[1:]
 

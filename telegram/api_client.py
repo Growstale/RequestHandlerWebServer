@@ -53,10 +53,27 @@ async def create_request(request_data: dict):
     return await _make_request("POST", "/api/bot/requests", json=request_data)
 
 
+def _normalize_query_params(params: dict):
+    items = []
+    for key, value in params.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            for item in value:
+                if item is not None:
+                    items.append((key, str(item)))
+        elif isinstance(value, bool):
+            items.append((key, str(value).lower()))
+        else:
+            items.append((key, str(value)))
+    return items
+
+
 async def get_requests(telegram_id: int, params: dict):
+    params = params.copy()
     params['telegram_id'] = telegram_id
     from httpx import QueryParams
-    query_params = QueryParams(params)
+    query_params = QueryParams(_normalize_query_params(params))
     return await _make_request("GET", "/api/bot/requests", params=query_params)
 
 

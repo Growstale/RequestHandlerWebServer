@@ -63,7 +63,7 @@ def main():
             ],
             # Вложенные состояния для действий
             VIEW_SET_SEARCH_TERM: [MessageHandler(filters.TEXT & ~filters.COMMAND, view_search_handler)],
-            VIEW_SET_SORTING: [CallbackQueryHandler(view_sort_callback, pattern="^view_sort_")],
+            VIEW_SET_SORTING: [CallbackQueryHandler(view_sort_callback, pattern="^(view|sort)_")],
             VIEW_ADD_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_comment_handler)],
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
