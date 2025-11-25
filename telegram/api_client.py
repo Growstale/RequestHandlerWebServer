@@ -98,3 +98,43 @@ async def get_photo_ids(request_id: int):
 
 def get_photo_url(photo_id: int) -> str:
     return f"{BACKEND_URL}/api/requests/photos/{photo_id}"
+
+async def upload_photos(request_id: int, telegram_id: int, photo_files: list):
+    """Загружает фото для заявки. photo_files - список bytes объектов с изображениями."""
+    api_url = f"{BACKEND_URL}/api/requests/{request_id}/photos"
+    headers = {"X-API-KEY": API_KEY}
+    
+    # Создаем multipart form data
+    files = []
+    for i, photo_data in enumerate(photo_files):
+        files.append(("files", (f"photo_{i}.jpg", photo_data, "image/jpeg")))
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.post(api_url, headers=headers, files=files)
+            response.raise_for_status()
+            return True
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error uploading photos: {e.response.status_code} - {e.response.text}")
+            return False
+        except httpx.RequestError as e:
+            logger.error(f"Request Error uploading photos: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"An unexpected error uploading photos: {e}")
+            return False
+
+
+async def get_photo(photo_id: int):
+    """Загружает байты изображения по его ID."""
+    api_url = f"{BACKEND_URL}/api/requests/photos/{photo_id}"
+    headers = {"X-API-KEY": API_KEY}
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(api_url, headers=headers)
+            response.raise_for_status()
+            return response.content  # Возвращаем бинарные данные (bytes)
+        except Exception as e:
+            logger.error(f"Error fetching photo {photo_id}: {e}")
+            return None

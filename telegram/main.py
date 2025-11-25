@@ -15,8 +15,8 @@ from handlers import (
     select_urgency_callback, description_handler, custom_days_handler,
     # Просмотр и действия
     view_requests_start, view_menu_callback, view_search_handler,
-    view_sort_callback, action_callback_handler, add_comment_handler, view_request_details,
-    VIEW_MAIN_MENU, VIEW_SET_SEARCH_TERM, VIEW_SET_SORTING, VIEW_DETAILS, VIEW_ADD_COMMENT
+    view_sort_callback, action_callback_handler, add_comment_handler, add_photo_handler, view_request_details,
+    VIEW_MAIN_MENU, VIEW_SET_SEARCH_TERM, VIEW_SET_SORTING, VIEW_DETAILS, VIEW_ADD_COMMENT, VIEW_ADD_PHOTO
 )
 
 
@@ -65,6 +65,7 @@ def main():
             VIEW_SET_SEARCH_TERM: [MessageHandler(filters.TEXT & ~filters.COMMAND, view_search_handler)],
             VIEW_SET_SORTING: [CallbackQueryHandler(view_sort_callback, pattern="^(view|sort)_")],
             VIEW_ADD_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_comment_handler)],
+            VIEW_ADD_PHOTO: [MessageHandler(filters.PHOTO, add_photo_handler)],
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
         # Настройки для сохранения user_data между вложенными диалогами
