@@ -1,6 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 import datetime
 import math
+import asyncio
 
 from typing import Dict, Any, Coroutine, List, Tuple
 from telegram import Update
@@ -44,7 +45,7 @@ SORT_EXTRACTORS = {
     ),
 }
 
-BOT_PAGE_SIZE = 5
+BOT_PAGE_SIZE = 6
 API_BATCH_SIZE = 50
 async def safe_answer_query(query, **kwargs):
     try:
@@ -59,7 +60,7 @@ async def safe_answer_query(query, **kwargs):
  CREATE_SELECT_URGENCY, CREATE_ENTER_DESCRIPTION, CREATE_ENTER_CUSTOM_DAYS) = range(6)
 
 (VIEW_MAIN_MENU, VIEW_SET_SEARCH_TERM, VIEW_SET_SORTING, VIEW_DETAILS,
- VIEW_COMMENT_LIST, VIEW_ADD_COMMENT, VIEW_PHOTO_LIST) = range(6, 13)
+ VIEW_COMMENT_LIST, VIEW_ADD_COMMENT, VIEW_PHOTO_LIST, VIEW_ADD_PHOTO) = range(6, 14)
 
 
 def escape_markdown(text: str) -> str:
@@ -310,6 +311,18 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
         message_text += "_Заявок по вашим фильтрам не найдено\\._"
     else:
         message_text += "\n\n".join(format_request_list_item(req) for req in requests)
+        message_text += "\n\n" + escape_markdown("Нажмите ℹ️ рядом с номером, чтобы открыть заявку.")
+
+    keyboard = []
+    if requests:
+        row = []
+        for idx, req in enumerate(requests, start=1):
+            row.append(InlineKeyboardButton(f"ℹ️ #{req['requestID']}", callback_data=f"view_req_{req['requestID']}"))
+            if idx % 3 == 0:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
 
     nav_row = []
     current_page = filters.get('page', 0)
@@ -321,25 +334,40 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
         if current_page < total_pages - 1:
             nav_row.append(InlineKeyboardButton("➡️", callback_data="view_page_next"))
 
-    keyboard = [[
+    keyboard.append([
         InlineKeyboardButton("🔎 Поиск", callback_data="view_search"),
         InlineKeyboardButton("📊 Сортировка", callback_data="view_sort"),
+    ])
+    keyboard.append([
         InlineKeyboardButton("🗂 Архив" if not filters.get('archived') else "📂 Активные",
                              callback_data="view_toggle_archive"),
-    ], [InlineKeyboardButton("🔄 Сброс", callback_data="view_reset")], nav_row,
-        [InlineKeyboardButton("❌ Закрыть", callback_data="view_exit")]]
+        InlineKeyboardButton("🔄 Сброс", callback_data="view_reset")
+    ])
+    if nav_row:
+        keyboard.append(nav_row)
+    keyboard.append([InlineKeyboardButton("❌ Закрыть", callback_data="view_exit")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
     try:
-        # Теперь, вместо флага is_callback, мы проверяем, есть ли у нас ID сообщения для редактирования
-        if context.user_data.get('main_message_id'):
+        # Определяем message_id для редактирования
+        message_id = None
+        if hasattr(update, 'callback_query') and update.callback_query and update.callback_query.message:
+            # Если это callback, используем message_id из query
+            message_id = update.callback_query.message.message_id
+        elif context.user_data.get('main_message_id'):
+            # Иначе используем сохраненный message_id
+            message_id = context.user_data['main_message_id']
+        
+        if message_id:
             await context.bot.edit_message_text(
                 text=message_text,
                 chat_id=update.effective_chat.id,
-                message_id=context.user_data['main_message_id'],
+                message_id=message_id,
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.MARKDOWN_V2
             )
+            # Обновляем сохраненный message_id
+            context.user_data['main_message_id'] = message_id
         else:
             # Этот блок сработает, только если ID сообщения не был сохранен
             sent_message = await context.bot.send_message(
@@ -364,7 +392,14 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
 async def view_menu_callback(update: Update, context: Context) -> int:
     query = update.callback_query
     await safe_answer_query(query)
-    action = query.data.split('_', 1)[1]
+    data = query.data
+    
+    # Обработка выбора заявки
+    if data.startswith('view_req_'):
+        request_id = int(data.split('_', 2)[2])
+        return await show_request_details_in_message(query, context, request_id)
+    
+    action = data.split('_', 1)[1]
     filters = context.user_data.get('view_filters', {})
 
     if action == 'exit':
@@ -391,6 +426,64 @@ async def view_menu_callback(update: Update, context: Context) -> int:
 
     await render_main_view_menu(update, context, is_callback=True)
     return VIEW_MAIN_MENU
+
+
+async def show_request_details_in_message(query, context: Context, request_id: int) -> int:
+    """Отображает детали заявки, редактируя сообщение со списком."""
+    user_id = query.from_user.id
+    user_info = context.user_data.get('user_info') or await api_client.get_user_by_telegram_id(user_id)
+    if not user_info:
+        await query.answer("❌ Ваш Telegram ID не найден в системе.", show_alert=True)
+        return VIEW_MAIN_MENU
+
+    request_details = await api_client.get_request_details(user_id, request_id)
+    if not request_details:
+        await query.answer(f"❌ Не удалось найти заявку #{request_id}", show_alert=True)
+        return VIEW_MAIN_MENU
+
+    context.user_data['current_request_id'] = request_id
+    context.user_data['current_request_details'] = request_details
+    message_text = format_request_details(request_details)
+
+    keyboard = []
+    role, status = user_info.get('roleName'), request_details.get('status')
+
+    action_row = []
+    if request_details.get('commentCount', 0) > 0:
+        action_row.append(InlineKeyboardButton(f"💬 Комментарии ({request_details['commentCount']})",
+                                               callback_data=f"act_comments_{request_id}"))
+    if request_details.get('photoCount', 0) > 0:
+        action_row.append(InlineKeyboardButton(f"🖼️ Просмотр фото ({request_details['photoCount']})",
+                                               callback_data=f"act_photos_{request_id}"))
+    if action_row: 
+        keyboard.append(action_row)
+
+    second_action_row = []
+    if role in ['RetailAdmin', 'Contractor'] and status != 'Closed':
+        second_action_row.append(InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
+        second_action_row.append(InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
+    if role == 'Contractor' and status == 'In work':
+        second_action_row.append(InlineKeyboardButton("✅ Завершить", callback_data=f"act_complete_{request_id}"))
+    if second_action_row: 
+        keyboard.append(second_action_row)
+
+    keyboard.append([InlineKeyboardButton("◀️ Назад к списку", callback_data="act_back_list")])
+
+    try:
+        # Сохраняем message_id для возврата к списку
+        if query.message:
+            context.user_data['main_message_id'] = query.message.message_id
+        
+        await query.edit_message_text(
+            text=message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+    except Exception as e:
+        logger.error(f"Ошибка редактирования сообщения: {e}")
+        await query.answer("Ошибка отображения заявки", show_alert=True)
+    
+    return VIEW_DETAILS
 
 
 async def _show_sort_menu(query, context: Context):
@@ -537,8 +630,20 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
     value = parts[-1] if len(parts) > 1 else None
 
     if action == 'back' and value == 'list':
-        await query.delete_message()
-        return await render_main_view_menu(update, context, is_callback=False)
+        # Редактируем сообщение обратно к списку
+        # Создаем фейковый update для render_main_view_menu
+        class FakeUpdate:
+            def __init__(self, query):
+                class FakeCallbackQuery:
+                    def __init__(self, q):
+                        self.from_user = q.from_user
+                        self.data = q.data
+                        self.message = q.message
+                self.callback_query = FakeCallbackQuery(query)
+                self.effective_chat = query.message.chat
+                self.effective_user = query.from_user
+        fake_update = FakeUpdate(query)
+        return await render_main_view_menu(fake_update, context, is_callback=True)
 
     elif action == 'back' and value == 'details':
         await query.delete_message()
@@ -567,7 +672,21 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
     elif action == 'add_comment':
         await query.edit_message_text("Введите текст вашего комментария:")
         context.user_data['current_request_id'] = int(value)
+        # Сохраняем message_id редактированного сообщения
+        if query.message:
+            context.user_data['comment_input_message_id'] = query.message.message_id
         return VIEW_ADD_COMMENT  # Переходим в состояние ввода комментария
+    
+    elif action == 'add_photo':
+        request_id = int(value)
+        context.user_data['current_request_id'] = request_id
+        await query.answer("Отправьте фото для заявки. Можно отправить несколько фото за раз.", show_alert=True)
+        return VIEW_ADD_PHOTO
+    
+    elif action == 'back' and value.startswith('to_request_'):
+        request_id = int(value.split('_', 2)[2])
+        return await show_request_details_in_message(query, context, request_id)
+    
     return None
 
 
@@ -595,7 +714,7 @@ async def show_comments(query, context, request_id):
         text += f"*{escape_markdown(comment['userLogin'])}* \\({escape_markdown(created_at)}\\):\n"
         text += f"{escape_markdown(comment['commentText'])}\n\n"
 
-    keyboard = [[InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_details_{request_id}")]]
+    keyboard = [[InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_to_request_{request_id}")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN_V2)
 
 
@@ -606,10 +725,18 @@ async def show_photos(query, context, request_id):
         return
 
     await query.message.reply_text(f"Загружаю {len(photo_ids)} фото для заявки #{request_id}...")
-    media_group = [InputMediaPhoto(media=await api_client.get_photo(pid)) for pid in
-                   photo_ids[:10]]  # Ограничение Telegram на 10 фото в группе
-    await query.message.reply_media_group(media=media_group)
 
+    # Загружаем фото
+    media_group = []
+    for pid in photo_ids[:10]:  # Ограничение Telegram на 10 фото
+        photo_bytes = await api_client.get_photo(pid)
+        if photo_bytes:
+            media_group.append(InputMediaPhoto(media=photo_bytes))
+
+    if media_group:
+        await query.message.reply_media_group(media=media_group)
+    else:
+        await query.message.reply_text("❌ Не удалось загрузить изображения.")
 
 async def add_comment_handler(update: Update, context: Context) -> int:
     """Обрабатывает ввод текста комментария и возвращает в VIEW_DETAILS."""
@@ -617,29 +744,220 @@ async def add_comment_handler(update: Update, context: Context) -> int:
     request_id = context.user_data.get('current_request_id')
     user_id = update.effective_user.id
 
+    # Удаляем сообщение пользователя с комментарием
     await update.message.delete()
+    
+    # Удаляем сообщение "Введите текст вашего комментария"
+    comment_input_msg_id = context.user_data.get('comment_input_message_id')
+    if comment_input_msg_id:
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=comment_input_msg_id
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение ввода комментария: {e}")
+        context.user_data.pop('comment_input_message_id', None)
 
     response = await api_client.add_comment(request_id, user_id, comment_text)
     if not response:
         await context.bot.send_message(update.effective_chat.id, "❌ Не удалось добавить комментарий.")
     else:
-        # Отправляем временное уведомление
-        sent_message = await context.bot.send_message(update.effective_chat.id, "✅ Комментарий добавлен!")
-        # Можно запланировать его удаление через несколько секунд
+        # Отправляем информативное уведомление
+        escaped_comment = escape_markdown(comment_text[:100])  # Ограничиваем длину для безопасности
+        if len(comment_text) > 100:
+            escaped_comment += "..."
+        message_text = (
+            f"✅ *Комментарий добавлен к заявке \\#{request_id}*\n\n"
+            f"*Комментарий:*\n{escaped_comment}"
+        )
+        sent_message = await context.bot.send_message(
+            update.effective_chat.id,
+            message_text,
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        # Планируем удаление через 10 секунд
+        async def delete_notification():
+            try:
+                await asyncio.sleep(10)
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=sent_message.message_id
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось удалить уведомление: {e}")
+        
+        # Запускаем задачу удаления в фоне
+        import asyncio
+        asyncio.create_task(delete_notification())
 
     # Возвращаемся к детальному просмотру
-    class FakeUpdate:
-        class FakeMessage:
-            text = f"/{request_id}"
+    # Нужно обновить детали заявки, так как добавился комментарий
+    _invalidate_requests_cache(context)
+    
+    # Получаем обновленные детали заявки и редактируем сообщение
+    user_info = context.user_data.get('user_info') or await api_client.get_user_by_telegram_id(user_id)
+    if not user_info:
+        return VIEW_MAIN_MENU
+    
+    request_details = await api_client.get_request_details(user_id, request_id)
+    if not request_details:
+        return VIEW_MAIN_MENU
+    
+    context.user_data['current_request_id'] = request_id
+    context.user_data['current_request_details'] = request_details
+    message_text = format_request_details(request_details)
+    
+    keyboard = []
+    role, status = user_info.get('roleName'), request_details.get('status')
+    
+    action_row = []
+    if request_details.get('commentCount', 0) > 0:
+        action_row.append(InlineKeyboardButton(f"💬 Комментарии ({request_details['commentCount']})",
+                                               callback_data=f"act_comments_{request_id}"))
+    if request_details.get('photoCount', 0) > 0:
+        action_row.append(InlineKeyboardButton(f"🖼️ Просмотр фото ({request_details['photoCount']})",
+                                               callback_data=f"act_photos_{request_id}"))
+    if action_row: 
+        keyboard.append(action_row)
+    
+    second_action_row = []
+    if role in ['RetailAdmin', 'Contractor'] and status != 'Closed':
+        second_action_row.append(InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
+        second_action_row.append(InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
+    if role == 'Contractor' and status == 'In work':
+        second_action_row.append(InlineKeyboardButton("✅ Завершить", callback_data=f"act_complete_{request_id}"))
+    if second_action_row: 
+        keyboard.append(second_action_row)
+    
+    keyboard.append([InlineKeyboardButton("◀️ Назад к списку", callback_data="act_back_list")])
+    
+    # Редактируем сообщение с деталями заявки
+    main_message_id = context.user_data.get('main_message_id')
+    if main_message_id:
+        try:
+            await context.bot.edit_message_text(
+                text=message_text,
+                chat_id=update.effective_chat.id,
+                message_id=main_message_id,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        except Exception as e:
+            logger.error(f"Ошибка редактирования сообщения: {e}")
+    
+    return VIEW_DETAILS
 
-            async def reply_text(*args, **kwargs): pass
 
-            async def delete(*args, **kwargs): pass
-
-        message = FakeMessage()
-        effective_user = update.effective_user
-
-    return await view_request_details(FakeUpdate(), context)
+async def add_photo_handler(update: Update, context: Context) -> int:
+    """Обрабатывает загрузку фото для заявки."""
+    request_id = context.user_data.get('current_request_id')
+    user_id = update.effective_user.id
+    
+    if not request_id:
+        await update.message.reply_text("❌ Ошибка: не найдена заявка.")
+        return VIEW_MAIN_MENU
+    
+    # Получаем фото из сообщения
+    photos = []
+    if update.message.photo:
+        # Telegram отправляет несколько размеров фото, берем самое большое
+        photo = update.message.photo[-1]
+        photo_file = await context.bot.get_file(photo.file_id)
+        photo_bytes = await photo_file.download_as_bytearray()
+        photos.append(photo_bytes)
+    
+    if not photos:
+        await update.message.reply_text("❌ Не удалось получить фото. Попробуйте отправить фото еще раз.")
+        return VIEW_ADD_PHOTO
+    
+    # Удаляем сообщение пользователя с фото
+    await update.message.delete()
+    
+    # Загружаем фото на сервер
+    success = await api_client.upload_photos(request_id, user_id, photos)
+    
+    if success:
+        # Обновляем кеш
+        _invalidate_requests_cache(context)
+        
+        # Отправляем уведомление
+        message_text = f"✅ *Фото добавлено к заявке \\#{request_id}*"
+        sent_message = await context.bot.send_message(
+            update.effective_chat.id,
+            message_text,
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        
+        # Удаляем уведомление через 10 секунд
+        async def delete_notification():
+            try:
+                await asyncio.sleep(10)
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=sent_message.message_id
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось удалить уведомление: {e}")
+        
+        asyncio.create_task(delete_notification())
+        
+        # Обновляем детали заявки
+        user_info = context.user_data.get('user_info') or await api_client.get_user_by_telegram_id(user_id)
+        if not user_info:
+            return VIEW_MAIN_MENU
+        
+        request_details = await api_client.get_request_details(user_id, request_id)
+        if not request_details:
+            return VIEW_MAIN_MENU
+        
+        context.user_data['current_request_details'] = request_details
+        message_text = format_request_details(request_details)
+        
+        keyboard = []
+        role, status = user_info.get('roleName'), request_details.get('status')
+        
+        action_row = []
+        if request_details.get('commentCount', 0) > 0:
+            action_row.append(InlineKeyboardButton(f"💬 Комментарии ({request_details['commentCount']})",
+                                                   callback_data=f"act_comments_{request_id}"))
+        if request_details.get('photoCount', 0) > 0:
+            action_row.append(InlineKeyboardButton(f"🖼️ Просмотр фото ({request_details['photoCount']})",
+                                                   callback_data=f"act_photos_{request_id}"))
+        if action_row: 
+            keyboard.append(action_row)
+        
+        second_action_row = []
+        if role in ['RetailAdmin', 'Contractor'] and status != 'Closed':
+            second_action_row.append(InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
+            second_action_row.append(InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
+        if role == 'Contractor' and status == 'In work':
+            second_action_row.append(InlineKeyboardButton("✅ Завершить", callback_data=f"act_complete_{request_id}"))
+        if second_action_row: 
+            keyboard.append(second_action_row)
+        
+        keyboard.append([InlineKeyboardButton("◀️ Назад к списку", callback_data="act_back_list")])
+        
+        # Редактируем сообщение с деталями заявки
+        main_message_id = context.user_data.get('main_message_id')
+        if main_message_id:
+            try:
+                await context.bot.edit_message_text(
+                    text=message_text,
+                    chat_id=update.effective_chat.id,
+                    message_id=main_message_id,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+            except Exception as e:
+                logger.error(f"Ошибка редактирования сообщения: {e}")
+    else:
+        await context.bot.send_message(
+            update.effective_chat.id,
+            f"❌ Не удалось загрузить фото для заявки #{request_id}."
+        )
+    
+    return VIEW_DETAILS
 
 
 async def new_request_start(update: Update, context: CallbackContext) -> int:
