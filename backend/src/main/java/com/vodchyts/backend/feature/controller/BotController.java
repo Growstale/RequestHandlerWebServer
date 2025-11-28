@@ -12,6 +12,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.multipart.FilePart;
 
 import java.util.List;
 
@@ -113,4 +115,13 @@ public class BotController {
         return requestService.getPhotoIdsForRequest(requestId);
     }
 
+    @PostMapping(value = "/requests/{requestId}/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public Mono<Void> uploadPhotosFromBot(@PathVariable Integer requestId,
+                                          @RequestPart("files") Flux<FilePart> filePartFlux,
+                                          @RequestParam("telegram_id") Long telegramId) {
+        return userService.findByTelegramId(telegramId)
+                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с таким Telegram ID не найден.")))
+                .flatMap(user -> requestService.addPhotosToRequest(requestId, filePartFlux, user.getUserID()));
+    }
 }

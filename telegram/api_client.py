@@ -1,4 +1,5 @@
 import httpx
+import io
 from config import BACKEND_URL, API_KEY
 import logging
 
@@ -86,32 +87,41 @@ async def complete_request(telegram_id: int, request_id: int):
     data = {'telegram_id': telegram_id}
     return await _make_request("PUT", f"/api/bot/requests/{request_id}/complete", json=data)
 
+
 async def get_comments(request_id: int):
     return await _make_request("GET", f"/api/bot/requests/{request_id}/comments")
+
 
 async def add_comment(request_id: int, telegram_id: int, text: str):
     data = {'telegram_id': telegram_id, 'commentText': text}
     return await _make_request("POST", f"/api/bot/requests/{request_id}/comments", json=data)
 
+
 async def get_photo_ids(request_id: int):
     return await _make_request("GET", f"/api/bot/requests/{request_id}/photos/ids")
+
 
 def get_photo_url(photo_id: int) -> str:
     return f"{BACKEND_URL}/api/requests/photos/{photo_id}"
 
+
 async def upload_photos(request_id: int, telegram_id: int, photo_files: list):
-    """Загружает фото для заявки. photo_files - список bytes объектов с изображениями."""
-    api_url = f"{BACKEND_URL}/api/requests/{request_id}/photos"
+    """Загружает фото для заявки через API бота."""
+    # ИЗМЕНЕНИЕ: Используем endpoint /api/bot/..., а не /api/requests/...
+    api_url = f"{BACKEND_URL}/api/bot/requests/{request_id}/photos"
     headers = {"X-API-KEY": API_KEY}
-    
-    # Создаем multipart form data
+    # ИЗМЕНЕНИЕ: Передаем telegram_id как query параметр
+    params = {"telegram_id": telegram_id}
+
     files = []
     for i, photo_data in enumerate(photo_files):
-        files.append(("files", (f"photo_{i}.jpg", photo_data, "image/jpeg")))
-    
+        file_obj = io.BytesIO(photo_data)
+        files.append(("files", (f"photo_{i}.jpg", file_obj, "image/jpeg")))
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            response = await client.post(api_url, headers=headers, files=files)
+            # ИЗМЕНЕНИЕ: добавили params=params
+            response = await client.post(api_url, headers=headers, files=files, params=params)
             response.raise_for_status()
             return True
         except httpx.HTTPStatusError as e:
@@ -134,7 +144,7 @@ async def get_photo(photo_id: int):
         try:
             response = await client.get(api_url, headers=headers)
             response.raise_for_status()
-            return response.content  # Возвращаем бинарные данные (bytes)
+            return response.content
         except Exception as e:
             logger.error(f"Error fetching photo {photo_id}: {e}")
             return None
