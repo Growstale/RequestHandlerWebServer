@@ -47,14 +47,12 @@ def main():
     view_conv = ConversationHandler(
         entry_points=[
             CommandHandler("requests", view_requests_start),
-            # ИСПРАВЛЕНИЕ: Команда /id теперь тоже является точкой входа в этот диалог
             MessageHandler(filters.Regex(r'^\/[_]*(\d+)[_]*$'), view_request_details)
         ],
         states={
             # Главное меню списка заявок
             VIEW_MAIN_MENU: [
                 CallbackQueryHandler(view_menu_callback, pattern="^view_"),
-                # Переход к деталям из главного меню (если понадобится)
                 MessageHandler(filters.Regex(r'^\/[_]*(\d+)[_]*$'), view_request_details)
             ],
             # Меню детального просмотра заявки
@@ -65,10 +63,14 @@ def main():
             VIEW_SET_SEARCH_TERM: [MessageHandler(filters.TEXT & ~filters.COMMAND, view_search_handler)],
             VIEW_SET_SORTING: [CallbackQueryHandler(view_sort_callback, pattern="^(view|sort)_")],
             VIEW_ADD_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_comment_handler)],
-            VIEW_ADD_PHOTO: [MessageHandler(filters.PHOTO, add_photo_handler)],
+            VIEW_ADD_PHOTO: [
+                # Обработчик фото
+                MessageHandler(filters.PHOTO | filters.Document.IMAGE, add_photo_handler),
+                # ИСПРАВЛЕНИЕ: Добавлен обработчик кнопок (для кнопки "Назад", которая появится после загрузки)
+                CallbackQueryHandler(action_callback_handler, pattern="^act_")
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
-        # Настройки для сохранения user_data между вложенными диалогами
         name="view_conversation",
         persistent=False,
         allow_reentry=True
@@ -77,11 +79,10 @@ def main():
     app.add_handler(create_conv)
     app.add_handler(view_conv)
 
-    # --- Глобальные обработчики (остаются только самые простые) ---
+    # --- Глобальные обработчики ---
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("chatid", chat_id_command))
 
-    # Обработчик для no-op кнопок пагинации (глобальный)
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
 
     logger.info("Бот готов к работе. Запускаю polling...")
