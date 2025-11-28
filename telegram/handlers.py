@@ -449,6 +449,8 @@ async def show_request_details_in_message(query, context: Context, request_id: i
     if role in ['RetailAdmin', 'Contractor'] and status != 'Closed':
         second_action_row.append(InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
         second_action_row.append(InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
+    if role == 'RetailAdmin':
+        second_action_row.append(InlineKeyboardButton("✏️ Изменить", callback_data=f"act_edit_{request_id}"))
     if role == 'Contractor' and status == 'In work':
         second_action_row.append(InlineKeyboardButton("✅ Завершить", callback_data=f"act_complete_{request_id}"))
     if second_action_row: keyboard.append(second_action_row)
@@ -682,6 +684,12 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
 
         return VIEW_ADD_PHOTO
 
+    elif action == 'edit':
+        # Запускаем диалог редактирования
+        # Нам нужно выйти из текущего ConversationHandler просмотра и зайти в ConversationHandler редактора
+        # Но Telegram bot lib не позволяет легко перепрыгивать между независимыми ConversationHandler.
+        # Поэтому мы добавим состояния редактора ВНУТРЬ общего view_conv (см. ниже в main.py)
+        return await start_edit_request(update, context)
     return None
 
 
@@ -1274,3 +1282,433 @@ async def start_command(update: Update, context: CallbackContext):
         "Используйте команду /newrequest для создания новой заявки (только для администраторов).\n"
         "Используйте /health для проверки связи с сервером."
     )
+
+
+(
+    EDITOR_MAIN_MENU,       # Главное меню редактора (показывает текущие поля)
+    EDITOR_SELECT_SHOP,     # Выбор магазина
+    EDITOR_SELECT_CONTRACTOR, # Выбор подрядчика
+    EDITOR_SELECT_WORK,     # Выбор вида работ
+    EDITOR_SELECT_URGENCY,  # Выбор срочности
+    EDITOR_INPUT_TEXT,      # Ввод описания или кастомных дней
+    EDITOR_SELECT_STATUS    # Выбор статуса (только для редактирования)
+) = range(20, 27)
+
+
+# handlers.py - Добавить новые функции
+
+def _get_editor_keyboard(draft: dict, is_new: bool, role: str) -> InlineKeyboardMarkup:
+    """Генерирует клавиатуру для редактора заявки."""
+    buttons = []
+
+    # Иконки состояния полей
+    shop_ico = "✅" if draft.get('shopID') else "❌"
+    contr_ico = "✅" if draft.get('assignedContractorID') else "❌"
+    work_ico = "✅" if draft.get('workCategoryID') else "❌"
+    urg_ico = "✅" if draft.get('urgencyID') else "❌"
+    desc_ico = "✅" if draft.get('description') else "❌"
+
+    # 1. Основные поля
+    buttons.append([InlineKeyboardButton(f"{shop_ico} Магазин", callback_data="edit_field_shop")])
+    buttons.append([InlineKeyboardButton(f"{contr_ico} Исполнитель", callback_data="edit_field_contractor")])
+    buttons.append([InlineKeyboardButton(f"{work_ico} Вид работ", callback_data="edit_field_work")])
+    buttons.append([InlineKeyboardButton(f"{urg_ico} Срочность", callback_data="edit_field_urgency")])
+    buttons.append([InlineKeyboardButton(f"{desc_ico} Описание", callback_data="edit_field_desc")])
+
+    # 2. Статус (только при редактировании существующей)
+    if not is_new:
+        status_label = draft.get('status', 'In work')
+        buttons.append([InlineKeyboardButton(f"Статус: {status_label}", callback_data="edit_field_status")])
+
+    # 3. Кнопка сохранения
+    # Разрешаем сохранять только если все обязательные поля заполнены
+    is_ready = all([
+        draft.get('shopID'),
+        draft.get('assignedContractorID'),
+        draft.get('workCategoryID'),
+        draft.get('urgencyID'),
+        draft.get('description')
+    ])
+
+    save_text = "💾 Создать заявку" if is_new else "💾 Сохранить изменения"
+    if is_ready:
+        buttons.append([InlineKeyboardButton(save_text, callback_data="editor_save")])
+
+    buttons.append([InlineKeyboardButton("🔙 Отмена / Выход", callback_data="editor_cancel")])
+
+    return InlineKeyboardMarkup(buttons)
+
+
+async def render_editor_menu(update: Update, context: Context):
+    """Отрисовывает меню редактора (черновика)."""
+    draft = context.user_data.get('editor_draft', {})
+    is_new = context.user_data.get('editor_is_new', True)
+    user_info = context.user_data.get('user_info', {})
+
+    # Формируем текст предпросмотра
+    text = f"🛠 <b>{'СОЗДАНИЕ' if is_new else 'РЕДАКТИРОВАНИЕ'} ЗАЯВКИ</b>\n\n"
+
+    # Получаем названия из ID (если они есть в кэше, иначе просто ID)
+    shop_name = draft.get('shopName', '--- Не выбрано ---')
+    contr_name = draft.get('contractorName', '--- Не выбрано ---')
+    work_name = draft.get('workCategoryName', '--- Не выбрано ---')
+    urg_name = draft.get('urgencyName', '--- Не выбрано ---')
+
+    if draft.get('customDays'):
+        urg_name += f" ({draft['customDays']} дн.)"
+
+    desc = draft.get('description', '--- Не заполнено ---')
+
+    text += f"🏪 <b>Магазин:</b> {shop_name}\n"
+    text += f"👷 <b>Исполнитель:</b> {contr_name}\n"
+    text += f"📋 <b>Вид работ:</b> {work_name}\n"
+    text += f"🔥 <b>Срочность:</b> {urg_name}\n"
+    text += f"📝 <b>Описание:</b>\n<i>{escape_markdown(desc[:100])}{'...' if len(desc) > 100 else ''}</i>\n"
+
+    if not is_new:
+        text += f"\n📊 <b>Статус:</b> {draft.get('status', 'In work')}"
+
+    keyboard = _get_editor_keyboard(draft, is_new, user_info.get('roleName'))
+
+    if update.callback_query:
+        # Пытаемся отредактировать сообщение
+        try:
+            await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        except BadRequest:
+            # Если текст не изменился (например, нажали назад), ничего страшного
+            pass
+    else:
+        await update.message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+
+    return EDITOR_MAIN_MENU
+
+
+# --- Точки входа ---
+
+async def start_create_request(update: Update, context: Context) -> int:
+    """Начинает процесс создания новой заявки."""
+    user_id = update.effective_user.id
+    user_data = await api_client.get_user_by_telegram_id(user_id)
+
+    if not user_data or user_data.get("roleName") != "RetailAdmin":
+        await update.message.reply_text("❌ Только администратор может создавать заявки.")
+        return ConversationHandler.END
+
+    context.user_data['user_info'] = user_data
+    context.user_data['editor_is_new'] = True
+    context.user_data['editor_draft'] = {
+        'createdByUserID': user_data['userID'],
+        'status': 'In work'
+    }
+
+    # Предзагрузка словарей для быстрого отображения имен
+    await _preload_dictionaries(context)
+
+    return await render_editor_menu(update, context)
+
+
+async def start_edit_request(update: Update, context: Context) -> int:
+    """Начинает процесс редактирования существующей заявки."""
+    query = update.callback_query
+    request_id = int(query.data.split('_')[-1])
+    user_id = update.effective_user.id
+
+    # Получаем полные данные заявки
+    req = await api_client.get_request_details(user_id, request_id)
+    if not req:
+        await query.answer("Ошибка загрузки заявки", show_alert=True)
+        return VIEW_DETAILS
+
+    user_data = await api_client.get_user_by_telegram_id(user_id)
+    context.user_data['user_info'] = user_data
+    context.user_data['editor_is_new'] = False
+
+    # Заполняем черновик текущими данными
+    context.user_data['editor_draft'] = {
+        'requestID': req['requestID'],
+        'description': req['description'],
+        'shopID': req['shopID'],
+        'shopName': req['shopName'],  # Сохраняем имя для отображения
+        'workCategoryID': req['workCategoryID'],
+        'workCategoryName': req['workCategoryName'],
+        'urgencyID': req['urgencyID'],
+        'urgencyName': req['urgencyName'],
+        'assignedContractorID': req['assignedContractorID'],
+        'contractorName': req['assignedContractorName'],
+        'status': req['status'],
+        'daysForTask': req['daysForTask']
+    }
+
+    # Если срочность настраиваемая, сохраняем customDays
+    if req['urgencyName'] == 'Customizable':
+        context.user_data['editor_draft']['customDays'] = req['daysForTask']
+
+    await _preload_dictionaries(context)
+    return await render_editor_menu(update, context)
+
+
+async def _preload_dictionaries(context: Context):
+    """Загружает списки один раз, чтобы отображать имена в меню."""
+    # В реальном приложении лучше кэшировать это глобально или использовать Redis
+    shops = await api_client.get_all_shops()
+    contractors = await api_client.get_all_contractors()
+    works = await api_client.get_all_work_categories()
+    urgencies = await api_client.get_all_urgency_categories()
+
+    context.user_data['dict_shops'] = shops.get('content', []) if shops else []
+    context.user_data['dict_contractors'] = contractors if contractors else []
+    context.user_data['dict_works'] = works.get('content', []) if works else []
+    context.user_data['dict_urgencies'] = urgencies if urgencies else []
+
+
+# handlers.py - продолжение
+
+async def editor_main_callback(update: Update, context: Context) -> int:
+    """Обработчик нажатий в главном меню редактора."""
+    query = update.callback_query
+    await safe_answer_query(query)
+    data = query.data
+
+    if data == "editor_cancel":
+        await query.delete_message()
+        return ConversationHandler.END
+
+    elif data == "editor_save":
+        return await _submit_editor_data(update, context)
+
+    # Переходы к выбору полей
+    elif data == "edit_field_shop":
+        items = context.user_data.get('dict_shops', [])
+        keyboard = create_paginated_keyboard(items, 0, 'eshop', 'shopName', 'shopID')
+        # ИСПРАВЛЕНИЕ: Преобразуем кортеж в список перед добавлением
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="eshop_back")])
+        await query.edit_message_text("Выберите магазин:", reply_markup=InlineKeyboardMarkup(new_rows))
+        return EDITOR_SELECT_SHOP
+
+    elif data == "edit_field_contractor":
+        items = context.user_data.get('dict_contractors', [])
+        keyboard = create_paginated_keyboard(items, 0, 'econtr', 'login', 'userID')
+        # ИСПРАВЛЕНИЕ
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="econtr_back")])
+        await query.edit_message_text("Выберите подрядчика:", reply_markup=InlineKeyboardMarkup(new_rows))
+        return EDITOR_SELECT_CONTRACTOR
+
+    elif data == "edit_field_work":
+        items = context.user_data.get('dict_works', [])
+        keyboard = create_paginated_keyboard(items, 0, 'ework', 'workCategoryName', 'workCategoryID')
+        # ИСПРАВЛЕНИЕ
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="ework_back")])
+        await query.edit_message_text("Выберите вид работ:", reply_markup=InlineKeyboardMarkup(new_rows))
+        return EDITOR_SELECT_WORK
+
+    elif data == "edit_field_urgency":
+        items = context.user_data.get('dict_urgencies', [])
+        keyboard = create_paginated_keyboard(items, 0, 'eurg', 'urgencyName', 'urgencyID')
+        # ИСПРАВЛЕНИЕ
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="eurg_back")])
+        await query.edit_message_text("Выберите срочность:", reply_markup=InlineKeyboardMarkup(new_rows))
+        return EDITOR_SELECT_URGENCY
+
+    elif data == "edit_field_desc":
+        current_desc = context.user_data['editor_draft'].get('description', '')
+
+        # Сохраняем ID сообщения, которое стало "промптом"
+        context.user_data['editor_prompt_message_id'] = query.message.message_id
+
+        await query.edit_message_text(
+            f"Текущее описание:\n<i>{escape_markdown(current_desc)}</i>\n\n"
+            "Введите новое описание (текстом):",
+            parse_mode=ParseMode.HTML
+        )
+        return EDITOR_INPUT_TEXT
+
+    elif data == "edit_field_status":
+        buttons = [
+            [InlineKeyboardButton("В работе (In work)", callback_data="estatus_In work")],
+            [InlineKeyboardButton("Выполнена (Done)", callback_data="estatus_Done")],
+            [InlineKeyboardButton("Закрыта (Closed)", callback_data="estatus_Closed")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="estatus_back")]
+        ]
+        await query.edit_message_text("Выберите статус:", reply_markup=InlineKeyboardMarkup(buttons))
+        return EDITOR_SELECT_STATUS
+
+    return EDITOR_MAIN_MENU
+
+
+# --- Helper для выбора из списка ---
+async def _handle_selection(update: Update, context: Context,
+                            prefix: str, list_key: str, id_key: str, name_key: str,
+                            draft_id_key: str, draft_name_key: str, next_state: int):
+    """Универсальный обработчик выбора из пагинированного списка."""
+    query = update.callback_query
+    await safe_answer_query(query)
+    data = query.data
+
+    if data == f"{prefix}_back":
+        return await render_editor_menu(update, context)
+
+    action, value = data.split('_', 2)[1:]  # eshop_page_1 или eshop_select_5
+
+    if action == 'page':
+        items = context.user_data.get(list_key, [])
+        keyboard = create_paginated_keyboard(items, int(value), prefix, name_key, id_key)
+        # ИСПРАВЛЕНИЕ: Преобразуем кортеж в список перед добавлением кнопки Назад
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data=f"{prefix}_back")])
+
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_rows))
+        return next_state
+
+    elif action == 'select':
+        selected_id = int(value)
+        items = context.user_data.get(list_key, [])
+        item = next((i for i in items if i[id_key] == selected_id), None)
+
+        if item:
+            # Сохраняем в черновик
+            context.user_data['editor_draft'][draft_id_key] = selected_id
+            context.user_data['editor_draft'][draft_name_key] = item[name_key]
+
+            if list_key == 'dict_urgencies' and item['urgencyName'] == 'Customizable':
+                # Сохраняем ID сообщения
+                context.user_data['editor_prompt_message_id'] = query.message.message_id
+
+                await query.edit_message_text("Введите количество дней (число от 1 до 365):")
+                context.user_data['editor_waiting_custom_days'] = True
+                return EDITOR_INPUT_TEXT
+
+        return await render_editor_menu(update, context)
+
+    return next_state
+
+
+# --- Конкретные обработчики выбора ---
+
+async def editor_select_shop(update: Update, context: Context) -> int:
+    return await _handle_selection(update, context, 'eshop', 'dict_shops', 'shopID', 'shopName',
+                                   'shopID', 'shopName', EDITOR_SELECT_SHOP)
+
+
+async def editor_select_contractor(update: Update, context: Context) -> int:
+    return await _handle_selection(update, context, 'econtr', 'dict_contractors', 'userID', 'login',
+                                   'assignedContractorID', 'contractorName', EDITOR_SELECT_CONTRACTOR)
+
+
+async def editor_select_work(update: Update, context: Context) -> int:
+    return await _handle_selection(update, context, 'ework', 'dict_works', 'workCategoryID', 'workCategoryName',
+                                   'workCategoryID', 'workCategoryName', EDITOR_SELECT_WORK)
+
+
+async def editor_select_urgency(update: Update, context: Context) -> int:
+    return await _handle_selection(update, context, 'eurg', 'dict_urgencies', 'urgencyID', 'urgencyName',
+                                   'urgencyID', 'urgencyName', EDITOR_SELECT_URGENCY)
+
+
+async def editor_select_status(update: Update, context: Context) -> int:
+    query = update.callback_query
+    await safe_answer_query(query)
+    data = query.data
+
+    if data == "estatus_back":
+        return await render_editor_menu(update, context)
+
+    status = data.split('_')[1]
+    context.user_data['editor_draft']['status'] = status
+    return await render_editor_menu(update, context)
+
+
+# handlers.py
+
+async def editor_input_text(update: Update, context: Context) -> int:
+    text = update.message.text
+
+    # 1. Удаляем сообщение пользователя (как и было)
+    try:
+        await update.message.delete()
+    except:
+        pass
+
+    # 2. Удаляем сообщение бота с просьбой ввести текст (НОВОЕ)
+    prompt_msg_id = context.user_data.pop('editor_prompt_message_id', None)
+    if prompt_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=prompt_msg_id)
+        except Exception as e:
+            logger.warning(f"Не удалось удалить промпт ввода: {e}")
+
+    if context.user_data.get('editor_waiting_custom_days'):
+        if text.isdigit() and 1 <= int(text) <= 365:
+            context.user_data['editor_draft']['customDays'] = int(text)
+            context.user_data['editor_waiting_custom_days'] = False
+            return await render_editor_menu(update, context)
+        else:
+            msg = await update.message.reply_text("❌ Введите число от 1 до 365.")
+            # Можно сохранить ID ошибки, чтобы удалить его при следующем вводе, но это уже опционально
+            return EDITOR_INPUT_TEXT
+    else:
+        # Это ввод описания
+        context.user_data['editor_draft']['description'] = text
+        return await render_editor_menu(update, context)
+
+async def _submit_editor_data(update: Update, context: Context) -> int:
+    """Отправка данных на сервер."""
+    query = update.callback_query
+    draft = context.user_data['editor_draft']
+    is_new = context.user_data['editor_is_new']
+
+    await query.edit_message_text("⏳ Сохранение данных...", reply_markup=None)
+
+    # Подготовка payload
+    payload = {
+        "description": draft['description'],
+        "shopID": draft['shopID'],
+        "workCategoryID": draft['workCategoryID'],
+        "urgencyID": draft['urgencyID'],
+        "assignedContractorID": draft['assignedContractorID']
+    }
+
+    if 'customDays' in draft:
+        payload['customDays'] = draft['customDays']
+
+    if is_new:
+        payload['createdByUserID'] = draft['createdByUserID']
+        response = await api_client.create_request(payload)
+        success_msg = f"✅ Заявка создана! ID: {response.get('requestID')}" if response else "❌ Ошибка создания."
+    else:
+        payload['status'] = draft.get('status', 'In work')
+        request_id = draft['requestID']
+        response = await api_client.update_request(request_id, payload)
+        success_msg = f"✅ Заявка #{request_id} обновлена!" if response else "❌ Ошибка обновления."
+
+    if response:
+        # Сброс кэша заявок
+        context.user_data.pop('requests_cache', None)
+        context.user_data.pop('requests_cache_key', None)
+
+        # 1. Показываем результат БЕЗ кнопок
+        await query.edit_message_text(
+            success_msg,
+            reply_markup=None
+        )
+
+        # 2. Создаем задачу на удаление сообщения через 10 секунд
+        async def delayed_delete():
+            try:
+                await asyncio.sleep(10)
+                await query.delete_message()
+            except Exception as e:
+                # Сообщение могло быть уже удалено пользователем или чат очищен
+                logger.warning(f"Не удалось удалить сообщение об успехе: {e}")
+
+        asyncio.create_task(delayed_delete())
+
+    else:
+        # Возвращаем в редактор при ошибке
+        await query.answer("Произошла ошибка при сохранении", show_alert=True)
+        return await render_editor_menu(update, context)
+
+    return ConversationHandler.END
