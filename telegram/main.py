@@ -16,7 +16,12 @@ from handlers import (
     # Просмотр и действия
     view_requests_start, view_menu_callback, view_search_handler,
     view_sort_callback, action_callback_handler, add_comment_handler, add_photo_handler, view_request_details,
-    VIEW_MAIN_MENU, VIEW_SET_SEARCH_TERM, VIEW_SET_SORTING, VIEW_DETAILS, VIEW_ADD_COMMENT, VIEW_ADD_PHOTO
+    VIEW_MAIN_MENU, VIEW_SET_SEARCH_TERM, VIEW_SET_SORTING, VIEW_DETAILS, VIEW_ADD_COMMENT, VIEW_ADD_PHOTO,
+    start_create_request, start_edit_request,
+    editor_main_callback, editor_select_shop, editor_select_contractor,
+    editor_select_work, editor_select_urgency, editor_select_status, editor_input_text,
+    EDITOR_MAIN_MENU, EDITOR_SELECT_SHOP, EDITOR_SELECT_CONTRACTOR,
+    EDITOR_SELECT_WORK, EDITOR_SELECT_URGENCY, EDITOR_INPUT_TEXT, EDITOR_SELECT_STATUS
 )
 
 
@@ -31,14 +36,15 @@ def main():
 
     # --- Диалог создания заявки (без изменений) ---
     create_conv = ConversationHandler(
-        entry_points=[CommandHandler("newrequest", new_request_start)],
+        entry_points=[CommandHandler("newrequest", start_create_request)],
         states={
-            CREATE_SELECT_SHOP: [CallbackQueryHandler(select_shop_callback, pattern="^shop_")],
-            CREATE_SELECT_CONTRACTOR: [CallbackQueryHandler(select_contractor_callback, pattern="^contractor_")],
-            CREATE_SELECT_WORK_CATEGORY: [CallbackQueryHandler(select_work_category_callback, pattern="^work_")],
-            CREATE_SELECT_URGENCY: [CallbackQueryHandler(select_urgency_callback, pattern="^urgency_")],
-            CREATE_ENTER_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, description_handler)],
-            CREATE_ENTER_CUSTOM_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_days_handler)],
+            EDITOR_MAIN_MENU: [CallbackQueryHandler(editor_main_callback, pattern="^(editor_|edit_field_)")],
+            EDITOR_SELECT_SHOP: [CallbackQueryHandler(editor_select_shop, pattern="^eshop_")],
+            EDITOR_SELECT_CONTRACTOR: [CallbackQueryHandler(editor_select_contractor, pattern="^econtr_")],
+            EDITOR_SELECT_WORK: [CallbackQueryHandler(editor_select_work, pattern="^ework_")],
+            EDITOR_SELECT_URGENCY: [CallbackQueryHandler(editor_select_urgency, pattern="^eurg_")],
+            EDITOR_INPUT_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, editor_input_text)],
+            # EDITOR_SELECT_STATUS не нужен при создании
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
     )
@@ -69,6 +75,13 @@ def main():
                 # ИСПРАВЛЕНИЕ: Добавлен обработчик кнопок (для кнопки "Назад", которая появится после загрузки)
                 CallbackQueryHandler(action_callback_handler, pattern="^act_")
             ],
+            EDITOR_MAIN_MENU: [CallbackQueryHandler(editor_main_callback, pattern="^(editor_|edit_field_)")],
+            EDITOR_SELECT_SHOP: [CallbackQueryHandler(editor_select_shop, pattern="^eshop_")],
+            EDITOR_SELECT_CONTRACTOR: [CallbackQueryHandler(editor_select_contractor, pattern="^econtr_")],
+            EDITOR_SELECT_WORK: [CallbackQueryHandler(editor_select_work, pattern="^ework_")],
+            EDITOR_SELECT_URGENCY: [CallbackQueryHandler(editor_select_urgency, pattern="^eurg_")],
+            EDITOR_SELECT_STATUS: [CallbackQueryHandler(editor_select_status, pattern="^estatus_")],
+            EDITOR_INPUT_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, editor_input_text)],
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
         name="view_conversation",
