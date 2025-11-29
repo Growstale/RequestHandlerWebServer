@@ -597,6 +597,8 @@ async def view_request_details(update: Update, context: Context) -> int | None:
     if role in ['RetailAdmin', 'Contractor'] and status != 'Closed':
         second_action_row.append(InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
         second_action_row.append(InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
+    if role == 'RetailAdmin':
+        second_action_row.append(InlineKeyboardButton("✏️ Изменить", callback_data=f"act_edit_{request_id}"))
     if role == 'Contractor' and status == 'In work':
         second_action_row.append(InlineKeyboardButton("✅ Завершить", callback_data=f"act_complete_{request_id}"))
     if second_action_row: keyboard.append(second_action_row)
@@ -1407,43 +1409,78 @@ async def start_create_request(update: Update, context: Context) -> int:
     return await render_editor_menu(update, context)
 
 
+# handlers.py
+
 async def start_edit_request(update: Update, context: Context) -> int:
-    """Начинает процесс редактирования существующей заявки."""
+    """
+    Начинает процесс редактирования:
+    1. Получает ID заявки.
+    2. Загружает детали с бэкенда.
+    3. Заполняет editor_draft.
+    4. Открывает редактор.
+    """
     query = update.callback_query
-    request_id = int(query.data.split('_')[-1])
+
+    # Парсим ID из callback_data (ожидается формат "act_edit_123")
+    try:
+        parts = query.data.split('_')
+        # parts = ['act', 'edit', '123']
+        request_id = int(parts[-1])
+    except (IndexError, ValueError):
+        await query.answer("Ошибка ID заявки", show_alert=True)
+        return VIEW_MAIN_MENU
+
     user_id = update.effective_user.id
 
-    # Получаем полные данные заявки
+    # Показываем "часики", пока грузим данные
+    await query.answer("Загружаю данные заявки...")
+
+    # 1. Загружаем полные детали заявки
     req = await api_client.get_request_details(user_id, request_id)
     if not req:
-        await query.answer("Ошибка загрузки заявки", show_alert=True)
-        return VIEW_DETAILS
+        await query.edit_message_text("❌ Не удалось загрузить данные заявки. Возможно, она была удалена.")
+        return VIEW_MAIN_MENU
 
     user_data = await api_client.get_user_by_telegram_id(user_id)
+    if not user_data:
+        return VIEW_MAIN_MENU
+
     context.user_data['user_info'] = user_data
+
+    # 2. Устанавливаем флаг, что это редактирование, а не создание
     context.user_data['editor_is_new'] = False
 
-    # Заполняем черновик текущими данными
+    # 3. Заполняем черновик данными с сервера
+    # Важно: поля должны совпадать с теми, что ожидает _submit_editor_data
     context.user_data['editor_draft'] = {
         'requestID': req['requestID'],
         'description': req['description'],
+
         'shopID': req['shopID'],
-        'shopName': req['shopName'],  # Сохраняем имя для отображения
+        'shopName': req['shopName'],  # Для отображения в меню
+
         'workCategoryID': req['workCategoryID'],
         'workCategoryName': req['workCategoryName'],
+
         'urgencyID': req['urgencyID'],
         'urgencyName': req['urgencyName'],
+
         'assignedContractorID': req['assignedContractorID'],
-        'contractorName': req['assignedContractorName'],
+        'contractorName': req['assignedContractorName'] if req['assignedContractorName'] else "Не назначен",
+
         'status': req['status'],
         'daysForTask': req['daysForTask']
     }
 
-    # Если срочность настраиваемая, сохраняем customDays
+    # Если срочность "Customizable", нужно сохранить customDays,
+    # чтобы при сохранении они не потерялись
     if req['urgencyName'] == 'Customizable':
         context.user_data['editor_draft']['customDays'] = req['daysForTask']
 
+    # 4. Предзагружаем справочники (чтобы работали кнопки выбора)
     await _preload_dictionaries(context)
+
+    # 5. Рендерим меню редактора
     return await render_editor_menu(update, context)
 
 
