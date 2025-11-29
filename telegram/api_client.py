@@ -151,5 +151,4 @@ async def get_photo(photo_id: int):
 
 
 async def update_request(request_id: int, request_data: dict):
-    """Обновляет существующую заявку."""
-    return await _make_request("PUT", f"/api/requests/{request_id}", json=request_data)
+    return await _make_request("PUT", f"/api/bot/requests/{request_id}", json=request_data)
