@@ -124,4 +124,9 @@ public class BotController {
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с таким Telegram ID не найден.")))
                 .flatMap(user -> requestService.addPhotosToRequest(requestId, filePartFlux, user.getUserID()));
     }
+
+    @PutMapping("/requests/{requestId}")
+    public Mono<RequestResponse> updateRequestFromBot(@PathVariable Integer requestId, @Valid @RequestBody Mono<UpdateRequestRequest> requestDto) {
+        return requestDto.flatMap(dto -> requestService.updateAndEnrichRequest(requestId, dto));
+    }
 }
