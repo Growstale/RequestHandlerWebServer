@@ -36,9 +36,11 @@ public class RequestService {
     private final ReactiveRoleRepository roleRepository;
     private final ReactiveUserRepository userRepository;
     private final ReactiveShopRepository shopRepository;
+    private final TelegramNotificationService notificationService;
+    private final ReactiveShopContractorChatRepository chatRepository;
 
 
-    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository) {
+    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository) {
         this.template = template;
         this.databaseClient = databaseClient;
         this.requestRepository = requestRepository;
@@ -48,6 +50,8 @@ public class RequestService {
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
         this.shopRepository = shopRepository;
+        this.notificationService = notificationService;
+        this.chatRepository = chatRepository;
     }
 
 
@@ -298,6 +302,13 @@ public class RequestService {
 
     public Mono<RequestResponse> updateAndEnrichRequest(Integer requestId, UpdateRequestRequest dto) {
         return updateRequest(requestId, dto)
+                .doOnSuccess(req -> {
+                    // Можно добавить проверку, что именно изменилось, но пока просто уведомляем
+                    String msg = "✏️ *Заявка #" + requestId + " была обновлена*";
+                    chatRepository.findTelegramIdByRequestId(requestId)
+                            .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
+                            .subscribe();
+                })
                 .flatMap(request -> enrichRequest(request.getRequestID()));
     }
 
@@ -410,18 +421,35 @@ public class RequestService {
                         newComment.setCommentText(dto.commentText());
                         newComment.setCreatedAt(LocalDateTime.now());
 
-                        return commentRepository.save(newComment);
+                        return commentRepository.save(newComment)
+                                .flatMap(savedComment -> {
+                                    // 1. Экранируем данные пользователя (чтобы никнейм типа "User_Name" не ломал разметку)
+                                    String author = notificationService.escapeMarkdown(user.getLogin());
+                                    String safeText = notificationService.escapeMarkdown(dto.commentText());
+
+                                    // 2. Формируем сообщение.
+                                    // ВАЖНО: Символ # экранируем как \\#
+                                    String msg = String.format(
+                                            "💬 *Новый комментарий к заявке \\#%d*\n" +
+                                                    "👤 *От:* %s\n\n" +
+                                                    "%s",
+                                            requestId, author, safeText
+                                    );
+
+                                    // 3. Отправляем
+                                    return chatRepository.findTelegramIdByRequestId(requestId)
+                                            .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
+                                            .thenReturn(savedComment);
+                                });
                     });
                 })
-                .flatMap(savedComment -> userRepository.findById(userId)
-                        .map(user -> new CommentResponse(
-                                savedComment.getCommentID(),
-                                savedComment.getRequestID(),
-                                user.getLogin(),
-                                savedComment.getCommentText(),
-                                savedComment.getCreatedAt()
-                        ))
-                );
+                .flatMap(savedComment -> userRepository.findById(userId).map(user -> new CommentResponse(
+                        savedComment.getCommentID(),
+                        savedComment.getRequestID(),
+                        user.getLogin(),
+                        savedComment.getCommentText(),
+                        savedComment.getCreatedAt()
+                )));
     }
 
     public Flux<byte[]> getPhotosForRequest(Integer requestId) {
@@ -430,13 +458,16 @@ public class RequestService {
     }
 
     public Mono<Void> addPhotosToRequest(Integer requestId, Flux<FilePart> filePartFlux, Integer userId) {
+        // ... (код конвертации байтов оставляем без изменений) ...
         Flux<byte[]> imagesDataFlux = filePartFlux.flatMap(filePart ->
                 filePart.content()
                         .collectList()
                         .mapNotNull(dataBuffers -> {
                             if (dataBuffers.isEmpty()) return null;
                             DataBuffer joinedBuffer = dataBuffers.getFirst().factory().join(dataBuffers);
-                            dataBuffers.forEach(DataBufferUtils::release);
+                            dataBuffers.forEach(buffer -> {
+                                if (buffer != joinedBuffer) DataBufferUtils.release(buffer);
+                            });
                             return joinedBuffer;
                         })
                         .filter(Objects::nonNull)
@@ -456,22 +487,30 @@ public class RequestService {
                     User user = tuple.getT2();
 
                     return canUserModify(request, user).flatMap(canModify -> {
-                        if (!canModify) {
-                            return Mono.error(new OperationNotAllowedException("У вас нет прав..."));
-                        }
-                        if ("Closed".equalsIgnoreCase(request.getStatus())) {
-                            return Mono.error(new OperationNotAllowedException("Нельзя добавлять фото..."));
-                        }
-                        return imagesDataFlux
-                                .flatMap(imageData -> {
-                                    RequestPhoto photo = new RequestPhoto();
-                                    photo.setRequestID(requestId);
-                                    photo.setImageData(imageData);
-                                    return photoRepository.save(photo);
-                                })
-                                .then();
+                        if (!canModify) return Mono.error(new OperationNotAllowedException("Нет прав"));
+                        if ("Closed".equalsIgnoreCase(request.getStatus())) return Mono.error(new OperationNotAllowedException("Заявка закрыта"));
+
+                        return chatRepository.findTelegramIdByRequestId(requestId)
+                                .flatMap(chatId -> {
+                                    String author = notificationService.escapeMarkdown(user.getLogin());
+
+                                    // ВАЖНО: Символ # экранируем как \\#
+                                    String caption = String.format(
+                                            "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
+                                            requestId, author
+                                    );
+
+                                    return imagesDataFlux.flatMap(imageData -> {
+                                        RequestPhoto photo = new RequestPhoto();
+                                        photo.setRequestID(requestId);
+                                        photo.setImageData(imageData);
+                                        return photoRepository.save(photo)
+                                                .flatMap(saved -> notificationService.sendPhoto(chatId, caption, imageData).thenReturn(saved));
+                                    }).then();
+                                });
                     });
-                }).then();
+                })
+                .then();
     }
 
     public Mono<RequestResponse> completeRequest(Integer requestId, Integer contractorId) {

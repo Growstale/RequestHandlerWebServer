@@ -3,6 +3,7 @@ package com.vodchyts.backend.feature.service;
 import com.vodchyts.backend.feature.entity.Notification;
 import com.vodchyts.backend.feature.entity.NotificationRecipient;
 import com.vodchyts.backend.feature.repository.ReactiveNotificationRecipientRepository;
+import com.vodchyts.backend.feature.repository.ReactiveShopContractorChatRepository;
 import org.quartz.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +11,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
@@ -43,10 +46,9 @@ public class NotificationSchedulerService {
                     .build();
 
             scheduler.scheduleJob(jobDetail, trigger);
-            logger.info("Запланировано уведомление с ID: {} и cron: {}", 
-                       notification.getNotificationID(), notification.getCronExpression());
+            logger.info("Запланировано уведомление ID: {}", notification.getNotificationID());
         } catch (SchedulerException e) {
-            logger.error("Ошибка при планировании уведомления с ID: {}", notification.getNotificationID(), e);
+            logger.error("Ошибка планирования: {}", e.getMessage());
         }
     }
 
@@ -54,9 +56,8 @@ public class NotificationSchedulerService {
         try {
             JobKey jobKey = JobKey.jobKey("notification-" + notificationId, "notifications");
             scheduler.deleteJob(jobKey);
-            logger.info("Отменено планирование уведомления с ID: {}", notificationId);
         } catch (SchedulerException e) {
-            logger.error("Ошибка при отмене планирования уведомления с ID: {}", notificationId, e);
+            logger.error("Error unscheduling", e);
         }
     }
 
@@ -117,42 +118,51 @@ public class NotificationSchedulerService {
     @Component
     public static class NotificationJob implements Job {
 
+        // Инжектим нужные сервисы через сеттеры (Quartz так работает с SpringBeanJobFactory)
         private ReactiveNotificationRecipientRepository recipientRepository;
-
-        public NotificationJob() {
-        }
+        private ReactiveShopContractorChatRepository chatRepository;
+        private TelegramNotificationService telegramService;
 
         @org.springframework.beans.factory.annotation.Autowired
         public void setRecipientRepository(ReactiveNotificationRecipientRepository recipientRepository) {
             this.recipientRepository = recipientRepository;
         }
 
+        @org.springframework.beans.factory.annotation.Autowired
+        public void setChatRepository(ReactiveShopContractorChatRepository chatRepository) {
+            this.chatRepository = chatRepository;
+        }
+
+        @org.springframework.beans.factory.annotation.Autowired
+        public void setTelegramService(TelegramNotificationService telegramService) {
+            this.telegramService = telegramService;
+        }
+
         @Override
         public void execute(JobExecutionContext context) throws JobExecutionException {
+            // 1. Проверка на выходные (глобально для рассылок)
+            DayOfWeek today = LocalDate.now().getDayOfWeek();
+            if (today == DayOfWeek.SATURDAY || today == DayOfWeek.SUNDAY) {
+                logger.info("Сегодня выходной, рассылка уведомлений пропущена.");
+                return;
+            }
+
             JobDataMap dataMap = context.getJobDetail().getJobDataMap();
             Integer notificationId = dataMap.getInt("notificationId");
             String title = dataMap.getString("title");
-            String message = dataMap.getString("message");
+            String rawMessage = dataMap.getString("message");
 
-            logger.info("Выполняется отправка уведомления: ID={}, Title={}", notificationId, title);
+            String fullMessage = "*" + title + "*\n\n" + rawMessage;
 
-            // Получаем получателей и отправляем уведомления
+            logger.info("Начало рассылки уведомления ID={}", notificationId);
+
             recipientRepository.findByNotificationID(notificationId)
-                    .map(NotificationRecipient::getShopContractorChatID)
-                    .collectList()
-                    .doOnNext(chatIds -> sendNotificationToChats(chatIds, title, message))
+                    .flatMap(recipient -> chatRepository.findById(recipient.getShopContractorChatID()))
+                    .flatMap(chat -> {
+                        // Реальная отправка
+                        return telegramService.sendNotification(chat.getTelegramID(), fullMessage);
+                    })
                     .subscribe();
-        }
-
-        private void sendNotificationToChats(List<Integer> chatIds, String title, String message) {
-            // Заглушка для отправки уведомлений - выводим в консоль
-            for (Integer chatId : chatIds) {
-                logger.info("=== ОТПРАВКА УВЕДОМЛЕНИЯ ===");
-                logger.info("Получатель (ShopContractorChatID): {}", chatId);
-                logger.info("Заголовок: {}", title);
-                logger.info("Сообщение: {}", message);
-                logger.info("============================");
-            }
         }
     }
 }

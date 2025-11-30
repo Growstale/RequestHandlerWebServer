@@ -1,4 +1,8 @@
 import logging
+import asyncio
+import io  # <--- ВАЖНО: Добавили этот импорт
+from aiohttp import web
+from telegram.constants import ParseMode
 from telegram.ext import (
     Application, CommandHandler, ConversationHandler, CallbackQueryHandler,
     MessageHandler, filters, ContextTypes
@@ -28,16 +32,83 @@ from handlers import (
 )
 
 
-def main():
+# --- WEB SERVER HANDLER ---
+async def http_notify_handler(request):
+    """Принимает POST запросы с текстом от Java Backend."""
+    try:
+        data = await request.json()
+        chat_id = data.get('chatId')
+        text = data.get('text')
+
+        if not chat_id or not text:
+            return web.Response(status=400, text="Missing chatId or text")
+
+        bot_app = request.app['bot_app']
+
+        await bot_app.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        logger.info(f"Notification sent to {chat_id}")
+        return web.Response(text="OK")
+    except Exception as e:
+        logger.error(f"Failed to process notification: {e}")
+        return web.Response(status=500, text=str(e))
+
+
+async def http_notify_photo_handler(request):
+    """Принимает POST запрос с картинкой и caption от Java Backend."""
+    try:
+        reader = await request.multipart()
+
+        chat_id = None
+        caption = None
+        file_data = None
+
+        async for field in reader:
+            if field.name == 'chatId':
+                val = await field.read_chunk()
+                chat_id = int(val.decode('utf-8'))
+            elif field.name == 'caption':
+                val = await field.read_chunk()
+                caption = val.decode('utf-8')
+            elif field.name == 'file':
+                file_data = await field.read()
+
+        if not chat_id or not file_data:
+            return web.Response(status=400, text="Missing chatId or file")
+
+        bot_app = request.app['bot_app']
+
+        # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        # Оборачиваем байты в BytesIO, чтобы telegram-bot понял, что это файл
+        photo_file = io.BytesIO(file_data)
+        photo_file.name = 'image.jpg'  # Желательно дать имя
+
+        await bot_app.bot.send_photo(
+            chat_id=chat_id,
+            photo=photo_file,
+            caption=caption,
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        logger.info(f"Photo notification sent to {chat_id}")
+        return web.Response(text="OK")
+    except Exception as e:
+        logger.error(f"Failed to process photo notification: {e}")
+        return web.Response(status=500, text=str(e))
+
+
+async def main():
     logger.info("Запуск бота...")
     if not BOT_TOKEN:
         logger.error("Токен бота не найден!")
         return
 
     context_types = ContextTypes(context=Context)
-    app = Application.builder().token(BOT_TOKEN).context_types(context_types).build()
+    application = Application.builder().token(BOT_TOKEN).context_types(context_types).build()
 
-    # --- Диалог создания заявки (без изменений) ---
+    # --- Регистрация хендлеров (ConversationHandler'ы) ---
     create_conv = ConversationHandler(
         entry_points=[CommandHandler("newrequest", start_create_request)],
         states={
@@ -47,51 +118,39 @@ def main():
             EDITOR_SELECT_WORK: [CallbackQueryHandler(editor_select_work, pattern="^ework_")],
             EDITOR_SELECT_URGENCY: [CallbackQueryHandler(editor_select_urgency, pattern="^eurg_")],
             EDITOR_INPUT_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, editor_input_text)],
-            # EDITOR_SELECT_STATUS не нужен при создании
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
     )
 
-    # --- ЕДИНЫЙ ДИАЛОГ ДЛЯ ПРОСМОТРА И ДЕЙСТВИЙ ---
     view_conv = ConversationHandler(
         entry_points=[
             CommandHandler("requests", view_requests_start),
             MessageHandler(filters.Regex(r'^\/[_]*(\d+)[_]*$'), view_request_details)
         ],
         states={
-            # Главное меню списка заявок
             VIEW_MAIN_MENU: [
                 CallbackQueryHandler(view_menu_callback, pattern="^view_"),
                 MessageHandler(filters.Regex(r'^\/[_]*(\d+)[_]*$'), view_request_details)
             ],
-            # Меню детального просмотра заявки
             VIEW_DETAILS: [
                 CallbackQueryHandler(action_callback_handler, pattern="^act_"),
-                # Обработчики переходов к удалению (вызываются из action_callback_handler, но можно и напрямую)
                 CallbackQueryHandler(action_callback_handler, pattern="^start_del_")
             ],
-
-            # --- НОВЫЕ СОСТОЯНИЯ ---
             DELETE_COMMENT_SELECT: [
                 CallbackQueryHandler(confirm_delete_comment_handler, pattern="^conf_del_cmt_"),
-                CallbackQueryHandler(action_callback_handler, pattern="^act_")  # Для кнопки "Отмена"
+                CallbackQueryHandler(action_callback_handler, pattern="^act_")
             ],
-
             DELETE_PHOTO_SELECT: [
                 CallbackQueryHandler(preview_delete_photo_handler, pattern="^preview_del_img_"),
                 CallbackQueryHandler(finalize_delete_photo_handler, pattern="^fin_del_img_"),
                 CallbackQueryHandler(action_callback_handler, pattern="^start_del_img_"),
-                # Кнопка "Назад к списку" (в preview)
-                CallbackQueryHandler(action_callback_handler, pattern="^act_")  # Кнопка "Отмена" (в списке)
+                CallbackQueryHandler(action_callback_handler, pattern="^act_")
             ],
-            # Вложенные состояния для действий
             VIEW_SET_SEARCH_TERM: [MessageHandler(filters.TEXT & ~filters.COMMAND, view_search_handler)],
             VIEW_SET_SORTING: [CallbackQueryHandler(view_sort_callback, pattern="^(view|sort)_")],
             VIEW_ADD_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_comment_handler)],
             VIEW_ADD_PHOTO: [
-                # Обработчик фото
                 MessageHandler(filters.PHOTO | filters.Document.IMAGE, add_photo_handler),
-                # ИСПРАВЛЕНИЕ: Добавлен обработчик кнопок (для кнопки "Назад", которая появится после загрузки)
                 CallbackQueryHandler(action_callback_handler, pattern="^act_")
             ],
             EDITOR_MAIN_MENU: [CallbackQueryHandler(editor_main_callback, pattern="^(editor_|edit_field_)")],
@@ -108,18 +167,49 @@ def main():
         allow_reentry=True
     )
 
-    app.add_handler(create_conv)
-    app.add_handler(view_conv)
+    application.add_handler(create_conv)
+    application.add_handler(view_conv)
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("chatid", chat_id_command))
+    application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
 
-    # --- Глобальные обработчики ---
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("chatid", chat_id_command))
+    # --- ЗАПУСК СЕРВЕРА И БОТА ---
 
-    app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
+    # 1. Инициализация бота
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
 
-    logger.info("Бот готов к работе. Запускаю polling...")
-    app.run_polling()
+    # 2. Настройка веб-сервера с увеличенным лимитом
+    MAX_SIZE = 100 * 1024 * 1024  # 100 MB
+    server = web.Application(client_max_size=MAX_SIZE)  # <--- ВАЖНО: Применяем лимит
+
+    server['bot_app'] = application
+    server.router.add_post('/notify', http_notify_handler)
+    server.router.add_post('/notify/photo', http_notify_photo_handler)
+
+    runner = web.AppRunner(server)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8081)
+    await site.start()
+
+    logger.info(f"HTTP Server started on port 8081. Max upload size: {MAX_SIZE} bytes")
+    logger.info("Bot polling started")
+
+    try:
+        await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(main())
