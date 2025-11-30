@@ -28,7 +28,7 @@ export default function NotificationForm({ currentNotification, onSubmit, onCanc
   useEffect(() => {
     const fetchChats = async () => {
       try {
-        const response = await getShopContractorChats()
+        const response = await getShopContractorChats({ size: 1000 })
         setAvailableChats(response.data.content || [])
       } catch (error) {
         console.error('Ошибка загрузки чатов:', error)
@@ -299,14 +299,15 @@ export default function NotificationForm({ currentNotification, onSubmit, onCanc
             <p className="text-gray-500 text-sm">Нет доступных чатов</p>
           ) : (
             availableChats.map(chat => (
-              <label key={chat.shopContractorChatID} className="flex items-center space-x-2">
+              <label key={chat.shopContractorChatID} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
                 <input
                   type="checkbox"
                   checked={formData.recipientChatIds.includes(chat.shopContractorChatID)}
                   onChange={() => handleRecipientToggle(chat.shopContractorChatID)}
+                  className="mt-0.5"
                 />
                 <span className="text-sm">
-                  {chat.shopName} - {chat.contractorName} (ID: {chat.shopContractorChatID})
+                  <span className="font-semibold">{chat.shopName}</span> - {chat.contractorLogin || 'Без подрядчика'} <span className="text-gray-400 text-xs">(ID: {chat.shopContractorChatID})</span>
                 </span>
               </label>
             ))
