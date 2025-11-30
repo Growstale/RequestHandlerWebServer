@@ -10,6 +10,7 @@ import com.vodchyts.backend.feature.dto.UpdateUserRequest;
 import com.vodchyts.backend.feature.dto.UserResponse;
 import com.vodchyts.backend.feature.entity.Role;
 import com.vodchyts.backend.feature.entity.User;
+import com.vodchyts.backend.feature.repository.ReactiveRequestRepository;
 import com.vodchyts.backend.feature.repository.ReactiveRoleRepository;
 import com.vodchyts.backend.feature.repository.ReactiveUserRepository;
 import io.r2dbc.spi.Row;
@@ -33,13 +34,20 @@ public class AdminService {
 
     private final ReactiveUserRepository userRepository;
     private final ReactiveRoleRepository roleRepository;
+    private final ReactiveRequestRepository requestRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordValidator passwordValidator;
-    private final DatabaseClient databaseClient; // Добавляем DatabaseClient
+    private final DatabaseClient databaseClient;
 
-    public AdminService(ReactiveUserRepository userRepository, ReactiveRoleRepository roleRepository, PasswordEncoder passwordEncoder, PasswordValidator passwordValidator, DatabaseClient databaseClient) {
+    public AdminService(ReactiveUserRepository userRepository,
+                        ReactiveRoleRepository roleRepository,
+                        ReactiveRequestRepository requestRepository,
+                        PasswordEncoder passwordEncoder,
+                        PasswordValidator passwordValidator,
+                        DatabaseClient databaseClient) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.requestRepository = requestRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordValidator = passwordValidator;
         this.databaseClient = databaseClient;
@@ -96,7 +104,6 @@ public class AdminService {
             bindings.put("roleName", roleName);
         }
 
-        // Запрос для подсчета
         String countSql = "SELECT COUNT(*) FROM (" + sqlBuilder.toString() + ") as count_subquery";
         DatabaseClient.GenericExecuteSpec countSpec = databaseClient.sql(countSql);
         for (Map.Entry<String, Object> entry : bindings.entrySet()) {
@@ -104,7 +111,6 @@ public class AdminService {
         }
         Mono<Long> countMono = countSpec.map(row -> row.get(0, Long.class)).one();
 
-        // Добавляем сортировку и пагинацию
         sqlBuilder.append(parseSortToSql(sort));
         sqlBuilder.append(" OFFSET ").append((long) page * size).append(" ROWS FETCH NEXT ").append(size).append(" ROWS ONLY");
 
@@ -173,6 +179,7 @@ public class AdminService {
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с ID " + userId + " не найден")))
                 .flatMap(user -> {
+                    // 1. Обновление простых полей
                     if (request.password() != null && !request.password().isBlank()) {
                         passwordValidator.validate(request.password());
                         user.setPassword(passwordEncoder.encode(request.password()));
@@ -183,12 +190,33 @@ public class AdminService {
                         user.setTelegramID(request.telegramID().isEmpty() ? null : Long.parseLong(request.telegramID()));
                     }
 
+                    // 2. Логика смены роли
                     Mono<User> userMono = Mono.just(user);
+
                     if (request.roleName() != null && !request.roleName().isBlank()) {
-                        userMono = roleRepository.findByRoleName(request.roleName())
+                        // Если роль меняется
+                        userMono = roleRepository.findById(user.getRoleID()) // Получаем ТЕКУЩУЮ роль
+                                .flatMap(currentRole -> {
+                                    // Если текущая роль была "Подрядчик"
+                                    if ("Contractor".equals(currentRole.getRoleName())) {
+                                        // Проверяем, есть ли активные заявки
+                                        return requestRepository.existsByAssignedContractorIDAndStatus(userId, "In work")
+                                                .flatMap(hasActive -> {
+                                                    if (hasActive) {
+                                                        // Если есть, запрещаем смену роли
+                                                        return Mono.error(new OperationNotAllowedException(
+                                                                "Нельзя изменить роль: у этого подрядчика есть активные заявки. Сначала переназначьте или завершите их."
+                                                        ));
+                                                    }
+                                                    return Mono.just(currentRole);
+                                                });
+                                    }
+                                    return Mono.just(currentRole);
+                                })
+                                .then(roleRepository.findByRoleName(request.roleName())) // Ищем НОВУЮ роль
                                 .switchIfEmpty(Mono.error(new RuntimeException("Роль '" + request.roleName() + "' не найдена")))
-                                .map(role -> {
-                                    user.setRoleID(role.getRoleID());
+                                .map(newRole -> {
+                                    user.setRoleID(newRole.getRoleID());
                                     return user;
                                 });
                     }

@@ -14,6 +14,13 @@ async def _make_request(method: str, endpoint: str, **kwargs):
         try:
             response = await client.request(method, api_url, headers=headers, **kwargs)
             response.raise_for_status()
+
+            # --- ИСПРАВЛЕНИЕ ---
+            # Если статус 204 (No Content), возвращаем True, так как JSON пустой
+            if response.status_code == 204:
+                return True
+            # -------------------
+
             return response.json()
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP Error for {e.request.url}: {e.response.status_code} - {e.response.text}")
@@ -152,3 +159,11 @@ async def get_photo(photo_id: int):
 
 async def update_request(request_id: int, request_data: dict):
     return await _make_request("PUT", f"/api/bot/requests/{request_id}", json=request_data)
+
+
+async def delete_comment(comment_id: int):
+    return await _make_request("DELETE", f"/api/bot/requests/comments/{comment_id}")
+
+
+async def delete_photo(photo_id: int):
+    return await _make_request("DELETE", f"/api/bot/requests/photos/{photo_id}")

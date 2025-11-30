@@ -8,6 +8,7 @@ import com.vodchyts.backend.feature.entity.MessageRecipient;
 import com.vodchyts.backend.feature.entity.MessageTemplate;
 import com.vodchyts.backend.feature.repository.ReactiveMessageRecipientRepository;
 import com.vodchyts.backend.feature.repository.ReactiveMessageTemplateRepository;
+import com.vodchyts.backend.feature.repository.ReactiveShopContractorChatRepository;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
@@ -26,13 +27,17 @@ public class MessagingService {
     private final ReactiveMessageTemplateRepository templateRepository;
     private final ReactiveMessageRecipientRepository recipientRepository;
     private final TransactionalOperator transactionalOperator;
+    private final TelegramNotificationService notificationService; // inject
+    private final ReactiveShopContractorChatRepository chatRepository; // Нужно для поиска TelegramID
 
     public MessagingService(ReactiveMessageTemplateRepository templateRepository,
                             ReactiveMessageRecipientRepository recipientRepository,
-                            TransactionalOperator transactionalOperator) {
+                            TransactionalOperator transactionalOperator, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository) {
         this.templateRepository = templateRepository;
         this.recipientRepository = recipientRepository;
         this.transactionalOperator = transactionalOperator;
+        this.notificationService = notificationService;
+        this.chatRepository = chatRepository;
     }
 
     private Mono<byte[]> extractBytes(Mono<FilePart> filePartMono) {
@@ -171,11 +176,10 @@ public class MessagingService {
     }
 
     public Mono<Void> sendMessage(SendMessageRequest request) {
-        System.out.println("--- НАЧАЛО ОТПРАВКИ СООБЩЕНИЯ ---");
-        System.out.println("Текст сообщения: " + request.message());
-        System.out.println("ID чатов получателей: " + request.recipientChatIds());
-        System.out.println("--- КОНЕЦ ОТПРАВКИ СООБЩЕНИЯ ---");
-        return Mono.empty();
+        return Flux.fromIterable(request.recipientChatIds())
+                .flatMap(chatId -> chatRepository.findById(chatId)) // Находим Chat сущность по ID связи
+                .flatMap(chat -> notificationService.sendNotification(chat.getTelegramID(), request.message()))
+                .then();
     }
 
     private MessageTemplateResponse mapToResponse(MessageTemplate template, List<Integer> recipientChatIds) {

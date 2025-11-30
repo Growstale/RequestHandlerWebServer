@@ -129,4 +129,16 @@ public class BotController {
     public Mono<RequestResponse> updateRequestFromBot(@PathVariable Integer requestId, @Valid @RequestBody Mono<UpdateRequestRequest> requestDto) {
         return requestDto.flatMap(dto -> requestService.updateAndEnrichRequest(requestId, dto));
     }
+
+    @DeleteMapping("/requests/comments/{commentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public Mono<Void> deleteCommentFromBot(@PathVariable Integer commentId) {
+        return requestService.deleteComment(commentId);
+    }
+
+    @DeleteMapping("/requests/photos/{photoId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public Mono<Void> deletePhotoFromBot(@PathVariable Integer photoId) {
+        return requestService.deletePhoto(photoId);
+    }
 }

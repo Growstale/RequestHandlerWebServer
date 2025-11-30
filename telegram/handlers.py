@@ -494,6 +494,18 @@ async def _edit_message_markdown(query, text, reply_markup=None):
             await safe_answer_query(query, text="Ошибка отображения. Попробуйте ещё раз.", show_alert=True)
 
 
+async def complete_request_action(query, context, request_id):
+    await query.edit_message_text(f"Завершаю заявку \\#{request_id}\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
+    response = await api_client.complete_request(query.from_user.id, request_id)
+    if response:
+        _invalidate_requests_cache(context)
+        await query.edit_message_text(f"✅ Заявка \\#{request_id} успешно завершена\\.",
+                                      parse_mode=ParseMode.MARKDOWN_V2)
+    else:
+        await query.edit_message_text(f"❌ Не удалось завершить заявку \\#{request_id}\\.",
+                                      parse_mode=ParseMode.MARKDOWN_V2)
+
+
 async def view_sort_callback(update: Update, context: Context) -> int:
     query = update.callback_query
     await safe_answer_query(query)
@@ -613,10 +625,26 @@ async def view_request_details(update: Update, context: Context) -> int | None:
 async def action_callback_handler(update: Update, context: Context) -> int | None:
     query = update.callback_query
     await safe_answer_query(query)
+    data = query.data
 
-    parts = query.data.split('_')
+    # --- 1. Обработка переходов к удалению (Спец. паттерны) ---
+    if data.startswith('start_del_cmt_'):
+        return await start_delete_comment_handler(update, context)
+
+    if data.startswith('start_del_img_'):
+        return await start_delete_photo_handler(update, context)
+
+    # --- 2. Стандартная обработка действий (act_...) ---
+    parts = data.split('_')
+    # Пример: act_comments_123 -> action='comments', value='123'
+    # Пример: act_add_photo_123 -> action='add_photo', value='123'
+
+    if len(parts) < 2:
+        return None
+
+    # Собираем action из всех частей между префиксом (0) и ID (последний)
     action = "_".join(parts[1:-1]) if len(parts) > 2 else parts[1]
-    value = parts[-1] if len(parts) > 1 else None
+    value = parts[-1]
 
     if action == 'back' and value == 'list':
         class FakeUpdate:
@@ -639,12 +667,16 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
 
         class FakeUpdate:
             class FakeMessage:
-                text = f"/{value}"
+                text = f"/{value}"  # value здесь это ID заявки
 
             message = FakeMessage()
             effective_user = query.from_user
+            effective_chat = query.message.chat
 
-        return await view_request_details(FakeUpdate(), context)
+            # Передаем правильный update для view_request_details
+
+        # Нам нужно, чтобы view_request_details смог прочитать ID из текста
+        return await view_request_details(FakeUpdate(query), context)
 
     elif action == 'back_to_request':
         request_id = int(value)
@@ -670,97 +702,282 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
         return VIEW_ADD_COMMENT
 
     elif action == 'add_photo':
-        # УДАЛЕНИЕ МЕНЮ ЗАЯВКИ ПРИ ПЕРЕХОДЕ К ЗАГРУЗКЕ ФОТО
         await query.delete_message()
-
         request_id = int(value)
         context.user_data['current_request_id'] = request_id
-
-        # Отправляем новое сообщение-приглашение с упоминанием лимита
         prompt_message = await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="📤 Пожалуйста, отправьте фото для заявки. Максимум 10 фото на заявку."
         )
-        # Сохраняем ID сообщения-приглашения, чтобы потом удалить
         context.user_data['photo_prompt_message_id'] = prompt_message.message_id
-
         return VIEW_ADD_PHOTO
 
     elif action == 'edit':
-        # Запускаем диалог редактирования
-        # Нам нужно выйти из текущего ConversationHandler просмотра и зайти в ConversationHandler редактора
-        # Но Telegram bot lib не позволяет легко перепрыгивать между независимыми ConversationHandler.
-        # Поэтому мы добавим состояния редактора ВНУТРЬ общего view_conv (см. ниже в main.py)
         return await start_edit_request(update, context)
+
     return None
 
 
-async def complete_request_action(query, context, request_id):
-    await query.edit_message_text(f"Завершаю заявку \\#{request_id}\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
-    response = await api_client.complete_request(query.from_user.id, request_id)
-    if response:
-        _invalidate_requests_cache(context)
-        await query.edit_message_text(f"✅ Заявка \\#{request_id} успешно завершена\\.",
-                                      parse_mode=ParseMode.MARKDOWN_V2)
-    else:
-        await query.edit_message_text(f"❌ Не удалось завершить заявку \\#{request_id}\\.",
-                                      parse_mode=ParseMode.MARKDOWN_V2)
+async def show_comments(query, context: Context, request_id: int):
+    """Показывает список комментариев с возможностью перехода к удалению."""
+    # 1. Гарантируем загрузку информации о пользователе
+    user_info = context.user_data.get('user_info')
+    if not user_info:
+        user_info = await api_client.get_user_by_telegram_id(query.from_user.id)
+        context.user_data['user_info'] = user_info
 
+    # 2. Проверяем права
+    is_admin = user_info and user_info.get('roleName') == 'RetailAdmin'
 
-async def show_comments(query, context, request_id):
     comments = await api_client.get_comments(request_id)
+
+    # Если комментариев нет
     if not comments:
-        await safe_answer_query(query, text="Комментариев пока нет.", show_alert=True)
+        # ИЗМЕНЕНИЕ: Вместо простого alert, проверяем контекст.
+        # Если мы пришли сюда после успешного удаления (или просто открыли пустой список),
+        # лучше показать сообщение "Нет комментариев" с кнопкой "Назад",
+        # чтобы интерфейс обновился и не завис.
+
+        text = "💬 *Комментарии к заявке*\n\n_Комментариев пока нет\\._"
+        keyboard = [[InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_to_request_{request_id}")]]
+
+        # Пытаемся обновить сообщение. Если текст не изменился (было "Комментариев нет"), игнорируем ошибку.
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        except BadRequest:
+            pass  # Сообщение уже такое же
+
         return
 
+    # Если комментарии есть — формируем список
     text = f"💬 *Комментарии к заявке \\#{request_id}*\n\n"
     for comment in comments:
         created_at = datetime.datetime.fromisoformat(comment['createdAt']).strftime('%d.%m %H:%M')
-        text += f"*{escape_markdown(comment['userLogin'])}* \\({escape_markdown(created_at)}\\):\n"
-        text += f"{escape_markdown(comment['commentText'])}\n\n"
+        user_login = escape_markdown(comment['userLogin'])
+        comment_text = escape_markdown(comment['commentText'])
+        text += f"👤 *{user_login}* \\({escape_markdown(created_at)}\\):\n{comment_text}\n\n"
 
-    keyboard = [[InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_to_request_{request_id}")]]
+    keyboard = []
+
+    # Кнопка удаления (только для Админа)
+    if is_admin:
+        keyboard.append([InlineKeyboardButton("🗑 Удалить комментарий", callback_data=f"start_del_cmt_{request_id}")])
+
+    keyboard.append([InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_to_request_{request_id}")])
+
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN_V2)
 
 
-async def show_photos(query, context, request_id):
+async def start_delete_comment_handler(update: Update, context: Context) -> int:
+    """Показывает кнопки для выбора комментария на удаление."""
+    query = update.callback_query
+    await safe_answer_query(query)
+
+    request_id = int(query.data.split('_')[-1])
+    comments = await api_client.get_comments(request_id)
+
+    if not comments:
+        await query.answer("Нет комментариев для удаления", show_alert=True)
+        return VIEW_DETAILS
+
+    keyboard = []
+    for c in comments:
+        # Делаем превью текста для кнопки (первые 20 символов)
+        snippet = c['commentText'][:20] + "..." if len(c['commentText']) > 20 else c['commentText']
+        btn_text = f"{c['userLogin']}: {snippet}"
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"conf_del_cmt_{c['commentID']}_{request_id}")])
+
+    keyboard.append([InlineKeyboardButton("🔙 Отмена", callback_data=f"act_comments_{request_id}")])
+
+    await query.edit_message_text(
+        "Выберите комментарий для удаления:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return DELETE_COMMENT_SELECT
+
+
+async def confirm_delete_comment_handler(update: Update, context: Context) -> int:
+    """Выполняет удаление комментария."""
+    query = update.callback_query
+    # data format: conf_del_cmt_{commentID}_{requestID}
+    _, _, _, comment_id, request_id = query.data.split('_')
+
+    await api_client.delete_comment(int(comment_id))
+    await query.answer("Комментарий удален")
+
+    # Возвращаемся к списку комментариев
+    await show_comments(query, context, int(request_id))
+    return VIEW_DETAILS
+
+
+async def show_photos(query, context: Context, request_id: int):
+    """Показывает фото и кнопку перехода к удалению."""
+    # 1. Гарантируем загрузку информации о пользователе
+    user_info = context.user_data.get('user_info')
+    if not user_info:
+        user_info = await api_client.get_user_by_telegram_id(query.from_user.id)
+        context.user_data['user_info'] = user_info
+
+    # 2. Проверяем права
+    is_admin = user_info and user_info.get('roleName') == 'RetailAdmin'
+
     photo_ids = await api_client.get_photo_ids(request_id)
+
     if not photo_ids:
         await safe_answer_query(query, text="Фотографий нет.", show_alert=True)
+        # Если мы удалили последнее фото, возвращаемся в детали
+        if query.data.startswith("fin_del_img"):
+            await show_request_details_in_message(query, context, request_id)
         return
 
-    status_message = await query.message.reply_text(f"Загружаю {len(photo_ids)} фото для заявки #{request_id}...")
+    # 1. Отправляем MediaGroup (просмотр)
+    status_message = await query.message.reply_text(f"Загружаю {len(photo_ids)} фото...")
 
     media_group = []
-    for pid in photo_ids[:10]:
+    display_ids = photo_ids[-10:]  # Показываем последние 10
+
+    for pid in display_ids:
         photo_bytes = await api_client.get_photo(pid)
         if photo_bytes:
             media_group.append(InputMediaPhoto(media=photo_bytes))
 
-    media_messages = []
     if media_group:
-        media_messages = await query.message.reply_media_group(media=media_group)
-    else:
-        await query.message.reply_text("❌ Не удалось загрузить изображения.")
+        await query.message.reply_media_group(media=media_group)
 
-    # Асинхронное удаление сообщений через 20 секунд
-    async def delete_viewed_photos():
-        try:
-            await asyncio.sleep(20)
-            try:
-                await context.bot.delete_message(chat_id=query.message.chat_id, message_id=status_message.message_id)
-            except Exception as e:
-                logger.warning(f"Failed to delete status message: {e}")
+    try:
+        await context.bot.delete_message(chat_id=query.message.chat_id, message_id=status_message.message_id)
+    except:
+        pass
 
-            for msg in media_messages:
-                try:
-                    await context.bot.delete_message(chat_id=query.message.chat_id, message_id=msg.message_id)
-                except Exception as e:
-                    logger.warning(f"Failed to delete photo message: {e}")
-        except Exception as e:
-            logger.error(f"Error in delayed photo deletion: {e}")
+    # 2. Обновляем меню (добавляем кнопку удаления)
+    keyboard = []
 
-    asyncio.create_task(delete_viewed_photos())
+    # Кнопка удаления (только для Админа)
+    if is_admin:
+        keyboard.append([InlineKeyboardButton("🗑 Удалить фото", callback_data=f"start_del_img_{request_id}")])
+
+    keyboard.append([InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_to_request_{request_id}")])
+
+    await query.edit_message_text(
+        text=f"🖼 Фотографии к заявке \\#{request_id} отправлены\\.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+
+async def start_delete_photo_handler(update: Update, context: Context) -> int:
+    """Показывает список фото (кнопки) для выбора."""
+    query = update.callback_query
+    request_id = int(query.data.split('_')[-1])
+
+    photo_ids = await api_client.get_photo_ids(request_id)
+    if not photo_ids:
+        await query.answer("Нет фото для удаления", show_alert=True)
+        return VIEW_DETAILS
+
+    keyboard = []
+    row = []
+    for idx, pid in enumerate(photo_ids, start=1):
+        row.append(InlineKeyboardButton(f"Фото {idx}", callback_data=f"preview_del_img_{pid}_{request_id}"))
+        if len(row) == 3:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([InlineKeyboardButton("🔙 Отмена", callback_data=f"act_photos_{request_id}")])
+
+    await query.edit_message_text(
+        "Выберите номер фото для удаления (чтобы увидеть превью и подтвердить):",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return DELETE_PHOTO_SELECT
+
+
+async def preview_delete_photo_handler(update: Update, context: Context) -> int:
+    """Показывает одно фото с кнопкой подтверждения удаления."""
+    query = update.callback_query
+    # data: preview_del_img_{pid}_{request_id}
+    _, _, _, photo_id, request_id = query.data.split('_')
+
+    # Удаляем меню выбора (чтобы не засорять)
+    await query.delete_message()
+
+    photo_bytes = await api_client.get_photo(int(photo_id))
+
+    keyboard = [
+        [InlineKeyboardButton("❌ УДАЛИТЬ ЭТО ФОТО", callback_data=f"fin_del_img_{photo_id}_{request_id}")],
+        [InlineKeyboardButton("🔙 Отмена (назад к списку)", callback_data=f"start_del_img_{request_id}")]
+    ]
+
+    await context.bot.send_photo(
+        chat_id=update.effective_chat.id,
+        photo=photo_bytes,
+        caption=f"Удалить это фото из заявки #{request_id}?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return DELETE_PHOTO_SELECT
+
+
+async def finalize_delete_photo_handler(update: Update, context: Context) -> int:
+    """Удаляет фото и возвращает в меню фото."""
+    query = update.callback_query
+    # data: fin_del_img_{pid}_{request_id}
+    _, _, _, photo_id, request_id = query.data.split('_')
+
+    # 1. Удаляем фото через API
+    await api_client.delete_photo(int(photo_id))
+    await query.answer("Фото удалено")
+
+    # 2. Удаляем сообщение с превью фото (которое мы показывали для подтверждения)
+    try:
+        await query.delete_message()
+    except:
+        pass
+
+    # 3. Отправляем временное сообщение "Обновляю..."
+    # Нам нужно новое сообщение, в котором мы отрисуем список фото
+    msg = await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="🔄 Обновляю список фото..."
+    )
+
+    # 4. Создаем "Фейковый" Query объект.
+    # show_photos ожидает объект, у которого есть .message, .from_user и метод .edit_message_text.
+    # Так как query.message менять нельзя, мы создаем свой класс.
+    class FakeQuery:
+        def __init__(self, original_user, message_obj, bot):
+            self.from_user = original_user
+            self.message = message_obj  # Сюда кладем наше новое сообщение
+            self.data = "fake_data"
+            self._bot = bot
+
+        # Имитируем метод редактирования сообщения
+        async def edit_message_text(self, text, reply_markup=None, parse_mode=None):
+            await self._bot.edit_message_text(
+                chat_id=self.message.chat_id,
+                message_id=self.message.message_id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+
+        # Заглушка для answer (так как уведомление уже показали)
+        async def answer(self, *args, **kwargs):
+            pass
+
+            # Создаем экземпляр фейкового запроса
+
+    fake_query = FakeQuery(query.from_user, msg, context.bot)
+
+    # 5. Вызываем show_photos с нашим фейковым объектом
+    await show_photos(fake_query, context, int(request_id))
+
+    return VIEW_DETAILS
 
 
 async def add_comment_handler(update: Update, context: Context) -> int:
@@ -1293,8 +1510,10 @@ async def start_command(update: Update, context: CallbackContext):
     EDITOR_SELECT_WORK,     # Выбор вида работ
     EDITOR_SELECT_URGENCY,  # Выбор срочности
     EDITOR_INPUT_TEXT,      # Ввод описания или кастомных дней
-    EDITOR_SELECT_STATUS    # Выбор статуса (только для редактирования)
-) = range(20, 27)
+    EDITOR_SELECT_STATUS,    # Выбор статуса (только для редактирования)
+    DELETE_COMMENT_SELECT, # Выбор комментария для удаления
+    DELETE_PHOTO_SELECT    # Выбор фото для удаления
+) = range(20, 29) # <-- Увеличьте range до 29
 
 
 # handlers.py - Добавить новые функции
