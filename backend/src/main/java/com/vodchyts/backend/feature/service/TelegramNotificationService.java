@@ -2,6 +2,7 @@ package com.vodchyts.backend.feature.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.MultipartBodyBuilder;
@@ -13,12 +14,15 @@ import reactor.core.publisher.Mono;
 @Service
 public class TelegramNotificationService {
 
+    @Value("${bot.url:http://localhost:8081}")
+    private String botUrl;
+
     private static final Logger log = LoggerFactory.getLogger(TelegramNotificationService.class);
     private final WebClient webClient;
 
-    public TelegramNotificationService() {
+    public TelegramNotificationService(@Value("${bot.url:http://localhost:8081}") String botUrl) {
         this.webClient = WebClient.builder()
-                .baseUrl("http://localhost:8081")
+                .baseUrl(botUrl)
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(100 * 1024 * 1024))
                 .build();
     }

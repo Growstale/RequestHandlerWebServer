@@ -1,55 +1,83 @@
-# version: '3.8' <- Эту строку можно удалить, она устарела
+version: '3.8'
 
 services:
-  # Сервис для базы данных MS SQL Server
+  # --- База данных MS SQL ---
   db:
-    image: mcr.microsoft.com/mssql/server:2022-latest # Официальный образ от Microsoft
-    container_name: course-work-db
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sql_server
     environment:
-      # ВАЖНО: Эти переменные обязательны для запуска образа MS SQL Server
-      ACCEPT_EULA: "Y" # Принимаем лицензионное соглашение
-      MSSQL_SA_PASSWORD: "123456" # Устанавливаем пароль для пользователя 'sa'
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=SuperStrong!Pass123
+      - MSSQL_PID=Express
     ports:
-      # Пробрасываем порт 1433 контейнера на порт 1433 вашего компьютера.
-      # Это позволит вам подключаться к БД извне, например, через SQL Server Management Studio.
       - "1433:1433"
     volumes:
-      # Создаем именованный том для хранения данных БД.
-      # Это КЛЮЧЕВОЙ момент: данные не будут удаляться при перезапуске контейнера.
-      - sqlserver_data:/var/opt/mssql
+      - sqlvolume:/var/opt/mssql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/localhost/1433"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
-  # Сервис для бэкенда
+  # --- Java Backend ---
   backend:
-    build:
-      context: ./backend
-    container_name: course-work-backend
+    build: ./backend
+    container_name: backend_app
     depends_on:
-      - db # <-- Указываем, что бэкенд должен стартовать только ПОСЛЕ старта базы данных
+      db:
+        condition: service_healthy
     environment:
-      # --- ПЕРЕОПРЕДЕЛЯЕМ НАСТРОЙКИ ПОДКЛЮЧЕНИЯ К БД ---
-      # Теперь вместо 'localhost' мы используем имя сервиса 'db'.
-      # Docker Compose автоматически сделает так, что 'db' будет указывать на IP-адрес контейнера с БД.
-      SPRING_R2DBC_URL: "r2dbc:mssql://db:1433/RequestHandlerWebServer?encrypt=false&trustServerCertificate=true"
-      SPRING_R2DBC_USERNAME: "sa"
-      SPRING_R2DBC_PASSWORD: "123456"
-      # Эти настройки тоже можно переопределить, если нужно
-      SPRING_SQL_INIT_MODE: "always"
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
+      # Переопределяем настройки подключения к БД
+      - SPRING_R2DBC_URL=r2dbc:mssql://db:1433/master?encrypt=false&trustServerCertificate=true
+      - SPRING_R2DBC_USERNAME=sa
+      - SPRING_R2DBC_PASSWORD=SuperStrong!Pass123
+      - SPRING_SQL_INIT_MODE=never
+      # Настройки JWT
+      - JWT_SECRET=mySuperSecureSecretKeyThatIsLongEnough123456789
+      # Адрес бота (имя сервиса 'bot')
+      - BOT_URL=http://bot:8081
+      # Ключ API для бота
+      - BOT_API_KEY=QLHJgYUOa80kRCtrA0RH8+rxYya4xCAut36B8wanYUo=
+      # Разрешаем запросы от Nginx (он будет на том же хосте для браузера)
+      - FRONTEND_ALLOWED_ORIGINS=http://localhost
+    networks:
+      - app-network
 
-  # Сервис для Nginx (остается без изменений)
-  nginx:
-    build:
-      context: .
-      dockerfile: ./nginx/Dockerfile-proxy
-    container_name: course-work-nginx
-    ports:
-      - "80:80"
+  # --- Python Telegram Bot ---
+  bot:
+    build: ./telegram
+    container_name: telegram_bot
     depends_on:
       - backend
-    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=8364635812:AAHnXEn6HkKaXCc_yWkr1Jgw4Sv8IggqBXg
+      - BACKEND_API_KEY=QLHJgYUOa80kRCtrA0RH8+rxYya4xCAut36B8wanYUo=
+      # Бот обращается к бэкенду внутри сети Docker
+      - BACKEND_URL=http://backend:8080
+    networks:
+      - app-network
 
-# Определяем именованный том, который будет управляться Docker
+  # --- Frontend + Nginx ---
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # При сборке говорим Vite, что API находится по тому же адресу (через прокси /api)
+        - VITE_API_BASE=/
+    container_name: frontend_nginx
+    ports:
+      - "80:80" # Открываем веб-сайт на порту 80
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
 volumes:
-  sqlserver_data:
+  sqlvolume:
+
+networks:
+  app-network:
+    driver: bridge

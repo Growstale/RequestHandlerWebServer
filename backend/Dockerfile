@@ -1,25 +1,18 @@
-# --- Этап 1: Сборка приложения с помощью Maven ---
-# Используем СУЩЕСТВУЮЩИЙ образ с Maven 3.9 и JDK 21
-FROM maven:3.9.6-eclipse-temurin-21 AS builder
-
+# Сборка
+# БЫЛО: FROM maven:3.9.6-eclipse-temurin-17 AS build
+# СТАЛО:
+FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
-
 COPY pom.xml .
-RUN mvn dependency:go-offline
-
 COPY src ./src
+# Пропускаем тесты при сборке для ускорения
+RUN mvn clean package -Dmaven.test.skip=true
 
-RUN mvn clean package -DskipTests
-
-
-# --- Этап 2: Создание минимального образа для запуска ---
-# Здесь все правильно, оставляем JDK 21
-FROM eclipse-temurin:21-jre-jammy
-
+# Запуск
+# БЫЛО: FROM eclipse-temurin:17-jre-alpine
+# СТАЛО:
+FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-
-COPY --from=builder /app/target/*.jar app.jar
-
+COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
-
 ENTRYPOINT ["java", "-jar", "app.jar"]
