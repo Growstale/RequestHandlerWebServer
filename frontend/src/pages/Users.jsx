@@ -13,7 +13,7 @@ import {
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog"
-import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle } from 'lucide-react'
+import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle, AlertCircle } from 'lucide-react'
 import UserForm from './UserForm'
 import Pagination from '@/components/Pagination'
 import { cn } from '@/lib/utils'
@@ -36,6 +36,9 @@ export default function Users() {
   const [currentUser, setCurrentUser] = useState(null)
   const [formApiError, setFormApiError] = useState(null)
 
+  // Состояние для ошибки удаления
+  const [deleteError, setDeleteError] = useState(null);
+
   const reloadUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -56,8 +59,6 @@ export default function Users() {
       setLoading(false);
     }
   }, [filterRole, sortConfig, currentPage]);
-
-
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -114,7 +115,6 @@ export default function Users() {
       return newConfig.length > 0 ? newConfig : [{ field: 'userID', direction: 'asc' }];
     });
   };
-
   
   const handleFormSubmit = async (formData) => {
     setFormApiError(null)
@@ -131,18 +131,35 @@ export default function Users() {
     }
   }
 
+  // --- ЛОГИКА УДАЛЕНИЯ ---
   const handleDeleteConfirm = async () => {
     if (!currentUser) return
+    
+    // 1. Очищаем прошлые ошибки
+    setDeleteError(null); 
+    
     try {
       await deleteUser(currentUser.userID)
-      setIsAlertOpen(false)
+      
+      // 2. Если успех — закрываем окно и обновляем список
+      setIsAlertOpen(false) 
       reloadUsers();
     } catch (err) {
-      console.error("Ошибка удаления:", err.response?.data)
-      setIsAlertOpen(false)
+      
+      const resData = err.response?.data;
+      let errorMessage = "Не удалось удалить пользователя. Возможно, у него есть активные связи.";
+
+      if (typeof resData === 'string') {
+          errorMessage = resData;
+      } else if (resData && typeof resData === 'object' && resData.message) {
+          errorMessage = resData.message;
+      }
+
+      // 4. Записываем сообщение в стейт
+      setDeleteError(errorMessage);
     }
   }
-
+  
   const SortableHeader = ({ field, children }) => {
     const sortInfo = sortConfig.find(s => s.field === field);
     const sortIndex = sortConfig.findIndex(s => s.field === field);
@@ -172,7 +189,11 @@ export default function Users() {
 
   const openCreateForm = () => { setCurrentUser(null); setFormApiError(null); setIsFormOpen(true); };
   const openEditForm = (user) => { setCurrentUser(user); setFormApiError(null); setIsFormOpen(true); };
-  const openDeleteAlert = (user) => { setCurrentUser(user); setIsAlertOpen(true); };
+  const openDeleteAlert = (user) => { 
+      setCurrentUser(user); 
+      setDeleteError(null); // Очищаем ошибку при открытии
+      setIsAlertOpen(true); 
+  };
 
   return (
     <main className="container mx-auto p-6">
@@ -259,18 +280,42 @@ export default function Users() {
         onPageChange={setCurrentPage}
       />
 
-      <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+      {/* --- МОДАЛЬНОЕ ОКНО ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ --- */}
+      <AlertDialog open={isAlertOpen} onOpenChange={(val) => { 
+          if (!val) setDeleteError(null); // Сброс при закрытии (кликом мимо или Escape)
+          setIsAlertOpen(val); 
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
-            <AlertDialogDescription>Вы собираетесь удалить пользователя <span className="font-bold">{currentUser?.login}</span>. Это действие нельзя будет отменить.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Вы собираетесь удалить пользователя <span className="font-bold">{currentUser?.login}</span>. Это действие нельзя будет отменить.
+            </AlertDialogDescription>
+            
+            {/* --- ВОТ ЗДЕСЬ ДОЛЖНА БЫТЬ ОШИБКА --- */}
+            {deleteError && (
+                <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-md mt-2 flex items-start gap-2 text-sm">
+                    <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                    <span>{deleteError}</span>
+                </div>
+            )}
+            
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm}>Удалить</AlertDialogAction>
-          </AlertDialogFooter>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Отмена</AlertDialogCancel>
+              <Button 
+                variant="destructive" 
+                onClick={(e) => {
+                    e.preventDefault(); // На всякий случай предотвращаем всплытие
+                    handleDeleteConfirm();
+                }}
+              >
+                Удалить
+              </Button>
+            </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
     </main>
   )
 }

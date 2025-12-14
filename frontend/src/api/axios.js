@@ -85,6 +85,10 @@ api.interceptors.response.use(
         isRefreshing = false
       }
     }
+    if (err.response && (err.response.status === 409 || err.response.status === 400)) {
+        return Promise.reject(err);
+    }
+
     logger.error(`axios.interceptor general error on ${originalReq.url}`, err);
     return Promise.reject(err)
   }

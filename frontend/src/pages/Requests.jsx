@@ -24,7 +24,7 @@ import { logger } from '@/lib/logger';
 import { useAuth } from '@/context/AuthProvider'; 
 import GanttChartView from './GanttChartView';
 
-const filterKeys = ['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue'];
+const filterKeys = ['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue', 'startDate', 'endDate'];
 
 export default function Requests({ archived = false }) {
     const { user } = useAuth();
@@ -99,11 +99,16 @@ export default function Requests({ archived = false }) {
         contractorId: searchParams.get('contractorId') || null,
         status: searchParams.get('status') || null,
         overdue: searchParams.get('overdue') === 'true',
+        startDate: viewMode === 'gantt' ? (searchParams.get('startDate') || null) : null,
+        endDate: viewMode === 'gantt' ? (searchParams.get('endDate') || null) : null,
         sortConfig: (searchParams.getAll('sort').length > 0 ? searchParams.getAll('sort') : ['requestID,asc']).map(s => ({
             field: s.split(',')[0],
             direction: s.split(',')[1] || 'asc'
         }))
-    }), [archived, searchParamsString]);
+    }), [archived, searchParamsString, viewMode]);
+
+    const startDate = searchParams.get('startDate') || '';
+    const endDate = searchParams.get('endDate') || '';
 
     const handleResetSort = () => {
         setSearchParams(prev => {
@@ -113,7 +118,7 @@ export default function Requests({ archived = false }) {
         }, { replace: true });
     };
 
-        const handleSort = (clickedField, e) => {
+    const handleSort = (clickedField, e) => {
         const isShiftPressed = e.shiftKey;
         const currentSortParams = searchParams.getAll('sort');
 
@@ -191,6 +196,7 @@ export default function Requests({ archived = false }) {
         const currentParams = new URLSearchParams(searchParamsString);
         
         try {
+            const useDateFilters = viewMode === 'gantt';
             const isByShopView = currentParams.get('view') === 'byShop';
             const params = {
                 page: parseInt(currentParams.get('page') || '0', 10),
@@ -202,6 +208,8 @@ export default function Requests({ archived = false }) {
                 contractorId: currentParams.get('contractorId') || null,
                 status: currentParams.get('status') || null,
                 overdue: currentParams.get('overdue') === 'true',
+                startDate: useDateFilters ? (currentParams.get('startDate') || null) : null,
+                endDate: useDateFilters ? (currentParams.get('endDate') || null) : null,
                 sortConfig: (currentParams.getAll('sort').length > 0 ? currentParams.getAll('sort') : ['requestID,asc']).map(s => ({
                     field: s.split(',')[0],
                     direction: s.split(',')[1] || 'asc'
@@ -216,9 +224,9 @@ export default function Requests({ archived = false }) {
         } finally {
             setLoading(false);
         }
-    }, [archived, searchParamsString]);
+    }, [archived, searchParamsString, viewMode]);
 
-        const SortableHeader = ({ field, children }) => {
+    const SortableHeader = ({ field, children }) => {
         const sort = searchParams.getAll('sort');
         const sortParam = sort.find(s => s.startsWith(field + ','));
         const sortIndex = sort.findIndex(s => s.startsWith(field + ','));
@@ -404,60 +412,110 @@ export default function Requests({ archived = false }) {
                 )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2 mb-4 p-4 border rounded-lg bg-gray-50 items-center">
-                 <Input placeholder="Поиск..." value={searchTerm} onChange={e => updateQueryParam('searchTerm', e.target.value)} className="xl:col-span-2" />
-                 {isAdmin && (
-                    <Select onValueChange={(v) => updateQueryParam('shopId', v)} value={shopId}>
-                        <SelectTrigger><SelectValue placeholder="Магазин" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="ALL">Все магазины</SelectItem>
-                            {shops.map(s => <SelectItem key={s.shopID} value={s.shopID.toString()}>{s.shopName}</SelectItem>)}
-                        </SelectContent>
-                    </Select>
+            {/* ПАНЕЛЬ ФИЛЬТРОВ */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2 mb-4 p-4 border rounded-lg bg-gray-50 items-end">
+                 
+                 {/* Поиск */}
+                 <div className="space-y-1 xl:col-span-2">
+                    <Label className="text-xs text-muted-foreground ml-1">Поиск</Label>
+                    <Input placeholder="Поиск..." value={searchTerm} onChange={e => updateQueryParam('searchTerm', e.target.value)} className="bg-white" />
+                 </div>
+
+                 {viewMode === 'gantt' && (
+                    <>
+                        <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground ml-1">Дата начала</Label>
+                            <Input 
+                                type="date" 
+                                value={startDate} 
+                                onChange={e => updateQueryParam('startDate', e.target.value)} 
+                                className="bg-white"
+                            />
+                        </div>
+
+                        <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground ml-1">Дата окончания</Label>
+                            <Input 
+                                type="date" 
+                                value={endDate} 
+                                onChange={e => updateQueryParam('endDate', e.target.value)} 
+                                className="bg-white"
+                            />
+                        </div>
+                    </>
                  )}
 
-                <Select onValueChange={(v) => updateQueryParam('workCategoryId', v)} value={workCategoryId}>
-                    <SelectTrigger><SelectValue placeholder="Вид работы" /></SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="ALL">Все виды</SelectItem>
-                        {workCategories.map(wc => <SelectItem key={wc.workCategoryID} value={wc.workCategoryID.toString()}>{wc.workCategoryName}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-                <Select onValueChange={(v) => updateQueryParam('urgencyId', v)} value={urgencyId}>
-                    <SelectTrigger><SelectValue placeholder="Срочность" /></SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="ALL">Вся срочность</SelectItem>
-                        {urgencyCategories.map(uc => <SelectItem key={uc.urgencyID} value={uc.urgencyID.toString()}>{getUrgencyDisplayName(uc.urgencyName)}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-                                {!archived && (
-                    <Select onValueChange={(v) => updateQueryParam('status', v)} value={status}>
-                        <SelectTrigger><SelectValue placeholder="Статус" /></SelectTrigger>
+
+                 {isAdmin && (
+                    <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground ml-1">Магазин</Label>
+                        <Select onValueChange={(v) => updateQueryParam('shopId', v)} value={shopId}>
+                            <SelectTrigger className="bg-white"><SelectValue placeholder="Магазин" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="ALL">Все магазины</SelectItem>
+                                {shops.map(s => <SelectItem key={s.shopID} value={s.shopID.toString()}>{s.shopName}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                 )}
+
+                <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground ml-1">Вид работы</Label>
+                    <Select onValueChange={(v) => updateQueryParam('workCategoryId', v)} value={workCategoryId}>
+                        <SelectTrigger className="bg-white"><SelectValue placeholder="Вид работы" /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="ALL">Все статусы</SelectItem>
-                            <SelectItem value="In work">В работе</SelectItem>
-                            <SelectItem value="Done">Выполнена</SelectItem>
+                            <SelectItem value="ALL">Все виды</SelectItem>
+                            {workCategories.map(wc => <SelectItem key={wc.workCategoryID} value={wc.workCategoryID.toString()}>{wc.workCategoryName}</SelectItem>)}
                         </SelectContent>
                     </Select>
+                </div>
+
+                <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground ml-1">Срочность</Label>
+                    <Select onValueChange={(v) => updateQueryParam('urgencyId', v)} value={urgencyId}>
+                        <SelectTrigger className="bg-white"><SelectValue placeholder="Срочность" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="ALL">Вся срочность</SelectItem>
+                            {urgencyCategories.map(uc => <SelectItem key={uc.urgencyID} value={uc.urgencyID.toString()}>{getUrgencyDisplayName(uc.urgencyName)}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                {!archived && (
+                    <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground ml-1">Статус</Label>
+                        <Select onValueChange={(v) => updateQueryParam('status', v)} value={status}>
+                            <SelectTrigger className="bg-white"><SelectValue placeholder="Статус" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="ALL">Все статусы</SelectItem>
+                                <SelectItem value="In work">В работе</SelectItem>
+                                <SelectItem value="Done">Выполнена</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
                 )}
 
                 {isAdmin && (
-                    <Select onValueChange={(v) => updateQueryParam('contractorId', v)} value={contractorId}>
-                        <SelectTrigger><SelectValue placeholder="Диспетчер" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="ALL">Все диспетчеры</SelectItem>
-                            {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
-                        </SelectContent>
-                    </Select>
+                    <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground ml-1">Диспетчер</Label>
+                        <Select onValueChange={(v) => updateQueryParam('contractorId', v)} value={contractorId}>
+                            <SelectTrigger className="bg-white"><SelectValue placeholder="Диспетчер" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="ALL">Все диспетчеры</SelectItem>
+                                {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
                 )}
+
                 {!archived && (
-                    <div className="flex items-center space-x-2 p-2 rounded-md justify-start xl:justify-center">
+                    <div className="flex items-center space-x-2 p-2 rounded-md justify-start h-10">
                         <input
                             type="checkbox"
                             id="overdue-filter"
                             checked={overdue}
                             onChange={e => updateQueryParam('overdue', e.target.checked)}
-                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                         />
                         <Label htmlFor="overdue-filter" className="text-sm font-medium text-gray-700 select-none cursor-pointer">
                             Просрочено
@@ -465,10 +523,6 @@ export default function Requests({ archived = false }) {
                     </div>
                 )}
             </div>
-
-
-
-
 
             {loading && <p>Загрузка...</p>}
             {error && <p className="text-red-500">{error}</p>}
@@ -567,7 +621,7 @@ export default function Requests({ archived = false }) {
                         />
                     )}
 
-                                        {viewMode === 'byShop' && (
+                    {viewMode === 'byShop' && (
                         <div className="space-y-8">
                             {Object.keys(groupedRequests).sort().map(shopName => (
                                 <div key={shopName}>
@@ -575,7 +629,6 @@ export default function Requests({ archived = false }) {
                                     <div className="rounded-md border">
                                         <Table>
                                             <TableHeader>
-                                                {/* Копируем заголовок из основного вида, но без магазина */}
                                                 <TableRow>
                                                     <SortableHeader field="requestID">ID</SortableHeader>
                                                     <SortableHeader field="description">Описание</SortableHeader>
