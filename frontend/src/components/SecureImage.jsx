@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getPhotoBlob } from '@/api/requestApi';
 import { RefreshCw, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-export default function SecureImage({ photoId, className, alt }) {
+export default function SecureImage({ photoId, className, alt, style }) {
     const [imageSrc, setImageSrc] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(false);
     const [isVisible, setIsVisible] = useState(false);
     const placeholderRef = useRef(null);
-
 
     useEffect(() => {
         const observer = new IntersectionObserver(
@@ -34,16 +34,20 @@ export default function SecureImage({ photoId, className, alt }) {
     }, []);
 
     useEffect(() => {
-        if (!isVisible || imageSrc) return;
+        if (!isVisible) return;
 
         let isMounted = true;
         let objectUrl = null;
+        
         setLoading(true);
-
+        setError(false);
+        
         const fetchImage = async () => {
             if (!photoId) {
-                setLoading(false);
-                setError(true);
+                if (isMounted) {
+                    setLoading(false);
+                    setError(true);
+                }
                 return;
             }
             
@@ -73,34 +77,43 @@ export default function SecureImage({ photoId, className, alt }) {
                 URL.revokeObjectURL(objectUrl);
             }
         };
-    }, [isVisible, photoId, imageSrc]);
+    }, [isVisible, photoId]);
+
+    const placeholderClass = cn(
+        "flex items-center justify-center bg-gray-100 rounded-lg text-gray-400 w-full h-full min-h-[100px]", 
+        className
+    );
 
     if (loading) {
         return (
-            <div className={`flex items-center justify-center bg-gray-200 rounded-lg ${className}`}>
-                <RefreshCw className="h-6 w-6 text-gray-500 animate-spin" />
+            <div className={placeholderClass} ref={placeholderRef} style={style}>
+                <RefreshCw className="h-8 w-8 animate-spin" />
             </div>
         );
     }
 
     if (error) {
         return (
-             <div className={`flex items-center justify-center bg-red-100 rounded-lg ${className}`}>
-                <AlertTriangle className="h-6 w-6 text-red-500" />
+             <div className={cn(placeholderClass, "bg-red-50 text-red-400")} style={style}>
+                <AlertTriangle className="h-8 w-8" />
             </div>
         );
     }
 
     if (imageSrc) {
-        return <img src={imageSrc} alt={alt || `Photo ${photoId}`} className={className} />;
+        return (
+            <img 
+                src={imageSrc} 
+                alt={alt || `Photo ${photoId}`} 
+                className={className} 
+                style={style}
+            />
+        );
     }
 
     return (
-        <div ref={placeholderRef} className={`flex items-center justify-center bg-gray-200 rounded-lg ${className}`}>
-            {loading && <RefreshCw className="h-6 w-6 text-gray-500 animate-spin" />}
-            {error && <AlertTriangle className="h-6 w-6 text-red-500" />}
-            {!loading && !error && <ImageIcon className="h-6 w-6 text-gray-400" />}
+        <div ref={placeholderRef} className={placeholderClass} style={style}>
+            <ImageIcon className="h-8 w-8" />
         </div>
     );
-
 }

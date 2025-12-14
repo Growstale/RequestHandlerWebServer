@@ -619,14 +619,24 @@ public class RequestService {
                                         RequestPhoto photo = new RequestPhoto();
                                         photo.setRequestID(requestId);
                                         photo.setImageData(imageData);
+
+                                        // ИЗМЕНЕНИЕ ЗДЕСЬ:
                                         return photoRepository.save(photo)
-                                                .flatMap(saved -> notificationService.sendPhoto(chatId, caption, imageData).thenReturn(saved));
+                                                .flatMap(saved -> notificationService.sendPhoto(chatId, caption, imageData)
+                                                        // Если телеграм упал - игнорируем ошибку, чтобы фронт получил ОК
+                                                        .onErrorResume(e -> {
+                                                            System.err.println("Ошибка отправки фото в Telegram: " + e.getMessage());
+                                                            return Mono.empty();
+                                                        })
+                                                        .thenReturn(saved)
+                                                );
                                     }).then();
                                 });
                     });
                 })
                 .then();
     }
+
 
     public Mono<RequestResponse> completeRequest(Integer requestId, Integer contractorId) {
         return requestRepository.findById(requestId)

@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getPhotoIds, uploadPhotos, deletePhoto } from '@/api/requestApi';
 import SecureImage from '@/components/SecureImage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // <-- Импорт для подтверждения
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'; // Добавили стрелки
 import { useAuth } from '@/context/AuthProvider'; 
 
 export default function PhotosModal({ isOpen, onClose, request }) {
@@ -14,8 +14,11 @@ export default function PhotosModal({ isOpen, onClose, request }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    const [viewingPhotoId, setViewingPhotoId] = useState(null);
+    // Вместо ID храним индекс текущего фото в массиве photoIds
+    const [viewerIndex, setViewerIndex] = useState(null); 
+    
     const [deletingPhotoId, setDeletingPhotoId] = useState(null);
+    
     const isClosed = request?.status === 'Closed';
     const fileInputRef = useRef(null);
     const { user } = useAuth();
@@ -38,6 +41,7 @@ export default function PhotosModal({ isOpen, onClose, request }) {
             setPhotoIds([]);
             setError('');
             setFiles([]);
+            setViewerIndex(null);
             if (fileInputRef.current) {
                 fileInputRef.current.value = '';
             }
@@ -45,18 +49,39 @@ export default function PhotosModal({ isOpen, onClose, request }) {
         }
     }, [request, isOpen]);
 
+    // --- ЛОГИКА ГАЛЕРЕИ ---
+
+    // Переключение влево
+    const handlePrev = useCallback(() => {
+        setViewerIndex(prev => (prev === null || prev === 0 ? photoIds.length - 1 : prev - 1));
+    }, [photoIds.length]);
+
+    // Переключение вправо
+    const handleNext = useCallback(() => {
+        setViewerIndex(prev => (prev === null || prev === photoIds.length - 1 ? 0 : prev + 1));
+    }, [photoIds.length]);
+
+    // Обработка клавиатуры
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (viewerIndex === null) return;
+            if (e.key === 'ArrowLeft') handlePrev();
+            if (e.key === 'ArrowRight') handleNext();
+            if (e.key === 'Escape') setViewerIndex(null);
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [viewerIndex, handlePrev, handleNext]);
+
+    // --- ЗАГРУЗКА И УДАЛЕНИЕ ---
+
     const handleFileChange = (e) => {
         const selectedFiles = Array.from(e.target.files);
         if (photoIds.length + selectedFiles.length > 10) {
             setError('Можно загрузить не более 10 фотографий в сумме.');
             e.target.value = null;
             setFiles([]);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
-
-            loadPhotoIds();
-
         } else {
             setError('');
             setFiles(selectedFiles);
@@ -68,15 +93,10 @@ export default function PhotosModal({ isOpen, onClose, request }) {
         try {
             await uploadPhotos(request.requestID, files);
             setFiles([]);
-
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
-
+            if (fileInputRef.current) fileInputRef.current.value = '';
             loadPhotoIds();
         } catch (err) {
             setError(err.response?.data || "Ошибка загрузки");
-            console.error("Failed to upload photos", err);
         }
     };
 
@@ -85,47 +105,66 @@ export default function PhotosModal({ isOpen, onClose, request }) {
         try {
             await deletePhoto(deletingPhotoId);
             setDeletingPhotoId(null);
+            
+            // Если удалили фото, которое сейчас смотрим — закрываем просмотрщик
+            if (viewerIndex !== null && photoIds[viewerIndex] === deletingPhotoId) {
+                setViewerIndex(null);
+            }
+            
             loadPhotoIds();
         } catch (err) {
             setError(err.response?.data || "Ошибка удаления");
-            console.error("Failed to delete photo", err);
         }
     };
 
     return (
         <>
+            {/* МОДАЛКА СПИСКА ФОТО (СЕТКА) */}
             <Dialog open={isOpen} onOpenChange={onClose}>
-                <DialogContent className="max-w-4xl">
+                <DialogContent className="max-w-4xl w-full">
                     <DialogHeader>
                         <DialogTitle>Фото к заявке #{request?.requestID}</DialogTitle>
                     </DialogHeader>
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 max-h-[60vh] overflow-y-auto p-1">
-                        {loading && <p>Загрузка...</p>}
-                        {photoIds.map(id => (
-                            <div key={id} className="relative group">
-                                <button onClick={() => setViewingPhotoId(id)} className="w-full h-full">
+                    
+                    {/* Сетка миниатюр */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-h-[60vh] overflow-y-auto p-1">
+                        {loading && <p className="col-span-full text-center py-4">Загрузка...</p>}
+                        
+                        {!loading && photoIds.length === 0 && (
+                            <p className="col-span-full text-center text-gray-500 py-4">Нет фотографий.</p>
+                        )}
+
+                        {photoIds.map((id, index) => (
+                            <div key={id} className="relative group aspect-square">
+                                <button 
+                                    onClick={() => setViewerIndex(index)} 
+                                    className="w-full h-full block rounded-lg overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition-all"
+                                >
                                     <SecureImage
                                         photoId={id}
-                                        className="rounded-lg w-full h-32 object-cover transition-transform group-hover:scale-105"
+                                        // object-cover: заполняет квадрат, обрезая лишнее (красивая сетка)
+                                        className="w-full h-full object-cover transition-transform group-hover:scale-105"
                                     />
                                 </button>
+                                
                                 {canDelete && (
                                     <button
-                                        onClick={() => setDeletingPhotoId(id)}
-                                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        aria-label="Удалить фото"
+                                        onClick={(e) => { e.stopPropagation(); setDeletingPhotoId(id); }}
+                                        className="absolute top-1 right-1 bg-white/90 text-red-600 hover:bg-red-100 rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                        title="Удалить фото"
                                     >
-                                        <X size={16} />
+                                        <Trash2 size={16} />
                                     </button>
                                 )}
-
                             </div>
                         ))}
                     </div>
+
+                    {/* Блок загрузки */}
                     {canUpload && (
                         <div className="mt-4 pt-4 border-t">
-                            <p className="text-sm text-muted-foreground">Загрузить новые фото (макс. 10)</p>
-                            <div className="flex items-center gap-2 mt-2">
+                            <p className="text-sm text-muted-foreground mb-2">Загрузить новые фото (макс. 10)</p>
+                            <div className="flex flex-col sm:flex-row items-center gap-2">
                                 <Input 
                                     ref={fileInputRef}
                                     type="file" 
@@ -134,7 +173,9 @@ export default function PhotosModal({ isOpen, onClose, request }) {
                                     accept="image/*" 
                                     className="flex-grow" 
                                 />
-                                <Button onClick={handleUpload} disabled={files.length === 0}>Загрузить</Button>
+                                <Button onClick={handleUpload} disabled={files.length === 0} className="w-full sm:w-auto">
+                                    Загрузить
+                                </Button>
                             </div>
                             {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
                         </div>
@@ -142,16 +183,76 @@ export default function PhotosModal({ isOpen, onClose, request }) {
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={!!viewingPhotoId} onOpenChange={() => setViewingPhotoId(null)}>
-                <DialogContent className="max-w-4xl max-h-[90vh] p-2">
-                    <SecureImage photoId={viewingPhotoId} className="w-full h-full object-contain" />
+            {/* МОДАЛКА ПРОСМОТРА ОДНОГО ФОТО (ГАЛЕРЕЯ) */}
+            <Dialog open={viewerIndex !== null} onOpenChange={(open) => !open && setViewerIndex(null)}>
+                <DialogContent className="max-w-[95vw] h-[90vh] p-0 border-none bg-transparent shadow-none flex flex-col justify-center items-center outline-none">
+                    
+                    {/* Кнопка Закрыть (кастомная, т.к. стандартная может быть мелкой или не там) */}
+                    <button 
+                        onClick={() => setViewerIndex(null)}
+                        className="absolute top-4 right-4 z-50 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition-colors"
+                    >
+                        <X size={24} />
+                    </button>
+
+                    {/* Контейнер картинки */}
+                    <div className="relative w-full h-full flex items-center justify-center">
+                        
+                        {/* Кнопка НАЗАД */}
+                        {photoIds.length > 1 && (
+                            <button 
+                                onClick={handlePrev}
+                                className="absolute left-2 md:left-8 z-50 p-3 bg-black/40 text-white rounded-full hover:bg-black/60 transition-all focus:outline-none"
+                            >
+                                <ChevronLeft size={32} />
+                            </button>
+                        )}
+
+                        {/* Картинка */}
+                        {viewerIndex !== null && photoIds[viewerIndex] && (
+                            <div className="w-full h-full flex items-center justify-center p-2 md:p-12">
+                                <SecureImage 
+                                    key={photoIds[viewerIndex]}  // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
+                                    photoId={photoIds[viewerIndex]} 
+                                    className="max-w-full max-h-full object-contain rounded-md shadow-2xl"
+                                />
+                            </div>
+                        )}
+
+                        {/* Кнопка ВПЕРЕД */}
+                        {photoIds.length > 1 && (
+                            <button 
+                                onClick={handleNext}
+                                className="absolute right-2 md:right-8 z-50 p-3 bg-black/40 text-white rounded-full hover:bg-black/60 transition-all focus:outline-none"
+                            >
+                                <ChevronRight size={32} />
+                            </button>
+                        )}
+                    </div>
+                    
+                    {/* Счетчик */}
+                    {photoIds.length > 0 && (
+                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 text-white px-4 py-1 rounded-full text-sm">
+                            {viewerIndex + 1} / {photoIds.length}
+                        </div>
+                    )}
+
                 </DialogContent>
             </Dialog>
 
+            {/* Подтверждение удаления */}
             <AlertDialog open={!!deletingPhotoId} onOpenChange={() => setDeletingPhotoId(null)}>
                 <AlertDialogContent>
-                    <AlertDialogHeader><AlertDialogTitle>Вы уверены?</AlertDialogTitle><AlertDialogDescription>Вы собираетесь удалить это фото. Действие нельзя отменить.</AlertDialogDescription></AlertDialogHeader>
-                    <AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={handleDelete}>Удалить</AlertDialogAction></AlertDialogFooter>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Вы собираетесь удалить это фото. Действие нельзя отменить.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Отмена</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">Удалить</AlertDialogAction>
+                    </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
         </>
