@@ -17,6 +17,8 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.function.Tuple2;
+import reactor.util.function.Tuples;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -38,9 +40,10 @@ public class RequestService {
     private final ReactiveShopRepository shopRepository;
     private final TelegramNotificationService notificationService;
     private final ReactiveShopContractorChatRepository chatRepository;
+    private final ReactiveWorkCategoryRepository workCategoryRepository;
+    private final ReactiveUrgencyCategoryRepository urgencyCategoryRepository;
 
-
-    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository) {
+    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository) {
         this.template = template;
         this.databaseClient = databaseClient;
         this.requestRepository = requestRepository;
@@ -52,6 +55,8 @@ public class RequestService {
         this.shopRepository = shopRepository;
         this.notificationService = notificationService;
         this.chatRepository = chatRepository;
+        this.workCategoryRepository = workCategoryRepository;
+        this.urgencyCategoryRepository = urgencyCategoryRepository;
     }
 
 
@@ -205,6 +210,17 @@ public class RequestService {
         };
     }
 
+    private String getUrgencyDisplayName(String urgencyName) {
+        if (urgencyName == null) return "—";
+        return switch (urgencyName) {
+            case "Emergency" -> "Аварийная";
+            case "Urgent" -> "Срочная";
+            case "Planned" -> "Плановая";
+            case "Customizable" -> "Настраиваемая";
+            default -> urgencyName;
+        };
+    }
+
     private String parseSortToSql(List<String> sortParams) {
         if (sortParams == null || sortParams.isEmpty()) {
             return " ORDER BY r.RequestID DESC";
@@ -312,20 +328,22 @@ public class RequestService {
 
     public Mono<RequestResponse> updateAndEnrichRequest(Integer requestId, UpdateRequestRequest dto) {
         return updateRequest(requestId, dto)
-                .flatMap(savedReq -> {
-                    String descriptionShort = dto.description() != null && dto.description().length() > 50
-                            ? dto.description().substring(0, 50) + "..."
-                            : dto.description();
+                .flatMap(tuple -> {
+                    Request savedReq = tuple.getT1();
+                    List<String> changes = tuple.getT2();
 
-                    String safeDesc = notificationService.escapeMarkdown(descriptionShort);
-                    String safeStatus = notificationService.escapeMarkdown(savedReq.getStatus());
+                    if (changes.isEmpty()) {
+                        return Mono.just(savedReq);
+                    }
 
-                    String msg = String.format(
-                            "✏️ *ОБНОВЛЕНИЕ ЗАЯВКИ \\#%d*\n\n" +
-                                    "📊 *Статус:* %s\n" +
-                                    "📝 *Описание:* %s",
-                            requestId, safeStatus, safeDesc
-                    );
+                    StringBuilder msgBuilder = new StringBuilder();
+                    msgBuilder.append("✏️ *ЗАЯВКА \\#").append(requestId).append(" ОБНОВЛЕНА*\n\n");
+
+                    for (String change : changes) {
+                        msgBuilder.append(change).append("\n");
+                    }
+
+                    String msg = msgBuilder.toString();
 
                     return chatRepository.findTelegramIdByRequestId(requestId)
                             .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
@@ -335,12 +353,98 @@ public class RequestService {
                 .flatMap(request -> enrichRequest(request.getRequestID()));
     }
 
-    protected Mono<Request> updateRequest(Integer requestId, UpdateRequestRequest dto) {
-        return requestRepository.findById(requestId)
-                .zipWith(template.selectOne(Query.query(Criteria.where("UrgencyID").is(dto.urgencyID())), UrgencyCategory.class))
+    protected Mono<Tuple2<Request, List<String>>> updateRequest(Integer requestId, UpdateRequestRequest dto) {
+        // 1. Подготовка источников данных
+        Mono<Request> requestMono = requestRepository.findById(requestId);
+
+        // Получаем новую категорию срочности
+        Mono<UrgencyCategory> urgencyMono = urgencyCategoryRepository.findById(dto.urgencyID())
+                .switchIfEmpty(Mono.error(new RuntimeException("Срочность не найдена")));
+
+        // Получаем старое количество дней (если было), чтобы сравнить
+        Mono<Integer> oldCustomDaysMono = customDayRepository.findByRequestID(requestId)
+                .map(RequestCustomDay::getDays)
+                .defaultIfEmpty(0); // Если не было, считаем 0
+
+        // Лук-ап имен
+        Mono<String> shopNameMono = shopRepository.findById(dto.shopID())
+                .map(Shop::getShopName).defaultIfEmpty("Неизвестный магазин");
+        Mono<String> workNameMono = workCategoryRepository.findById(dto.workCategoryID())
+                .map(WorkCategory::getWorkCategoryName).defaultIfEmpty("Неизвестный вид работ");
+        Mono<String> contractorNameMono = dto.assignedContractorID() != null
+                ? userRepository.findById(dto.assignedContractorID()).map(User::getLogin).defaultIfEmpty("Не назначен")
+                : Mono.just("Не назначен");
+
+        // 2. Собираем все данные (теперь 6 источников)
+        return Mono.zip(requestMono, urgencyMono, shopNameMono, workNameMono, contractorNameMono, oldCustomDaysMono)
                 .flatMap(tuple -> {
                     Request request = tuple.getT1();
                     UrgencyCategory newUrgency = tuple.getT2();
+                    String newShopName = tuple.getT3();
+                    String newWorkName = tuple.getT4();
+                    String newContractorName = tuple.getT5();
+                    Integer oldCustomDays = tuple.getT6();
+
+                    List<String> changes = new ArrayList<>();
+
+                    // --- СРАВНЕНИЕ ---
+
+                    // 1. Статус
+                    if (!Objects.equals(request.getStatus(), dto.status())) {
+                        changes.add(String.format("📊 *Статус:* %s ➡️ %s",
+                                getStatusDisplayName(request.getStatus()),
+                                getStatusDisplayName(dto.status())));
+                    }
+
+                    // 2. Исполнитель
+                    if (!Objects.equals(request.getAssignedContractorID(), dto.assignedContractorID())) {
+                        changes.add("👷 *Исполнитель:* " + notificationService.escapeMarkdown(newContractorName));
+                    }
+
+                    // 3. Магазин
+                    if (!Objects.equals(request.getShopID(), dto.shopID())) {
+                        changes.add("🏪 *Магазин:* " + notificationService.escapeMarkdown(newShopName));
+                    }
+
+                    // 4. Вид работ
+                    if (!Objects.equals(request.getWorkCategoryID(), dto.workCategoryID())) {
+                        changes.add("🛠 *Вид работ:* " + notificationService.escapeMarkdown(newWorkName));
+                    }
+
+// ... внутри updateRequest ...
+
+                    // 5. Срочность (Сложная логика: ID или Дни)
+                    boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
+                    boolean urgencyIdChanged = !Objects.equals(request.getUrgencyID(), dto.urgencyID());
+                    boolean daysChanged = isCustomizable && !Objects.equals(oldCustomDays, dto.customDays());
+
+                    if (urgencyIdChanged || daysChanged) {
+                        String localizedUrgency = getUrgencyDisplayName(newUrgency.getUrgencyName());
+
+                        // Если настраиваемая — добавляем дни в скобки
+                        if (isCustomizable && dto.customDays() != null) {
+                            // ИСПРАВЛЕНИЕ: Добавляем \\ перед ( и )
+                            localizedUrgency += " \\(" + dto.customDays() + " дн\\.\\)";
+                        }
+
+                        changes.add("🔥 *Срочность:* " + localizedUrgency);
+                    }
+
+// 6. Описание
+                    if (!Objects.equals(request.getDescription(), dto.description())) {
+                        String rawDesc = dto.description() != null ? dto.description() : "";
+
+                        // Обрезаем до 100 символов, чтобы не спамить в чат
+                        String shortDesc = rawDesc.length() > 100
+                                ? rawDesc.substring(0, 100) + "..."
+                                : rawDesc;
+
+                        // ОБЯЗАТЕЛЬНО экранируем для Telegram MarkdownV2
+                        String safeDesc = notificationService.escapeMarkdown(shortDesc);
+
+                        changes.add("📝 *Описание:* " + safeDesc);
+                    }
+                    // --- СОХРАНЕНИЕ ---
 
                     request.setDescription(dto.description());
                     request.setShopID(dto.shopID());
@@ -348,18 +452,16 @@ public class RequestService {
                     request.setUrgencyID(dto.urgencyID());
                     request.setAssignedContractorID(dto.assignedContractorID());
 
-                    if (!request.getStatus().equals(dto.status()) && "Closed".equalsIgnoreCase(dto.status())) {
+                    if (!Objects.equals(request.getStatus(), dto.status()) && "Closed".equalsIgnoreCase(dto.status())) {
                         request.setClosedAt(LocalDateTime.now());
                     }
                     request.setStatus(dto.status());
 
+                    // Пересчет просрочки
                     if (!"In work".equalsIgnoreCase(request.getStatus())) {
                         request.setIsOverdue(false);
                     } else {
-                        Integer daysForTask = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName())
-                                ? dto.customDays()
-                                : newUrgency.getDefaultDays();
-
+                        Integer daysForTask = isCustomizable ? dto.customDays() : newUrgency.getDefaultDays();
                         if (daysForTask != null) {
                             LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
                             request.setIsOverdue(LocalDateTime.now().isAfter(deadline));
@@ -370,10 +472,9 @@ public class RequestService {
 
                     Mono<Request> updatedRequestMono = requestRepository.save(request);
 
+                    // Перезапись дней
                     Mono<Void> customDaysLogic = customDayRepository.deleteByRequestID(requestId)
                             .then(Mono.defer(() -> {
-                                boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
-
                                 if (isCustomizable && dto.customDays() != null) {
                                     RequestCustomDay newCustomDay = new RequestCustomDay();
                                     newCustomDay.setRequestID(requestId);
@@ -383,10 +484,10 @@ public class RequestService {
                                 return Mono.empty();
                             }));
 
-                    return customDaysLogic.then(updatedRequestMono);
+                    return customDaysLogic.then(updatedRequestMono)
+                            .map(savedReq -> Tuples.of(savedReq, changes));
                 });
     }
-
 
     public Mono<Void> deleteRequest(Integer requestId) {
         return requestRepository.deleteById(requestId);
