@@ -347,17 +347,10 @@ public class RequestService {
 
                     Mono<Request> updatedRequestMono = requestRepository.save(request);
 
-                    boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
-                    Mono<Void> customDaysLogic = customDayRepository.findByRequestID(requestId)
-                            .flatMap(existingCustomDay -> {
-                                if (isCustomizable && dto.customDays() != null) {
-                                    existingCustomDay.setDays(dto.customDays());
-                                    return customDayRepository.save(existingCustomDay).then();
-                                } else {
-                                    return customDayRepository.delete(existingCustomDay);
-                                }
-                            })
-                            .switchIfEmpty(Mono.defer(() -> {
+                    Mono<Void> customDaysLogic = customDayRepository.deleteByRequestID(requestId)
+                            .then(Mono.defer(() -> {
+                                boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
+
                                 if (isCustomizable && dto.customDays() != null) {
                                     RequestCustomDay newCustomDay = new RequestCustomDay();
                                     newCustomDay.setRequestID(requestId);
