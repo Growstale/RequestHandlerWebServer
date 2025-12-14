@@ -195,6 +195,16 @@ public class RequestService {
                         }));
     }
 
+    private String getStatusDisplayName(String status) {
+        if (status == null) return "—";
+        return switch (status) {
+            case "In work" -> "В работе";
+            case "Done" -> "Выполнена";
+            case "Closed" -> "Закрыта";
+            default -> status;
+        };
+    }
+
     private String parseSortToSql(List<String> sortParams) {
         if (sortParams == null || sortParams.isEmpty()) {
             return " ORDER BY r.RequestID DESC";
@@ -227,10 +237,10 @@ public class RequestService {
         return orders.isEmpty() ? " ORDER BY r.RequestID DESC" : " ORDER BY " + orders;
     }
 
-
     public Mono<RequestResponse> createAndEnrichRequest(CreateRequestRequest dto, Integer createdByUserId) {
         return createRequest(dto, createdByUserId)
-                .flatMap(request -> enrichRequest(request.getRequestID()));
+                .flatMap(request -> enrichRequest(request.getRequestID()))
+                .flatMap(this::sendCreationNotification);
     }
 
     private Mono<RequestResponse> enrichRequest(Integer requestId) {
@@ -302,12 +312,25 @@ public class RequestService {
 
     public Mono<RequestResponse> updateAndEnrichRequest(Integer requestId, UpdateRequestRequest dto) {
         return updateRequest(requestId, dto)
-                .doOnSuccess(req -> {
-                    // Можно добавить проверку, что именно изменилось, но пока просто уведомляем
-                    String msg = "✏️ *Заявка #" + requestId + " была обновлена*";
-                    chatRepository.findTelegramIdByRequestId(requestId)
+                .flatMap(savedReq -> {
+                    String descriptionShort = dto.description() != null && dto.description().length() > 50
+                            ? dto.description().substring(0, 50) + "..."
+                            : dto.description();
+
+                    String safeDesc = notificationService.escapeMarkdown(descriptionShort);
+                    String safeStatus = notificationService.escapeMarkdown(savedReq.getStatus());
+
+                    String msg = String.format(
+                            "✏️ *ОБНОВЛЕНИЕ ЗАЯВКИ \\#%d*\n\n" +
+                                    "📊 *Статус:* %s\n" +
+                                    "📝 *Описание:* %s",
+                            requestId, safeStatus, safeDesc
+                    );
+
+                    return chatRepository.findTelegramIdByRequestId(requestId)
                             .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
-                            .subscribe();
+                            .onErrorResume(e -> Mono.empty())
+                            .thenReturn(savedReq);
                 })
                 .flatMap(request -> enrichRequest(request.getRequestID()));
     }
@@ -561,7 +584,6 @@ public class RequestService {
     }
 
     public Mono<RequestResponse> createAndEnrichRequestFromBot(CreateRequestFromBotRequest dto) {
-        // Создаем временный CreateRequestRequest для передачи в общий метод
         CreateRequestRequest baseDto = new CreateRequestRequest(
                 dto.description(),
                 dto.shopID(),
@@ -571,7 +593,8 @@ public class RequestService {
                 dto.customDays()
         );
         return createRequest(baseDto, dto.createdByUserID())
-                .flatMap(request -> enrichRequest(request.getRequestID()));
+                .flatMap(request -> enrichRequest(request.getRequestID()))
+                .flatMap(this::sendCreationNotification);
     }
 
     public Mono<RequestResponse> getRequestById(Integer requestId) {
@@ -583,4 +606,37 @@ public class RequestService {
                 .switchIfEmpty(Mono.error(new RuntimeException("Комментарий с ID " + commentId + " не найден")))
                 .flatMap(commentRepository::delete);
     }
+
+    private Mono<RequestResponse> sendCreationNotification(RequestResponse response) {
+        String descriptionShort = response.description() != null && response.description().length() > 100
+                ? response.description().substring(0, 100) + "..."
+                : response.description();
+
+        String safeDescription = notificationService.escapeMarkdown(descriptionShort);
+        String safeShop = notificationService.escapeMarkdown(response.shopName());
+        String safeWork = notificationService.escapeMarkdown(response.workCategoryName());
+        String safeUrgency = notificationService.escapeMarkdown(response.urgencyName());
+
+        String msg = String.format(
+                "🆕 *НОВАЯ ЗАЯВКА \\#%d*\n\n" +
+                        "🏪 *Магазин:* %s\n" +
+                        "🛠 *Вид работ:* %s\n" +
+                        "🔥 *Срочность:* %s\n" +
+                        "📝 *Описание:* %s",
+                response.requestID(),
+                safeShop,
+                safeWork,
+                safeUrgency,
+                safeDescription
+        );
+
+        return chatRepository.findTelegramIdByRequestId(response.requestID())
+                .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
+                .onErrorResume(e -> {
+                    System.err.println("Failed to send creation notification: " + e.getMessage());
+                    return Mono.empty();
+                })
+                .thenReturn(response);
+    }
+
 }
