@@ -20,16 +20,21 @@ export default function Login() {
     }
   }, [accessToken, loading, navigate])
 
+  const handleLoginBlur = () => {
+    setLogin(currentLogin => currentLogin.trim());
+  };
+
   const onSubmit = async (e) => {
-    e.preventDefault()
-    setError(null)
+    e.preventDefault();
+    setError(null);
     try {
-      await doLogin(login, password)
-      navigate(from, { replace: true })
+      await doLogin(login.trim(), password);
+      navigate(from, { replace: true });
     } catch (err) {
-      setError(err.response?.data || err.message || 'Ошибка')
+      setError(err.response?.data || err.message || 'Ошибка');
     }
-  }
+  };
+
 
   if (loading) {
       return null; 
@@ -47,6 +52,7 @@ export default function Login() {
               id="login"
               value={login}
               onChange={(e) => setLogin(e.target.value)}
+              onBlur={handleLoginBlur}
               placeholder="Ваш логин"
               required
             />
