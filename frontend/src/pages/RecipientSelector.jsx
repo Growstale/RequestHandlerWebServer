@@ -36,7 +36,7 @@ const MemoizedChatItem = memo(function ChatItem({ chat, isSelected, onSelectChat
                 {chat.contractorLogin || 'Без подрядчика'} 
                 
                 <span className="text-gray-400 text-xs ml-2">
-                    (ID: {chat.shopContractorChatID})
+                    (ID: {chat.telegramID}) 
                 </span>
             </Label>
         </div>

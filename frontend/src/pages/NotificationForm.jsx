@@ -307,7 +307,7 @@ export default function NotificationForm({ currentNotification, onSubmit, onCanc
                   className="mt-0.5"
                 />
                 <span className="text-sm">
-                  <span className="font-semibold">{chat.shopName}</span> - {chat.contractorLogin || 'Без подрядчика'} <span className="text-gray-400 text-xs">(ID: {chat.shopContractorChatID})</span>
+                  <span className="font-semibold">{chat.shopName}</span> - {chat.contractorLogin || 'Без подрядчика'} <span className="text-gray-400 text-xs">(ID: {chat.telegramID})</span>
                 </span>
               </label>
             ))
