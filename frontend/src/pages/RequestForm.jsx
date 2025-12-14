@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { getUrgencyDisplayName } from '@/lib/displayNames';
 import { checkShopContractorChatExists } from '@/api/shopContractorChatApi';
+import { Loader2 } from 'lucide-react';
 
 const getInitialFormData = (req) => {
   return {
@@ -19,7 +20,7 @@ const getInitialFormData = (req) => {
   };
 };
 
-export default function RequestForm({ currentRequest, onSubmit, onCancel, apiError, shops, workCategories, urgencyCategories, contractors }) {
+export default function RequestForm({ currentRequest, onSubmit, onCancel, apiError, shops, workCategories, urgencyCategories, contractors, isSubmitting  }) {
     const [formData, setFormData] = useState(() => getInitialFormData(currentRequest));
     const [chatWarning, setChatWarning] = useState(null);
     const isEditing = !!currentRequest;
@@ -96,7 +97,7 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
 
             <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="description">Описание <span className="text-destructive">*</span></Label>
-                <Textarea id="description" name="description" value={formData.description} onChange={handleChange} required />
+                <Textarea id="description" name="description" value={formData.description} onChange={handleChange} />
             </div>
 
             <div className="space-y-2">
@@ -146,9 +147,21 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
             )}
 
             <div className="md:col-span-2 flex justify-end gap-2 pt-4">
-                <Button type="button" variant="outline" onClick={onCancel}>Отмена</Button>
-                <Button type="submit">{isEditing ? 'Сохранить' : 'Создать'}</Button>
+                <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
+                    Отмена
+                </Button>
+                <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? (
+                        <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Сохранение...
+                        </>
+                    ) : (
+                        isEditing ? 'Сохранить' : 'Создать'
+                    )}
+                </Button>
             </div>
         </form>
+
     );
 }

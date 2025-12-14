@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/context/AuthProvider';
 import { Trash2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 export default function CommentsModal({ isOpen, onClose, request }) {
     const [comments, setComments] = useState([]);
@@ -21,6 +22,8 @@ export default function CommentsModal({ isOpen, onClose, request }) {
     const isAdmin = user?.role === 'RetailAdmin';
     const isClosed = request?.status === 'Closed';
     const canAddContent = !isClosed && user?.role !== 'StoreManager';
+
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         if (request?.requestID && isOpen) {
@@ -37,8 +40,11 @@ export default function CommentsModal({ isOpen, onClose, request }) {
     }, [request, isOpen]);
 
     const handleAddComment = async () => {
-        if (newComment.trim() === '') return;
+        if (newComment.trim() === '' || isSubmitting) return; 
+        
         setApiError(null);
+        setIsSubmitting(true);
+
         try {
             const response = await addComment(request.requestID, { commentText: newComment });
             setComments(prev => [...prev, response.data]);
@@ -46,6 +52,8 @@ export default function CommentsModal({ isOpen, onClose, request }) {
         } catch (error) {
             console.error("Failed to add comment", error);
             setApiError(error.response?.data || "Не удалось добавить комментарий.");
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -69,23 +77,19 @@ export default function CommentsModal({ isOpen, onClose, request }) {
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>Комментарии к заявке #{request?.requestID}</DialogTitle>
-                        {/* Исправлено: request?.title на request?.description */}
                         <DialogDescription>{request?.description?.substring(0, 100)}...</DialogDescription> 
                     </DialogHeader>
                     {apiError && <p className="text-sm text-red-600 mt-2">{apiError}</p>}
                     <div className="mt-4 max-h-[60vh] overflow-y-auto pr-4 space-y-4">
                         {loading && <p>Загрузка...</p>}
                         {comments.map(c => (
-                            // --- V-- НАЧАЛО ИСПРАВЛЕНИЯ --V ---
                             <div key={c.commentID} className="p-3 bg-gray-50 rounded-lg group">
                                 <div className="flex justify-between items-start text-sm mb-1">
-                                    {/* Блок с информацией о пользователе */}
                                     <div>
                                         <span className="font-bold">{c.userLogin}</span>
                                         <span className="text-gray-500 ml-2">{new Date(c.createdAt).toLocaleString()}</span>
                                     </div>
 
-                                    {/* Кнопка удаления, видна только админу. Теперь она ВНУТРИ flex-контейнера */}
                                     {isAdmin && (
                                         <Button 
                                             variant="ghost" 
@@ -99,7 +103,6 @@ export default function CommentsModal({ isOpen, onClose, request }) {
                                 </div>
                                 <p className="whitespace-pre-wrap">{c.commentText}</p>
                             </div>
-                            // --- ^-- КОНЕЦ ИСПРАВЛЕНИЯ --^ ---
                         ))}
                     </div>
                     {canAddContent && (
@@ -108,8 +111,22 @@ export default function CommentsModal({ isOpen, onClose, request }) {
                                 placeholder="Написать комментарий..."
                                 value={newComment}
                                 onChange={e => setNewComment(e.target.value)}
+                                disabled={isSubmitting}
                             />
-                            <Button onClick={handleAddComment} className="mt-2">Отправить</Button>
+                            <Button 
+                                onClick={handleAddComment} 
+                                className="mt-2"
+                                disabled={isSubmitting || !newComment.trim()}
+                            >
+                                {isSubmitting ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 
+                                        Отправка...
+                                    </>
+                                ) : (
+                                    'Отправить'
+                                )}
+                            </Button>
                         </div>
                     )}
                 </DialogContent>

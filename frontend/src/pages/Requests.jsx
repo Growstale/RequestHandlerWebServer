@@ -57,6 +57,7 @@ export default function Requests({ archived = false }) {
     const searchParamsString = searchParams.toString();
 
     const areFiltersActive = filterKeys.some(key => searchParams.has(key));
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         if (viewMode === 'byShop' && requests.length > 0) {
@@ -281,6 +282,7 @@ export default function Requests({ archived = false }) {
 
     const handleFormSubmit = async (formData) => {
         setFormApiError(null);
+        setIsSubmitting(true);
         try {
             if (currentRequest) {
                 await updateRequest(currentRequest.requestID, formData);
@@ -292,9 +294,10 @@ export default function Requests({ archived = false }) {
         } catch (err) {
             console.error("Ошибка при отправке формы заявки:", err.response || err);
             setFormApiError(err.response?.data || 'Произошла ошибка. Проверьте консоль для деталей.');
+        } finally {
+            setIsSubmitting(false);
         }
     };
-
 
     const handleDeleteConfirm = async () => {
         if (!currentRequest) return;
@@ -377,6 +380,7 @@ export default function Requests({ archived = false }) {
                                     workCategories={workCategories}
                                     urgencyCategories={urgencyCategories}
                                     contractors={contractors}
+                                    isSubmitting={isSubmitting}
                                 />
                             </DialogContent>
                         </Dialog>
