@@ -1,10 +1,9 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton
 import datetime
 import math
 import asyncio
 
 from typing import Dict, Any, Coroutine, List, Tuple
-from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler, CallbackContext, ExtBot
 from telegram.constants import ParseMode, ChatType
 from telegram.error import BadRequest, TimedOut
@@ -1968,3 +1967,32 @@ async def _submit_editor_data(update: Update, context: Context) -> int:
         return await render_editor_menu(update, context)
 
     return ConversationHandler.END
+
+# handlers.py
+
+def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
+    """Создает постоянную клавиатуру под строкой ввода."""
+    keyboard = [
+        [KeyboardButton("📋 Мои заявки"), KeyboardButton("➕ Новая заявка")],
+        [KeyboardButton("🆔 ID Чата"), KeyboardButton("🔄 Обновить")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+
+async def start_command(update: Update, context: CallbackContext):
+    user = update.effective_user
+    await update.message.reply_html(
+        f"Привет, {user.mention_html()}!\n\n"
+        "Воспользуйтесь меню внизу для управления заявками.",
+        reply_markup=get_main_menu_keyboard()
+    )
+
+async def cancel_command(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text(
+        "Действие отменено.",
+        reply_markup=get_main_menu_keyboard()
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+async def refresh_command(update: Update, context: CallbackContext):
+    await start_command(update, context)

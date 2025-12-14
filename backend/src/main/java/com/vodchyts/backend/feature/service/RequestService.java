@@ -21,6 +21,7 @@ import reactor.util.function.Tuple2;
 import reactor.util.function.Tuples;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.BiFunction;
@@ -83,7 +84,9 @@ public class RequestService {
 
     public Mono<PagedResponse<RequestResponse>> getAllRequests(
             boolean archived, String searchTerm, Integer shopId, Integer workCategoryId,
-            Integer urgencyId, Integer contractorId, String status, Boolean overdue, List<String> sort, int page, int size,
+            Integer urgencyId, Integer contractorId, String status, Boolean overdue,
+            LocalDate startDate, LocalDate endDate,
+            List<String> sort, int page, int size,
             String username
     ) {
         return userRepository.findByLogin(username)
@@ -133,6 +136,17 @@ public class RequestService {
                             if (urgencyId != null) {
                                 conditions.add("r.UrgencyID = :urgencyId");
                                 bindings.put("urgencyId", urgencyId);
+                            }
+
+                            if (startDate != null) {
+                                conditions.add("CAST(r.CreatedAt AS DATE) >= :startDate");
+                                bindings.put("startDate", startDate);
+                            }
+                            if (endDate != null) {
+                                String deadlineCalculation = "DATEADD(day, CASE WHEN uc.UrgencyName = 'Customizable' THEN rcd.Days ELSE uc.DefaultDays END, r.CreatedAt)";
+
+                                conditions.add("CAST(" + deadlineCalculation + " AS DATE) <= :endDate");
+                                bindings.put("endDate", endDate);
                             }
 
                             Mono<Void> roleConditionsMono = Mono.just(user).flatMap(u -> {

@@ -16,6 +16,8 @@ export const getRequests = (params = {}) => {
   if (params.contractorId) queryParams.append('contractorId', params.contractorId);
   if (params.overdue) queryParams.append('overdue', 'true');
   if (params.status) queryParams.append('status', params.status);
+  if (params.startDate) queryParams.append('startDate', params.startDate);
+  if (params.endDate) queryParams.append('endDate', params.endDate);
 
   if (params.sortConfig) {
     params.sortConfig.forEach(sort => {

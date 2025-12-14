@@ -15,6 +15,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -42,10 +43,12 @@ public class RequestController {
             @RequestParam(required = false) Integer urgencyId,
             @RequestParam(required = false) Integer contractorId,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) Boolean overdue
+            @RequestParam(required = false) Boolean overdue,
+            @RequestParam(required = false) LocalDate startDate,
+            @RequestParam(required = false) LocalDate endDate
     ) {
         List<String> sortParams = exchange.getRequest().getQueryParams().get("sort");
-        return requestService.getAllRequests(archived, searchTerm, shopId, workCategoryId, urgencyId, contractorId, status, overdue, sortParams, page, size, username);
+        return requestService.getAllRequests(archived, searchTerm, shopId, workCategoryId, urgencyId, contractorId, status, overdue, startDate, endDate, sortParams, page, size, username);
     }
 
 

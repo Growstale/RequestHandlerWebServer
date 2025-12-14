@@ -10,7 +10,7 @@ from telegram.ext import (
 from config import BOT_TOKEN
 from bot_logging import logger
 from handlers import (
-    Context, start_command, chat_id_command,
+    Context, start_command, chat_id_command, refresh_command,
     # Создание
     new_request_start, cancel_command,
     CREATE_SELECT_SHOP, CREATE_SELECT_CONTRACTOR, CREATE_SELECT_WORK_CATEGORY,
@@ -110,7 +110,10 @@ async def main():
 
     # --- Регистрация хендлеров (ConversationHandler'ы) ---
     create_conv = ConversationHandler(
-        entry_points=[CommandHandler("newrequest", start_create_request)],
+        entry_points=[
+            CommandHandler("newrequest", start_create_request),
+            MessageHandler(filters.Regex("^➕ Новая заявка$"), start_create_request)
+        ],
         states={
             EDITOR_MAIN_MENU: [CallbackQueryHandler(editor_main_callback, pattern="^(editor_|edit_field_)")],
             EDITOR_SELECT_SHOP: [CallbackQueryHandler(editor_select_shop, pattern="^eshop_")],
@@ -125,7 +128,8 @@ async def main():
     view_conv = ConversationHandler(
         entry_points=[
             CommandHandler("requests", view_requests_start),
-            MessageHandler(filters.Regex(r'^\/[_]*(\d+)[_]*$'), view_request_details)
+            MessageHandler(filters.Regex(r'^\/[_]*(\d+)[_]*$'), view_request_details),
+            MessageHandler(filters.Regex("^📋 Мои заявки$"), view_requests_start)
         ],
         states={
             VIEW_MAIN_MENU: [
@@ -171,6 +175,8 @@ async def main():
     application.add_handler(view_conv)
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("chatid", chat_id_command))
+    application.add_handler(MessageHandler(filters.Regex("^🆔 ID Чата$"), chat_id_command))
+    application.add_handler(MessageHandler(filters.Regex("^🔄 Обновить$"), refresh_command))
     application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
 
     # --- ЗАПУСК СЕРВЕРА И БОТА ---

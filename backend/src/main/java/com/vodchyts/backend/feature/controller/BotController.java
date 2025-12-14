@@ -64,7 +64,7 @@ public class BotController {
             @RequestParam(defaultValue = "5") int size,
             @RequestParam(required = false) boolean archived,
             @RequestParam(required = false) String searchTerm,
-            @RequestParam(required = false) List<String> sort // <-- ДОБАВЛЕНО: Принимаем сортировку
+            @RequestParam(required = false) List<String> sort
     ) {
         // Находим пользователя по telegramId, чтобы делать запрос от его имени
         return userService.findByTelegramId(telegram_id)
@@ -73,18 +73,20 @@ public class BotController {
                     List<String> sortParams = (sort != null && !sort.isEmpty())
                             ? sort
                             : List.of("requestID,asc");
+
+                    // ИСПРАВЛЕНИЕ: Добавлены null, null для startDate и endDate
                     return requestService.getAllRequests(
                             archived, searchTerm, null, null, null, null,
-                            null, null, sortParams, page, size, user.getLogin()
+                            null, null,
+                            null, null, // <--- startDate, endDate (для бота пока null)
+                            sortParams, page, size, user.getLogin()
                     );
                 });
     }
 
     @GetMapping("/requests/{requestId}")
     public Mono<RequestResponse> getRequestDetailsForBot(@RequestParam Long telegram_id, @PathVariable Integer requestId) {
-        // Здесь можно добавить дополнительную проверку прав, если нужно,
-        // но getAllRequests уже делает это. Для простоты пока оставим так.
-        return requestService.getRequestById(requestId); // Предполагаем, что такой метод будет создан
+        return requestService.getRequestById(requestId);
     }
 
     @PutMapping("/requests/{requestId}/complete")

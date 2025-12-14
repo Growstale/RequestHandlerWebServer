@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { getShops, createShop, updateShop, deleteShop } from '@/api/shopApi' 
 import { getUsers } from '@/api/adminApi'
 import {
@@ -11,7 +11,8 @@ import {
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog"
-import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle } from 'lucide-react'
+// ВАЖНО: Добавлен AlertCircle
+import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle, AlertCircle } from 'lucide-react'
 import ShopForm from './ShopForm'
 import Pagination from '@/components/Pagination'
 import { cn } from '@/lib/utils'
@@ -31,6 +32,9 @@ export default function Shops() {
   const [isAlertOpen, setIsAlertOpen] = useState(false)
   const [currentShop, setCurrentShop] = useState(null)
   const [formApiError, setFormApiError] = useState(null)
+
+  // 1. Добавляем состояние для ошибки удаления
+  const [deleteError, setDeleteError] = useState(null);
 
   const reloadShops = useCallback(async () => {
     setLoading(true);
@@ -112,19 +116,35 @@ export default function Shops() {
     }
   }
 
+  // 2. Исправленная функция удаления
   const handleDeleteConfirm = async () => {
     if (!currentShop) return
+    setDeleteError(null); // Сброс ошибки
+    
     try {
       await deleteShop(currentShop.shopID)
+      
+      // Успех -> закрываем окно и обновляем
       setIsAlertOpen(false)
+      
+      // Логика пагинации (если удалили последний элемент на странице)
       if (shops.length === 1 && currentPage > 0) {
         setCurrentPage(currentPage - 1);
       } else {
         reloadShops();
       }
     } catch (err) {
-      console.error("Ошибка удаления:", err.response?.data)
-      setIsAlertOpen(false)
+      // Ошибка -> НЕ закрываем окно, показываем текст
+      const resData = err.response?.data;
+      let errorMessage = "Не удалось удалить магазин.";
+      
+      if (typeof resData === 'string') {
+          errorMessage = resData;
+      } else if (resData && typeof resData === 'object' && resData.message) {
+          errorMessage = resData.message;
+      }
+      
+      setDeleteError(errorMessage);
     }
   }
 
@@ -157,7 +177,11 @@ export default function Shops() {
 
   const openCreateForm = () => { setCurrentShop(null); setFormApiError(null); setIsFormOpen(true); }
   const openEditForm = (shop) => { setCurrentShop(shop); setFormApiError(null); setIsFormOpen(true); }
-  const openDeleteAlert = (shop) => { setCurrentShop(shop); setIsAlertOpen(true); }
+  const openDeleteAlert = (shop) => { 
+      setCurrentShop(shop); 
+      setDeleteError(null); // Сброс ошибки при открытии
+      setIsAlertOpen(true); 
+  }
 
   return (
     <main className="container mx-auto p-6">
@@ -238,15 +262,38 @@ export default function Shops() {
         onPageChange={setCurrentPage}
       />
 
-      <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+      {/* 3. Обновленное модальное окно удаления */}
+      <AlertDialog open={isAlertOpen} onOpenChange={(val) => { 
+          if (!val) setDeleteError(null); 
+          setIsAlertOpen(val); 
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
-            <AlertDialogDescription>Вы собираетесь удалить магазин <span className="font-bold">{currentShop?.shopName}</span>. Это действие нельзя будет отменить.</AlertDialogDescription>
+            <AlertDialogDescription>
+                Вы собираетесь удалить магазин <span className="font-bold">{currentShop?.shopName}</span>. Это действие нельзя будет отменить.
+            </AlertDialogDescription>
+            
+            {/* Блок ошибки */}
+            {deleteError && (
+                <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-md mt-2 flex items-start gap-2 text-sm">
+                    <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                    <span>{deleteError}</span>
+                </div>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm}>Удалить</AlertDialogAction>
+            {/* 4. Замена AlertDialogAction на Button */}
+            <Button 
+                variant="destructive" 
+                onClick={(e) => {
+                    e.preventDefault();
+                    handleDeleteConfirm();
+                }}
+            >
+                Удалить
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
