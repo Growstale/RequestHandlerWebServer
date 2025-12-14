@@ -36,3 +36,54 @@
     color: hsl(var(--foreground));
   }
 }
+
+@media print {
+  /* Скрываем всё, что имеет класс no-print */
+  .no-print, 
+  header, 
+  aside,
+  /* Скрываем кнопки прокрутки, если они есть */
+  button[class*="scroll"],
+  /* Скрываем тултипы recharts, чтобы они не зависли при печати */
+  .recharts-tooltip-wrapper {
+    display: none !important;
+  }
+
+  /* Сбрасываем отступы, заданные для Sidebar и Navbar в App.jsx */
+  body, 
+  #root, 
+  div[class*="pt-16"], 
+  div[class*="md:pl-64"] {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Настраиваем фон и цвета для точной передачи графиков */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Разрывы страниц: стараемся не разрывать карточки */
+  .card, 
+  div[class*="rounded-xl"] {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #e5e7eb; /* Добавляем легкую рамку для четкости на бумаге */
+    box-shadow: none !important;
+  }
+
+  /* Убираем тени и лишние фоны у основного контейнера */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  /* Принудительно задаем белый фон */
+  body {
+    background-color: white;
+  }
+}

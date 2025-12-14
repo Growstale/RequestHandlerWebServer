@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { getDashboardStats } from '@/api/analyticsApi';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { 
@@ -7,7 +8,7 @@ import {
 } from 'recharts';
 import { 
     Activity, CheckCircle2, Clock, AlertTriangle, 
-    Briefcase, TrendingUp, Users 
+    Briefcase, TrendingUp, Users, Printer 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -58,11 +59,20 @@ export default function Dashboard() {
         color: STATUS_COLORS[item.name] || '#94a3b8'
     }));
 
+    const handlePrint = () => {
+        window.print();
+    };
+
     return (
         <main className="container mx-auto p-6 space-y-6">
-            <h1 className="text-3xl font-bold tracking-tight">Дашборд</h1>
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold tracking-tight">Дашборд</h1>
+                <Button onClick={handlePrint} variant="outline" className="no-print gap-2">
+                    <Printer className="h-4 w-4" />
+                    Печать отчета
+                </Button>
+            </div>
 
-            {/* --- 1. KPI CARDS --- */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <StatsCard 
                     title="Всего заявок" 

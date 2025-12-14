@@ -50,9 +50,9 @@ public class RequestUpdateService {
         this.notificationService = notificationService;
     }
 
-    // 1. ПРОВЕРКА НОВЫХ ПРОСРОЧЕК (Запускаем каждый час)
-    // Это решит проблему "разовой рассылки сотни сообщений", так как уведомления будут уходить по мере просрочки
-    @Scheduled(cron = "0 0 * * * *")
+    // БЫЛО: @Scheduled(cron = "0 0 * * * *")
+// СТАЛО (для теста):
+    @Scheduled(fixedDelay = 30000) // Каждые 30 сек
     public void checkNewOverduesJob() {
         updateOverdueStatus(true).subscribe();
     }
@@ -151,13 +151,23 @@ public class RequestUpdateService {
 
     private Mono<Void> sendOverdueAlert(Request request, long daysOverdue) {
         String icon = daysOverdue == 1 ? "⚠️" : "🔥";
+
+        // 1. Подготавливаем описание и ЭКРАНИРУЕМ его спецсимволы
+        String rawDescription = request.getDescription() != null
+                ? request.getDescription().substring(0, Math.min(request.getDescription().length(), 50)) + "..."
+                : "";
+        // Используем метод из notificationService для экранирования пользовательского текста
+        String safeDescription = notificationService.escapeMarkdown(rawDescription);
+
+        // 2. Формируем сообщение.
+        // ВАЖНО: В MarkdownV2 символы #, ., ! должны быть экранированы как \#, \., \!
+        // В Java строках обратный слэш пишется как \\
         String message = String.format(
-                "%s *ЗАЯВКА #%d ПРОСРОЧЕНА*\n\n" +
-                        "Срок истек: *%d дн. назад*\n" +
-                        "Описание: %s\n" +
-                        "Срочно примите меры!",
+                "%s *ЗАЯВКА \\#%d ПРОСРОЧЕНА*\n\n" +        // \# вместо #
+                        "Срок истек: *%d дн\\. назад*\n" +          // \. вместо .
+                        "Описание: %s",                   // \! вместо !
                 icon, request.getRequestID(), daysOverdue,
-                request.getDescription() != null ? request.getDescription().substring(0, Math.min(request.getDescription().length(), 50)) + "..." : ""
+                safeDescription
         );
 
         return chatRepository.findTelegramIdByRequestId(request.getRequestID())

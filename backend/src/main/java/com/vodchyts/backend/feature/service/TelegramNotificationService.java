@@ -28,23 +28,27 @@ public class TelegramNotificationService {
     }
 
     public Mono<Void> sendNotification(Long chatId, String text) {
-        if (chatId == null) return Mono.empty();
+        if (chatId == null) {
+            log.warn("Попытка отправки уведомления с chatId = null");
+            return Mono.empty();
+        }
+
+        // 1. Лог ПЕРЕД отправкой
+        log.info(">>> ОТПРАВКА В БОТ: chatId={}, text={}", chatId, text);
 
         record NotifyPayload(Long chatId, String text) {}
-
-        // Экранируем текст перед отправкой
-        String safeText = text; // Предполагаем, что текст уже отформатирован/экранирован в сервисе, или делаем это тут.
-        // Но лучше экранировать конкретные вставки (имя, текст комментария), а не разметку целиком.
-        // Для простоты, пусть сервис передает уже готовый MarkdownV2, или используй escapeMarkdown здесь для сырого текста.
+        String safeText = text;
 
         return webClient.post()
                 .uri("/notify")
                 .bodyValue(new NotifyPayload(chatId, safeText))
                 .retrieve()
                 .bodyToMono(String.class)
-                .doOnError(e -> log.error("Error sending text to {}: {}", chatId, e.getMessage()))
+                .doOnSuccess(s -> log.info("<<< УСПЕХ: Бот принял сообщение для {}", chatId)) // 2. Лог ПОСЛЕ успеха
+                .doOnError(e -> log.error("!!! ОШИБКА отправки в бот для {}: {}", chatId, e.getMessage()))
                 .then();
     }
+
 
     public Mono<Void> sendPhoto(Long chatId, String caption, byte[] imageData) {
         if (chatId == null || imageData == null || imageData.length == 0) return Mono.empty();

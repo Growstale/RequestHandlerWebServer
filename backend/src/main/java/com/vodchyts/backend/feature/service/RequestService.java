@@ -458,7 +458,6 @@ public class RequestService {
     }
 
     public Mono<Void> addPhotosToRequest(Integer requestId, Flux<FilePart> filePartFlux, Integer userId) {
-        // ... (код конвертации байтов оставляем без изменений) ...
         Flux<byte[]> imagesDataFlux = filePartFlux.flatMap(filePart ->
                 filePart.content()
                         .collectList()
@@ -494,7 +493,6 @@ public class RequestService {
                                 .flatMap(chatId -> {
                                     String author = notificationService.escapeMarkdown(user.getLogin());
 
-                                    // ВАЖНО: Символ # экранируем как \\#
                                     String caption = String.format(
                                             "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
                                             requestId, author
