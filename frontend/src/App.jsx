@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { useAuth } from './context/AuthProvider'
 import ProtectedRoute from './components/ProtectedRoute'
 import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
@@ -18,6 +19,7 @@ import Notifications from './pages/Notifications';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { user } = useAuth()
 
   return (
     <>
@@ -34,15 +36,15 @@ export default function App() {
             path="/" 
             element={
               <ProtectedRoute>
-                <Dashboard />
+                {user?.role === 'RetailAdmin' ? <Dashboard /> : <Navigate to="/requests" replace />}
               </ProtectedRoute>
             } 
-          />
+          />          
           <Route path="/login" element={<Login />} />
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['RetailAdmin']}>
                 <Dashboard />
               </ProtectedRoute>
             }

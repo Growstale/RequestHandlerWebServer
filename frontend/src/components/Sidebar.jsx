@@ -7,7 +7,7 @@ import { Home as HomeIcon, LayoutDashboard, Users as UsersIcon, Building as Shop
 import { getRoleDisplayName } from '@/lib/displayNames';
 
 const allLinks = [
-  { href: '/dashboard', label: 'Дашборд', icon: LayoutDashboard, roles: ['RetailAdmin', 'StoreManager', 'Contractor'] },
+  { href: '/dashboard', label: 'Дашборд', icon: LayoutDashboard, roles: ['RetailAdmin'] },
   { href: '/requests', label: 'Заявки', icon: Briefcase, roles: ['RetailAdmin', 'StoreManager', 'Contractor'] },
   { href: '/requests/archive', label: 'Архив заявок', icon: Archive, roles: ['RetailAdmin', 'StoreManager', 'Contractor'] },
   { href: '/users', label: 'Пользователи', icon: UsersIcon, roles: ['RetailAdmin'] },
