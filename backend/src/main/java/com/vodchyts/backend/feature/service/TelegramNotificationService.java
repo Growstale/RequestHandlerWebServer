@@ -27,35 +27,13 @@ public class TelegramNotificationService {
                 .build();
     }
 
-    public Mono<Void> sendNotification(Long chatId, String text) {
-        if (chatId == null) {
-            log.warn("Попытка отправки уведомления с chatId = null");
-            return Mono.empty();
-        }
-
-        // 1. Лог ПЕРЕД отправкой
-        log.info(">>> ОТПРАВКА В БОТ: chatId={}, text={}", chatId, text);
-
-        record NotifyPayload(Long chatId, String text) {}
-        String safeText = text;
-
-        return webClient.post()
-                .uri("/notify")
-                .bodyValue(new NotifyPayload(chatId, safeText))
-                .retrieve()
-                .bodyToMono(String.class)
-                .doOnSuccess(s -> log.info("<<< УСПЕХ: Бот принял сообщение для {}", chatId)) // 2. Лог ПОСЛЕ успеха
-                .doOnError(e -> log.error("!!! ОШИБКА отправки в бот для {}: {}", chatId, e.getMessage()))
-                .then();
-    }
-
 
     public Mono<Void> sendPhoto(Long chatId, String caption, byte[] imageData) {
         if (chatId == null || imageData == null || imageData.length == 0) return Mono.empty();
 
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
         builder.part("chatId", chatId);
-        builder.part("caption", caption);
+        builder.part("caption", caption != null ? caption : ""); // Защита от null caption
         builder.part("file", new ByteArrayResource(imageData))
                 .header("Content-Disposition", "form-data; name=file; filename=image.jpg");
 
@@ -66,10 +44,39 @@ public class TelegramNotificationService {
                 .retrieve()
                 .bodyToMono(String.class)
                 .doOnSuccess(s -> log.info("Photo sent to chat {}", chatId))
-                .doOnError(e -> log.error("Failed to send photo to chat {}: {}", chatId, e.getMessage()))
+                // === ИЗМЕНЕНИЕ ЗДЕСЬ ===
+                // Вместо простого логгирования в doOnError, мы перехватываем ошибку
+                .onErrorResume(e -> {
+                    // Логируем ошибку, но не прерываем поток выполнения
+                    log.error("НЕ УДАЛОСЬ отправить фото в чат {}: {}", chatId, e.getMessage());
+                    // Возвращаем пустой результат, как будто всё хорошо (для вызывающего кода)
+                    return Mono.empty();
+                })
+                // =======================
                 .then();
     }
 
+    public Mono<Void> sendNotification(Long chatId, String text) {
+        if (chatId == null) return Mono.empty();
+
+        record NotifyPayload(Long chatId, String text) {}
+        // Экранируем текст, если еще не экранирован (лучше делать это на уровне бизнес-логики, но на всякий случай)
+        String safeText = text;
+
+        return webClient.post()
+                .uri("/notify")
+                .bodyValue(new NotifyPayload(chatId, safeText))
+                .retrieve()
+                .bodyToMono(String.class)
+                .doOnSuccess(s -> log.info("Message sent to chat {}", chatId))
+                // === ИЗМЕНЕНИЕ ЗДЕСЬ ===
+                .onErrorResume(e -> {
+                    log.error("НЕ УДАЛОСЬ отправить текст в чат {}: {}", chatId, e.getMessage());
+                    return Mono.empty();
+                })
+                // =======================
+                .then();
+    }
     // Вспомогательный метод для экранирования, можно использовать в RequestService
     public String escapeMarkdown(String text) {
         if (text == null) return "";

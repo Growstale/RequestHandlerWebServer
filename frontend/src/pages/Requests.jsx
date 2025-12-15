@@ -153,7 +153,7 @@ export default function Requests({ archived = false }) {
     const handleRestore = async (requestId) => {
         try {
             await restoreRequest(requestId);
-            reloadRequests();
+            reloadRequests(true);
         } catch (err) {
             const errorMessage = err.response?.data || 'Не удалось восстановить заявку';
             logger.error('Restore Request Failed', err);
@@ -181,7 +181,7 @@ export default function Requests({ archived = false }) {
     const handleComplete = async (requestId) => {
         try {
             await completeRequest(requestId);
-            reloadRequests();
+            reloadRequests(true);
         } catch (err) {
             const errorMessage = err.response?.data || 'Не удалось завершить заявку';
             logger.error('Complete Request Failed', err);
@@ -189,15 +189,16 @@ export default function Requests({ archived = false }) {
         }
     };
 
-    const reloadRequests = useCallback(async () => {
-        setLoading(true);
-        setError(null);
+const reloadRequests = useCallback(async (silent = false) => {
+        if (!silent) {
+            setLoading(true);
+            setError(null);
+        }
         
         const currentParams = new URLSearchParams(searchParamsString);
         
         try {
             const useDateFilters = viewMode === 'gantt';
-            const isByShopView = currentParams.get('view') === 'byShop';
             const params = {
                 page: parseInt(currentParams.get('page') || '0', 10),
                 archived,
@@ -219,11 +220,28 @@ export default function Requests({ archived = false }) {
             const response = await getRequests(params);
             setRequests(response.data.content);
             setPaginationData({ totalPages: response.data.totalPages, totalItems: response.data.totalItems });
+
+            // Обновляем текущую заявку, если она открыта, используя функциональное обновление
+            setCurrentRequest(prevReq => {
+                if (prevReq) {
+                    const updatedReq = response.data.content.find(r => r.requestID === prevReq.requestID);
+                    return updatedReq || prevReq;
+                }
+                return prevReq;
+            });
+
         } catch (err) {
-            setError(err.response?.data || `Не удалось загрузить ${archived ? 'архив' : 'заявки'}`);
+            if (!silent) {
+                setError(err.response?.data || `Не удалось загрузить ${archived ? 'архив' : 'заявки'}`);
+            } else {
+                console.error("Silent reload failed", err);
+            }
         } finally {
-            setLoading(false);
+            if (!silent) {
+                setLoading(false);
+            }
         }
+    // ВАЖНО: Убрали currentRequest из этого списка ↓
     }, [archived, searchParamsString, viewMode]);
 
     const SortableHeader = ({ field, children }) => {
@@ -298,7 +316,9 @@ export default function Requests({ archived = false }) {
                 await createRequest(formData);
             }
             setIsFormOpen(false);
-            reloadRequests();
+            
+            reloadRequests(true); 
+            
         } catch (err) {
             console.error("Ошибка при отправке формы заявки:", err.response || err);
             setFormApiError(err.response?.data || 'Произошла ошибка. Проверьте консоль для деталей.');
@@ -312,7 +332,7 @@ export default function Requests({ archived = false }) {
         try {
             await deleteRequest(currentRequest.requestID);
             setIsAlertOpen(false);
-            reloadRequests();
+            reloadRequests(true); 
         } catch (err) {
             console.error("Ошибка удаления:", err.response?.data);
             setIsAlertOpen(false);
@@ -332,14 +352,27 @@ export default function Requests({ archived = false }) {
 
     const handleCommentsModalClose = () => {
         setIsCommentsOpen(false);
-        reloadRequests();
+        
+        if (viewMode === 'gantt' && currentRequest) {
+            setIsDetailsOpen(true);
+        }
+        
+        // ИЗМЕНЕНИЕ: Всегда передаем true (тихий режим), чтобы не появлялся спиннер
+        // и таблица не пропадала, сохраняя позицию скролла.
+        reloadRequests(true);
     };
 
     const handlePhotosModalClose = () => {
         setIsPhotosOpen(false);
-        reloadRequests();
-    };
+        
+        if (viewMode === 'gantt' && currentRequest) {
+            setIsDetailsOpen(true);
+        }
 
+        // ИЗМЕНЕНИЕ: Здесь тоже включаем тихий режим.
+        reloadRequests(true);
+    };
+    
     const page = parseInt(searchParams.get('page') || '0', 10);
     const searchTerm = searchParams.get('searchTerm') || '';
     const shopId = searchParams.get('shopId') || 'ALL';
@@ -497,11 +530,11 @@ export default function Requests({ archived = false }) {
 
                 {isAdmin && (
                     <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground ml-1">Диспетчер</Label>
+                        <Label className="text-xs text-muted-foreground ml-1">Подрядчик</Label>
                         <Select onValueChange={(v) => updateQueryParam('contractorId', v)} value={contractorId}>
-                            <SelectTrigger className="bg-white"><SelectValue placeholder="Диспетчер" /></SelectTrigger>
+                            <SelectTrigger className="bg-white"><SelectValue placeholder="Подрядчик" /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="ALL">Все диспетчеры</SelectItem>
+                                <SelectItem value="ALL">Все Подрядчики</SelectItem>
                                 {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
                             </SelectContent>
                         </Select>
@@ -540,7 +573,7 @@ export default function Requests({ archived = false }) {
                                 <SortableHeader field="shopName">Магазин</SortableHeader>
                                 <SortableHeader field="workCategoryName">Вид работы</SortableHeader>
                                 <SortableHeader field="urgencyName">Срочность</SortableHeader>
-                                <SortableHeader field="assignedContractorName">Диспетчер</SortableHeader>
+                                <SortableHeader field="assignedContractorName">Подрядчик</SortableHeader>
                                 <SortableHeader field="status">Статус</SortableHeader>
                                 <SortableHeader field="daysRemaining">Срок</SortableHeader>
                                 <TableHead>Действия</TableHead>
@@ -634,7 +667,7 @@ export default function Requests({ archived = false }) {
                                                     <SortableHeader field="description">Описание</SortableHeader>
                                                     <SortableHeader field="workCategoryName">Вид работы</SortableHeader>
                                                     <SortableHeader field="urgencyName">Срочность</SortableHeader>
-                                                    <SortableHeader field="assignedContractorName">Диспетчер</SortableHeader>
+                                                    <SortableHeader field="assignedContractorName">Подрядчик</SortableHeader>
                                                     <SortableHeader field="status">Статус</SortableHeader>
                                                     <SortableHeader field="daysRemaining">Срок</SortableHeader>
                                                     <TableHead>Действия</TableHead>
@@ -716,6 +749,46 @@ export default function Requests({ archived = false }) {
             />
             <CommentsModal isOpen={isCommentsOpen} onClose={handleCommentsModalClose} request={currentRequest} />
             <PhotosModal isOpen={isPhotosOpen} onClose={handlePhotosModalClose} request={currentRequest} />
+
+                        <div className="mt-6 border-t pt-4">
+                <h3 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">
+                    Условные обозначения
+                </h3>
+                
+                <div className="flex flex-wrap gap-6 text-sm">
+                    {viewMode === 'gantt' ? (
+                        <>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded bg-[#22c55e]"></div>
+                                <span className="text-gray-700">В работе (в срок)</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded bg-[#3b82f6]"></div>
+                                <span className="text-gray-700">Выполнено</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded bg-[#ef4444]"></div>
+                                <span className="text-gray-700">Просрочено (активные)</span>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded border border-gray-200 bg-white"></div>
+                                <span className="text-gray-700">В работе (в срок) / Закрыто</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded border border-blue-200 bg-blue-100"></div>
+                                <span className="text-gray-700">Выполнено</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded border border-red-200 bg-red-100"></div>
+                                <span className="text-gray-700">Просрочено (активные)</span>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
         </main>
     );
 }

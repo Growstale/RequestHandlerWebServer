@@ -425,8 +425,6 @@ public class RequestService {
                         changes.add("🛠 *Вид работ:* " + notificationService.escapeMarkdown(newWorkName));
                     }
 
-// ... внутри updateRequest ...
-
                     // 5. Срочность (Сложная логика: ID или Дни)
                     boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
                     boolean urgencyIdChanged = !Objects.equals(request.getUrgencyID(), dto.urgencyID());
@@ -471,14 +469,31 @@ public class RequestService {
                     }
                     request.setStatus(dto.status());
 
-                    // Пересчет просрочки
+// === ЛОГИКА ПЕРЕСЧЕТА ПРОСРОЧКИ И УВЕДОМЛЕНИЯ ===
+
+// 1. Запоминаем, была ли она просрочена ДО изменений
+                    boolean wasOverdue = Boolean.TRUE.equals(request.getIsOverdue());
+
                     if (!"In work".equalsIgnoreCase(request.getStatus())) {
                         request.setIsOverdue(false);
+                        // Если она была просрочена, а теперь мы её закрыли или выполнили — это хорошо, уведомлять о снятии просрочки обычно не нужно (статус и так поменялся)
                     } else {
                         Integer daysForTask = isCustomizable ? dto.customDays() : newUrgency.getDefaultDays();
+
                         if (daysForTask != null) {
                             LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
-                            request.setIsOverdue(LocalDateTime.now().isAfter(deadline));
+                            boolean isNowOverdue = LocalDateTime.now().isAfter(deadline);
+
+                            request.setIsOverdue(isNowOverdue);
+
+                            // 2. Сравниваем старое и новое состояние
+                            if (!wasOverdue && isNowOverdue) {
+                                // Если раньше НЕ была просрочена, а теперь СТАЛА
+                                changes.add("❗️ *Внимание:* Срок выполнения истек\\!");
+                            } else if (wasOverdue && !isNowOverdue) {
+                                // Если БЫЛА просрочена, а мы увеличили дни и она перестала быть такой
+                                changes.add("✅ *Срок:* Просрочка устранена \\(время добавлено\\)");
+                            }
                         } else {
                             request.setIsOverdue(false);
                         }

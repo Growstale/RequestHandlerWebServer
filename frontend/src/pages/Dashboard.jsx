@@ -11,6 +11,7 @@ import {
     Briefcase, TrendingUp, Users, Printer 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getUrgencyDisplayName } from '@/lib/displayNames';
 
 // Цвета для графиков
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
@@ -57,6 +58,11 @@ export default function Dashboard() {
         name: item.name,
         value: item.value,
         color: STATUS_COLORS[item.name] || '#94a3b8'
+    }));
+
+    const urgencyData = stats.requestsByUrgency.map(item => ({
+        ...item,
+        name: getUrgencyDisplayName(item.name)
     }));
 
     const handlePrint = () => {
@@ -146,7 +152,7 @@ export default function Dashboard() {
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
                                     <Pie
-                                        data={stats.requestsByUrgency}
+                                        data={urgencyData}
                                         cx="50%"
                                         cy="50%"
                                         innerRadius={60}
@@ -154,7 +160,7 @@ export default function Dashboard() {
                                         paddingAngle={5}
                                         dataKey="value"
                                     >
-                                        {stats.requestsByUrgency.map((entry, index) => (
+                                        {urgencyData.map((entry, index) => ( 
                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
@@ -163,7 +169,7 @@ export default function Dashboard() {
                             </ResponsiveContainer>
                         </div>
                         <div className="flex justify-center gap-4 text-sm text-gray-500 flex-wrap">
-                            {stats.requestsByUrgency.map((entry, index) => (
+                            {urgencyData.map((entry, index) => (
                                 <div key={index} className="flex items-center gap-1">
                                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
                                     <span>{entry.name}: {entry.value}</span>

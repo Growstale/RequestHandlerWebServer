@@ -2,6 +2,7 @@ import logging
 import asyncio
 import io  # <--- ВАЖНО: Добавили этот импорт
 from aiohttp import web
+from telegram.error import BadRequest, TelegramError
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application, CommandHandler, ConversationHandler, CallbackQueryHandler,
@@ -94,6 +95,14 @@ async def http_notify_photo_handler(request):
         )
         logger.info(f"Photo notification sent to {chat_id}")
         return web.Response(text="OK")
+    except BadRequest as e:
+        if "Chat not found" in str(e) or "chat not found" in str(e):
+            logger.warning(f"Chat {chat_id} not found: {e}")
+            return web.Response(status=400, text=f"Chat not found: {chat_id}")
+
+        logger.error(f"Telegram Bad Request for {chat_id}: {e}")
+        return web.Response(status=400, text=str(e))
+
     except Exception as e:
         logger.error(f"Failed to process photo notification: {e}")
         return web.Response(status=500, text=str(e))
