@@ -71,82 +71,88 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
     };
 
     return (
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-            {apiError && <p className="col-span-2 text-red-600 p-2 bg-red-50 rounded-md">{apiError}</p>}
+        // ИЗМЕНЕНИЕ 1: Убрали grid из самого тега form, сделали flex column
+        <form onSubmit={handleSubmit} className="flex flex-col h-full pt-4">
             
-            <div className="space-y-2">
-                <Label htmlFor="shopID">Магазин <span className="text-destructive">*</span></Label>
-                <Select onValueChange={(v) => handleSelectChange('shopID', v)} value={formData.shopID?.toString() || ''}>
-                    <SelectTrigger><SelectValue placeholder="Выберите магазин..." /></SelectTrigger>
-                    <SelectContent>
-                        {shops.map(s => <SelectItem key={s.shopID} value={s.shopID.toString()}>{s.shopName}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-            </div>
-            
-            <div className="space-y-2">
-                <Label htmlFor="assignedContractorID">Исполнитель <span className="text-destructive">*</span></Label>
-                <Select onValueChange={(v) => handleSelectChange('assignedContractorID', v)} value={formData.assignedContractorID?.toString() || ''}>
-                    <SelectTrigger><SelectValue placeholder="Выберите исполнителя..." /></SelectTrigger>
-                    <SelectContent>
-                        {/* === ИЗМЕНЕНИЕ ЗДЕСЬ === */}
-                        {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-            </div>
-
-            <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="description">Описание <span className="text-destructive">*</span></Label>
-                <Textarea id="description" name="description" value={formData.description} onChange={handleChange} />
-            </div>
-
-            <div className="space-y-2">
-                <Label htmlFor="workCategoryID">Вид работы <span className="text-destructive">*</span></Label>
-                 <Select onValueChange={(v) => handleSelectChange('workCategoryID', v)} value={formData.workCategoryID?.toString() || ''}>
-                     <SelectTrigger><SelectValue placeholder="Выберите вид работы..." /></SelectTrigger>
-                    <SelectContent>
-                        {workCategories.map(wc => <SelectItem key={wc.workCategoryID} value={wc.workCategoryID.toString()}>{wc.workCategoryName}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-            </div>
-
-            <div className="space-y-2">
-                <Label htmlFor="urgencyID">Срочность <span className="text-destructive">*</span></Label>
-                 <Select onValueChange={(v) => handleSelectChange('urgencyID', v)} value={formData.urgencyID?.toString() || ''}>
-                    <SelectTrigger><SelectValue placeholder="Выберите срочность..." /></SelectTrigger>
-                    <SelectContent>
-                        {urgencyCategories.map(uc => <SelectItem key={uc.urgencyID} value={uc.urgencyID.toString()}>{getUrgencyDisplayName(uc.urgencyName)}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-            </div>
-            
-            {isCustomizable && (
-                <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="customDays">Дней на выполнение (настраиваемая) <span className="text-destructive">*</span></Label>
-                    <Input id="customDays" name="customDays" type="number" min="1" max="365" value={formData.customDays} onChange={handleChange} required />
-                </div>
-            )}
-
-
-            {isEditing && (
+            {/* ИЗМЕНЕНИЕ 2: Обернули поля в div с ограничением высоты (max-h) и скроллом (overflow-y-auto) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[60vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
+                
+                {apiError && <p className="col-span-1 md:col-span-2 text-red-600 p-2 bg-red-50 rounded-md">{apiError}</p>}
+                
                 <div className="space-y-2">
-                    <Label htmlFor="status">Статус</Label>
-                     <Select onValueChange={(v) => setFormData(p => ({...p, status: v}))} value={formData.status}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                    <Label htmlFor="shopID">Магазин <span className="text-destructive">*</span></Label>
+                    <Select onValueChange={(v) => handleSelectChange('shopID', v)} value={formData.shopID?.toString() || ''}>
+                        <SelectTrigger><SelectValue placeholder="Выберите магазин..." /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="In work">В работе</SelectItem>
-                            <SelectItem value="Done">Выполнена</SelectItem>
-                            <SelectItem value="Closed">Закрыта</SelectItem>
+                            {shops.map(s => <SelectItem key={s.shopID} value={s.shopID.toString()}>{s.shopName}</SelectItem>)}
                         </SelectContent>
                     </Select>
                 </div>
-            )}
-            
-            {chatWarning && (
-              <p className="md:col-span-2 text-orange-600 text-sm p-3 bg-orange-50 rounded-md border border-orange-200">{chatWarning}</p>
-            )}
+                
+                <div className="space-y-2">
+                    <Label htmlFor="assignedContractorID">Исполнитель <span className="text-destructive">*</span></Label>
+                    <Select onValueChange={(v) => handleSelectChange('assignedContractorID', v)} value={formData.assignedContractorID?.toString() || ''}>
+                        <SelectTrigger><SelectValue placeholder="Выберите исполнителя..." /></SelectTrigger>
+                        <SelectContent>
+                            {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                </div>
 
-            <div className="md:col-span-2 flex justify-end gap-2 pt-4">
+                <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="description">Описание <span className="text-destructive">*</span></Label>
+                    {/* Textarea теперь внутри скроллируемого контейнера */}
+                    <Textarea id="description" name="description" value={formData.description} onChange={handleChange} />
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="workCategoryID">Вид работы <span className="text-destructive">*</span></Label>
+                     <Select onValueChange={(v) => handleSelectChange('workCategoryID', v)} value={formData.workCategoryID?.toString() || ''}>
+                         <SelectTrigger><SelectValue placeholder="Выберите вид работы..." /></SelectTrigger>
+                        <SelectContent>
+                            {workCategories.map(wc => <SelectItem key={wc.workCategoryID} value={wc.workCategoryID.toString()}>{wc.workCategoryName}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="urgencyID">Срочность <span className="text-destructive">*</span></Label>
+                     <Select onValueChange={(v) => handleSelectChange('urgencyID', v)} value={formData.urgencyID?.toString() || ''}>
+                        <SelectTrigger><SelectValue placeholder="Выберите срочность..." /></SelectTrigger>
+                        <SelectContent>
+                            {urgencyCategories.map(uc => <SelectItem key={uc.urgencyID} value={uc.urgencyID.toString()}>{getUrgencyDisplayName(uc.urgencyName)}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                </div>
+                
+                {isCustomizable && (
+                    <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="customDays">Дней на выполнение (настраиваемая) <span className="text-destructive">*</span></Label>
+                        <Input id="customDays" name="customDays" type="number" min="1" max="365" value={formData.customDays} onChange={handleChange} required />
+                    </div>
+                )}
+
+                {isEditing && (
+                    <div className="space-y-2">
+                        <Label htmlFor="status">Статус</Label>
+                         <Select onValueChange={(v) => setFormData(p => ({...p, status: v}))} value={formData.status}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="In work">В работе</SelectItem>
+                                <SelectItem value="Done">Выполнена</SelectItem>
+                                <SelectItem value="Closed">Закрыта</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
+                
+                {chatWarning && (
+                  <p className="md:col-span-2 text-orange-600 text-sm p-3 bg-orange-50 rounded-md border border-orange-200">{chatWarning}</p>
+                )}
+            </div>
+
+            {/* ИЗМЕНЕНИЕ 3: Кнопки вынесены в отдельный блок футера с border-t (линией сверху) */}
+            <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
                 <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
                     Отмена
                 </Button>
@@ -162,6 +168,5 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
                 </Button>
             </div>
         </form>
-
     );
 }

@@ -195,18 +195,20 @@ public class MessagingService {
 
     public Mono<Void> sendMessageWithImage(String message, List<Integer> recipientChatIds, Mono<FilePart> imageFile) {
         return extractBytes(imageFile).flatMap(imageData -> {
-            System.out.println("--- НАЧАЛО ОТПРАВКИ СООБЩЕНИЯ С ФОТО ---");
-            System.out.println("Текст сообщения: " + message);
-            System.out.println("ID чатов получателей: " + recipientChatIds);
-            if (imageData.length > 0) {
-                System.out.println("Прикреплено изображение размером: " + imageData.length + " байт");
-            } else {
-                System.out.println("Изображение не прикреплено.");
+
+            if (imageData.length == 0) {
+                return Mono.error(new IllegalArgumentException("Файл изображения пуст или не передан"));
             }
-            System.out.println("--- КОНЕЦ ОТПРАВКИ СООБЩЕНИЯ ---");
-            return Mono.empty();
+
+            return Flux.fromIterable(recipientChatIds)
+                    .flatMap(chatId -> chatRepository.findById(chatId))
+                    .flatMap(chat -> {
+                        return notificationService.sendPhoto(chat.getTelegramID(), message, imageData);
+                    })
+                    .then();
         });
     }
+
 
 
 }
