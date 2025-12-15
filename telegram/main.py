@@ -108,6 +108,32 @@ async def http_notify_photo_handler(request):
         return web.Response(status=500, text=str(e))
 
 
+async def check_chat_handler(request):
+    """Проверяет существование чата по ID."""
+    chat_id_str = request.match_info['chat_id']
+    try:
+        chat_id = int(chat_id_str)
+        bot_app = request.app['bot_app']
+
+        # Пытаемся получить информацию о чате у Телеграма
+        chat = await bot_app.bot.get_chat(chat_id)
+
+        # Если успех — возвращаем название чата (для информации) и 200 OK
+        return web.json_response({
+            "exists": True,
+            "title": chat.title or chat.first_name or "Unknown"
+        })
+
+    except ValueError:
+        return web.Response(status=400, text="Invalid Chat ID format")
+    except BadRequest:
+        # Чат не найден или бот не имеет к нему доступа
+        return web.json_response({"exists": False}, status=404)
+    except Exception as e:
+        logger.error(f"Error checking chat {chat_id_str}: {e}")
+        return web.Response(status=500, text=str(e))
+
+
 async def main():
     logger.info("Запуск бота...")
     if not BOT_TOKEN:
@@ -202,6 +228,7 @@ async def main():
     server['bot_app'] = application
     server.router.add_post('/notify', http_notify_handler)
     server.router.add_post('/notify/photo', http_notify_photo_handler)
+    server.router.add_get('/check/{chat_id}', check_chat_handler)
 
     runner = web.AppRunner(server)
     await runner.setup()
