@@ -28,6 +28,21 @@ public class TelegramNotificationService {
     }
 
 
+    public Mono<Boolean> validateChatId(Long chatId) {
+        if (chatId == null) return Mono.just(false);
+
+        return webClient.get()
+                .uri("/check/" + chatId)
+                .retrieve()
+                .toEntity(String.class) // Получаем ответ целиком
+                .map(response -> response.getStatusCode().is2xxSuccessful())
+                .onErrorResume(e -> {
+                    // Если 404 или ошибка соединения — считаем, что чат невалиден
+                    log.warn("Validation failed for chat {}: {}", chatId, e.getMessage());
+                    return Mono.just(false);
+                });
+    }
+
     public Mono<Void> sendPhoto(Long chatId, String caption, byte[] imageData) {
         if (chatId == null || imageData == null || imageData.length == 0) return Mono.empty();
 
