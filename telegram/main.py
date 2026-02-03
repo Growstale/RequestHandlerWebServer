@@ -222,7 +222,7 @@ async def main():
     server.router.add_post('/notify/photo', http_notify_photo_handler)
     server.router.add_get('/check/{chat_id}', check_chat_handler)
 
-    runner = web.AppRunner(server)
+    runner = web.AppRunner(server, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', 8081)
     await site.start()

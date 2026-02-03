@@ -6,14 +6,29 @@ import asyncio
 from typing import Dict, Any, Coroutine, List, Tuple
 from telegram.ext import ContextTypes, ConversationHandler, CallbackContext, ExtBot
 from telegram.constants import ParseMode, ChatType
-from telegram.error import BadRequest, TimedOut
+from telegram.error import BadRequest, TimedOut, RetryAfter
 import api_client
 from utils import create_paginated_keyboard
 from bot_logging import logger
+import time
+
+
+USER_LAST_ACTION_TIME = {}
+COOLDOWN_SECONDS = 1.0
+
+
+def check_rate_limit(user_id: int) -> bool:
+    current_time = time.time()
+    last_time = USER_LAST_ACTION_TIME.get(user_id, 0)
+
+    if current_time - last_time < COOLDOWN_SECONDS:
+        return False
+
+    USER_LAST_ACTION_TIME[user_id] = current_time
+    return True
 
 
 class CustomContext(CallbackContext[ExtBot, Dict, Dict, Dict]):
-
     @classmethod
     def from_update(cls, update: object, application: object) -> "CustomContext":
         return cls(application=application, chat_id=update.effective_chat.id, user_id=update.effective_user.id)
@@ -258,6 +273,7 @@ def _get_sort_direction_keyboard(field: str) -> InlineKeyboardMarkup:
 
 
 async def view_requests_start(update: Update, context: Context) -> int:
+    if not check_rate_limit(update.effective_user.id): return ConversationHandler.END
     user_id = update.effective_user.id
     user_info = await api_client.get_user_by_telegram_id(user_id)
     if not user_info:
@@ -378,6 +394,9 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
 
 async def view_menu_callback(update: Update, context: Context) -> int:
     query = update.callback_query
+    if not check_rate_limit(update.effective_user.id):
+        await query.answer("⚠️ Слишком часто!", show_alert=False)
+        return VIEW_MAIN_MENU
     await safe_answer_query(query)
     data = query.data
 
@@ -505,6 +524,9 @@ async def complete_request_action(query, context, request_id):
 
 async def view_sort_callback(update: Update, context: Context) -> int:
     query = update.callback_query
+    if not check_rate_limit(update.effective_user.id):
+        await query.answer("⚠️ Подождите...", show_alert=False)
+        return VIEW_SET_SORTING
     await safe_answer_query(query)
     data = query.data
     filters = context.user_data.get('view_filters', {})
@@ -559,6 +581,7 @@ async def view_sort_callback(update: Update, context: Context) -> int:
 
 
 async def view_search_handler(update: Update, context: Context) -> int:
+    if not check_rate_limit(update.effective_user.id): return VIEW_SET_SEARCH_TERM
     filters = context.user_data.get('view_filters', {})
     filters['searchTerm'] = update.message.text
     filters['page'] = 0
@@ -621,6 +644,9 @@ async def view_request_details(update: Update, context: Context) -> int | None:
 
 async def action_callback_handler(update: Update, context: Context) -> int | None:
     query = update.callback_query
+    if not check_rate_limit(update.effective_user.id):
+        await query.answer("⚠️ Подождите...", show_alert=False)
+        return VIEW_DETAILS
     await safe_answer_query(query)
     data = query.data
 
@@ -778,6 +804,7 @@ async def start_delete_comment_handler(update: Update, context: Context) -> int:
 
 async def confirm_delete_comment_handler(update: Update, context: Context) -> int:
     query = update.callback_query
+    if not check_rate_limit(update.effective_user.id): return DELETE_COMMENT_SELECT
     _, _, _, comment_id, request_id = query.data.split('_')
 
     await api_client.delete_comment(int(comment_id))
@@ -887,6 +914,7 @@ async def preview_delete_photo_handler(update: Update, context: Context) -> int:
 
 async def finalize_delete_photo_handler(update: Update, context: Context) -> int:
     query = update.callback_query
+    if not check_rate_limit(update.effective_user.id): return DELETE_PHOTO_SELECT
     _, _, _, photo_id, request_id = query.data.split('_')
 
     await api_client.delete_photo(int(photo_id))
@@ -930,6 +958,7 @@ async def finalize_delete_photo_handler(update: Update, context: Context) -> int
 
 
 async def add_comment_handler(update: Update, context: Context) -> int:
+    if not check_rate_limit(update.effective_user.id): return VIEW_ADD_COMMENT
     comment_text = update.message.text
     request_id = context.user_data.get('current_request_id')
     user_id = update.effective_user.id
@@ -962,6 +991,9 @@ async def add_comment_handler(update: Update, context: Context) -> int:
 
 
 async def add_photo_handler(update: Update, context: Context) -> int:
+    current_time = time.time()
+    if current_time - USER_LAST_ACTION_TIME.get(update.effective_user.id, 0) < 0.5: return VIEW_ADD_PHOTO
+
     request_id = context.user_data.get('current_request_id')
     user_id = update.effective_user.id
 
@@ -1317,6 +1349,7 @@ async def custom_days_handler(update: Update, context: CallbackContext) -> int:
 
 
 async def chat_id_command(update: Update, context: CallbackContext):
+    if not check_rate_limit(update.effective_user.id): return
     chat_id = update.message.chat.id
     message_text = (
         f"Информация о чате:\n"
@@ -1457,6 +1490,7 @@ async def render_editor_menu(update: Update, context: Context):
 
 
 async def start_create_request(update: Update, context: Context) -> int:
+    if not check_rate_limit(update.effective_user.id): return ConversationHandler.END
     user_id = update.effective_user.id
     user_data = await api_client.get_user_by_telegram_id(user_id)
 
@@ -1546,6 +1580,8 @@ async def _preload_dictionaries(context: Context):
 
 async def editor_main_callback(update: Update, context: Context) -> int:
     query = update.callback_query
+    if not check_rate_limit(update.effective_user.id):
+        await query.answer("⚠️ Подождите...", show_alert=False); return EDITOR_MAIN_MENU
     await safe_answer_query(query)
     data = query.data
 
@@ -1691,6 +1727,8 @@ async def editor_select_status(update: Update, context: Context) -> int:
 
 
 async def editor_input_text(update: Update, context: Context) -> int:
+    if not check_rate_limit(update.effective_user.id): return EDITOR_INPUT_TEXT
+
     text = update.message.text
 
     try:
@@ -1719,6 +1757,8 @@ async def editor_input_text(update: Update, context: Context) -> int:
 
 async def _submit_editor_data(update: Update, context: Context) -> int:
     query = update.callback_query
+    if not check_rate_limit(update.effective_user.id):
+        await query.answer("⚠️ Подождите...", show_alert=False); return EDITOR_MAIN_MENU
     draft = context.user_data['editor_draft']
     is_new = context.user_data['editor_is_new']
 
@@ -1778,6 +1818,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
 async def start_command(update: Update, context: CallbackContext):
+    if not check_rate_limit(update.effective_user.id): return
     user = update.effective_user
     await update.message.reply_html(
         f"Привет, {user.mention_html()}!\n\n"
@@ -1794,4 +1835,5 @@ async def cancel_command(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 async def refresh_command(update: Update, context: CallbackContext):
+    if not check_rate_limit(update.effective_user.id): return
     await start_command(update, context)
