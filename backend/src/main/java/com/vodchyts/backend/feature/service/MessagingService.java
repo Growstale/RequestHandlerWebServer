@@ -27,8 +27,8 @@ public class MessagingService {
     private final ReactiveMessageTemplateRepository templateRepository;
     private final ReactiveMessageRecipientRepository recipientRepository;
     private final TransactionalOperator transactionalOperator;
-    private final TelegramNotificationService notificationService; // inject
-    private final ReactiveShopContractorChatRepository chatRepository; // Нужно для поиска TelegramID
+    private final TelegramNotificationService notificationService;
+    private final ReactiveShopContractorChatRepository chatRepository;
 
     public MessagingService(ReactiveMessageTemplateRepository templateRepository,
                             ReactiveMessageRecipientRepository recipientRepository,

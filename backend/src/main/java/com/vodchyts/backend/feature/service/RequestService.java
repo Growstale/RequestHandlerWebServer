@@ -368,19 +368,15 @@ public class RequestService {
     }
 
     protected Mono<Tuple2<Request, List<String>>> updateRequest(Integer requestId, UpdateRequestRequest dto) {
-        // 1. Подготовка источников данных
         Mono<Request> requestMono = requestRepository.findById(requestId);
 
-        // Получаем новую категорию срочности
         Mono<UrgencyCategory> urgencyMono = urgencyCategoryRepository.findById(dto.urgencyID())
                 .switchIfEmpty(Mono.error(new RuntimeException("Срочность не найдена")));
 
-        // Получаем старое количество дней (если было), чтобы сравнить
         Mono<Integer> oldCustomDaysMono = customDayRepository.findByRequestID(requestId)
                 .map(RequestCustomDay::getDays)
-                .defaultIfEmpty(0); // Если не было, считаем 0
+                .defaultIfEmpty(0);
 
-        // Лук-ап имен
         Mono<String> shopNameMono = shopRepository.findById(dto.shopID())
                 .map(Shop::getShopName).defaultIfEmpty("Неизвестный магазин");
         Mono<String> workNameMono = workCategoryRepository.findById(dto.workCategoryID())
@@ -389,7 +385,6 @@ public class RequestService {
                 ? userRepository.findById(dto.assignedContractorID()).map(User::getLogin).defaultIfEmpty("Не назначен")
                 : Mono.just("Не назначен");
 
-        // 2. Собираем все данные (теперь 6 источников)
         return Mono.zip(requestMono, urgencyMono, shopNameMono, workNameMono, contractorNameMono, oldCustomDaysMono)
                 .flatMap(tuple -> {
                     Request request = tuple.getT1();
@@ -401,31 +396,24 @@ public class RequestService {
 
                     List<String> changes = new ArrayList<>();
 
-                    // --- СРАВНЕНИЕ ---
-
-                    // 1. Статус
                     if (!Objects.equals(request.getStatus(), dto.status())) {
                         changes.add(String.format("📊 *Статус:* %s ➡️ %s",
                                 getStatusDisplayName(request.getStatus()),
                                 getStatusDisplayName(dto.status())));
                     }
 
-                    // 2. Исполнитель
                     if (!Objects.equals(request.getAssignedContractorID(), dto.assignedContractorID())) {
                         changes.add("👷 *Исполнитель:* " + notificationService.escapeMarkdown(newContractorName));
                     }
 
-                    // 3. Магазин
                     if (!Objects.equals(request.getShopID(), dto.shopID())) {
                         changes.add("🏪 *Магазин:* " + notificationService.escapeMarkdown(newShopName));
                     }
 
-                    // 4. Вид работ
                     if (!Objects.equals(request.getWorkCategoryID(), dto.workCategoryID())) {
                         changes.add("🛠 *Вид работ:* " + notificationService.escapeMarkdown(newWorkName));
                     }
 
-                    // 5. Срочность (Сложная логика: ID или Дни)
                     boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
                     boolean urgencyIdChanged = !Objects.equals(request.getUrgencyID(), dto.urgencyID());
                     boolean daysChanged = isCustomizable && !Objects.equals(oldCustomDays, dto.customDays());
@@ -433,30 +421,24 @@ public class RequestService {
                     if (urgencyIdChanged || daysChanged) {
                         String localizedUrgency = getUrgencyDisplayName(newUrgency.getUrgencyName());
 
-                        // Если настраиваемая — добавляем дни в скобки
                         if (isCustomizable && dto.customDays() != null) {
-                            // ИСПРАВЛЕНИЕ: Добавляем \\ перед ( и )
                             localizedUrgency += " \\(" + dto.customDays() + " дн\\.\\)";
                         }
 
                         changes.add("🔥 *Срочность:* " + localizedUrgency);
                     }
 
-// 6. Описание
                     if (!Objects.equals(request.getDescription(), dto.description())) {
                         String rawDesc = dto.description() != null ? dto.description() : "";
 
-                        // Обрезаем до 100 символов, чтобы не спамить в чат
                         String shortDesc = rawDesc.length() > 100
                                 ? rawDesc.substring(0, 100) + "..."
                                 : rawDesc;
 
-                        // ОБЯЗАТЕЛЬНО экранируем для Telegram MarkdownV2
                         String safeDesc = notificationService.escapeMarkdown(shortDesc);
 
                         changes.add("📝 *Описание:* " + safeDesc);
                     }
-                    // --- СОХРАНЕНИЕ ---
 
                     request.setDescription(dto.description());
                     request.setShopID(dto.shopID());
@@ -469,14 +451,10 @@ public class RequestService {
                     }
                     request.setStatus(dto.status());
 
-                    // === ЛОГИКА ПЕРЕСЧЕТА ПРОСРОЧКИ И УВЕДОМЛЕНИЯ ===
-
-                    // 1. Запоминаем, была ли она просрочена ДО изменений
                     boolean wasOverdue = Boolean.TRUE.equals(request.getIsOverdue());
                     Integer daysForTask = isCustomizable ? dto.customDays() : newUrgency.getDefaultDays();
 
                     if (daysForTask != null) {
-                        // Всегда считаем дедлайн, независимо от статуса
                         LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
                         boolean isNowOverdue = LocalDateTime.now().isAfter(deadline);
 
@@ -495,7 +473,6 @@ public class RequestService {
 
                     Mono<Request> updatedRequestMono = requestRepository.save(request);
 
-                    // Перезапись дней
                     Mono<Void> customDaysLogic = customDayRepository.deleteByRequestID(requestId)
                             .then(Mono.defer(() -> {
                                 if (isCustomizable && dto.customDays() != null) {
@@ -563,12 +540,9 @@ public class RequestService {
 
                         return commentRepository.save(newComment)
                                 .flatMap(savedComment -> {
-                                    // 1. Экранируем данные пользователя (чтобы никнейм типа "User_Name" не ломал разметку)
                                     String author = notificationService.escapeMarkdown(user.getLogin());
                                     String safeText = notificationService.escapeMarkdown(dto.commentText());
 
-                                    // 2. Формируем сообщение.
-                                    // ВАЖНО: Символ # экранируем как \\#
                                     String msg = String.format(
                                             "💬 *Новый комментарий к заявке \\#%d*\n" +
                                                     "👤 *От:* %s\n\n" +
@@ -576,7 +550,6 @@ public class RequestService {
                                             requestId, author, safeText
                                     );
 
-                                    // 3. Отправляем
                                     return chatRepository.findTelegramIdByRequestId(requestId)
                                             .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
                                             .thenReturn(savedComment);
@@ -598,7 +571,6 @@ public class RequestService {
     }
 
     public Mono<Void> addPhotosToRequest(Integer requestId, Flux<FilePart> filePartFlux, Integer userId) {
-        // 1. Конвертация потока файлов в байты (оставляем как было)
         Flux<byte[]> imagesDataFlux = filePartFlux.flatMap(filePart ->
                 filePart.content()
                         .collectList()
@@ -631,17 +603,13 @@ public class RequestService {
                         if ("Closed".equalsIgnoreCase(request.getStatus()))
                             return Mono.error(new OperationNotAllowedException("Заявка закрыта"));
 
-                        // === ИСПРАВЛЕНИЕ НАЧИНАЕТСЯ ЗДЕСЬ ===
-                        // Мы итерируемся по картинкам и сохраняем их НЕЗАВИСИМО от наличия чата
                         return imagesDataFlux.flatMap(imageData -> {
                             RequestPhoto photo = new RequestPhoto();
                             photo.setRequestID(requestId);
                             photo.setImageData(imageData);
 
-                            // 1. Сохраняем фото в БД
                             return photoRepository.save(photo)
                                     .flatMap(savedPhoto -> {
-                                        // 2. Пытаемся найти чат и отправить уведомление
                                         return chatRepository.findTelegramIdByRequestId(requestId)
                                                 .flatMap(chatId -> {
                                                     String author = notificationService.escapeMarkdown(user.getLogin());
@@ -649,19 +617,15 @@ public class RequestService {
                                                             "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
                                                             requestId, author
                                                     );
-                                                    // Отправляем в телеграм
                                                     return notificationService.sendPhoto(chatId, caption, imageData);
                                                 })
-                                                // Если чат не найден — просто игнорируем (фото уже сохранено)
                                                 .switchIfEmpty(Mono.empty())
-                                                // Если ошибка отправки в телеграм — логируем и идем дальше
                                                 .onErrorResume(e -> {
                                                     System.err.println("Ошибка отправки фото в Telegram: " + e.getMessage());
                                                     return Mono.empty();
                                                 });
                                     });
-                        }).then(); // Ждем завершения обработки всех фото
-                        // === ИСПРАВЛЕНИЕ ЗАКОНЧИЛОСЬ ===
+                        }).then();
                     });
                 })
                 .then();
@@ -678,10 +642,8 @@ public class RequestService {
                         return Mono.error(new OperationNotAllowedException("Заявку можно завершить только из статуса 'В работе'."));
                     }
 
-                    // 1. Ставим статус
                     request.setStatus("Done");
 
-                    // 2. Считаем просрочку на момент завершения
                     Mono<UrgencyCategory> urgencyMono = urgencyCategoryRepository.findById(request.getUrgencyID());
                     Mono<RequestCustomDay> customDayMono = customDayRepository.findByRequestID(requestId)
                             .defaultIfEmpty(new RequestCustomDay());
@@ -700,7 +662,6 @@ public class RequestService {
                             isOverdue = LocalDateTime.now().isAfter(deadline);
                         }
 
-                        // Сохраняем флаг (просрочено или нет)
                         request.setIsOverdue(isOverdue);
 
                         return requestRepository.save(request);
@@ -730,21 +691,18 @@ public class RequestService {
                         return Mono.error(new OperationNotAllowedException("Можно восстановить только закрытую заявку."));
                     }
 
-                    // 1. Меняем статус
                     request.setStatus("In work");
                     request.setClosedAt(null);
 
-                    // 2. Получаем данные для расчета дедлайна (Срочность + Кастомные дни)
                     Mono<UrgencyCategory> urgencyMono = urgencyCategoryRepository.findById(request.getUrgencyID());
                     Mono<RequestCustomDay> customDayMono = customDayRepository.findByRequestID(requestId)
-                            .defaultIfEmpty(new RequestCustomDay()); // Чтобы не упало, если записи нет
+                            .defaultIfEmpty(new RequestCustomDay());
 
                     return Mono.zip(urgencyMono, customDayMono)
                             .flatMap(tuple -> {
                                 UrgencyCategory urgency = tuple.getT1();
                                 RequestCustomDay customDay = tuple.getT2();
 
-                                // 3. Расчет просрочки
                                 Integer daysForTask = "Customizable".equalsIgnoreCase(urgency.getUrgencyName())
                                         ? customDay.getDays()
                                         : urgency.getDefaultDays();
@@ -757,14 +715,12 @@ public class RequestService {
                                     isOverdue = LocalDateTime.now().isAfter(deadline);
                                     if (isOverdue) {
                                         daysOverdue = Duration.between(deadline, LocalDateTime.now()).toDays();
-                                        // Корректировка: если меньше суток, считаем как 1 день
                                         daysOverdue = Math.max(1, daysOverdue);
                                     }
                                 }
 
                                 request.setIsOverdue(isOverdue);
 
-                                // 4. Формирование сообщения
                                 StringBuilder msgBuilder = new StringBuilder();
                                 msgBuilder.append("🔄 *ЗАЯВКА \\#").append(requestId).append(" ВОССТАНОВЛЕНА*\n\n");
                                 msgBuilder.append("Статус: *Закрыта* ➡️ *В работе*");
@@ -777,11 +733,10 @@ public class RequestService {
 
                                 String finalMessage = msgBuilder.toString();
 
-                                // 5. Сохранение и отправка уведомления
                                 return requestRepository.save(request)
                                         .flatMap(savedReq -> chatRepository.findTelegramIdByRequestId(requestId)
                                                 .flatMap(chatId -> notificationService.sendNotification(chatId, finalMessage))
-                                                .onErrorResume(e -> Mono.empty()) // Если ошибка отправки, не ломаем процесс
+                                                .onErrorResume(e -> Mono.empty())
                                                 .thenReturn(savedReq));
                             });
                 })

@@ -81,7 +81,6 @@ public class AdminService {
                 });
     }
 
-    // Маппер для UserResponse
     public static final BiFunction<Row, RowMetadata, UserResponse> USER_MAPPING_FUNCTION = (row, rowMetaData) -> new UserResponse(
             row.get("UserID", Integer.class),
             row.get("Login", String.class),
@@ -117,7 +116,6 @@ public class AdminService {
         sqlBuilder.append(parseSortToSql(sort));
         sqlBuilder.append(" OFFSET ").append((long) page * size).append(" ROWS FETCH NEXT ").append(size).append(" ROWS ONLY");
 
-        // Основной запрос
         DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(sqlBuilder.toString());
         for (Map.Entry<String, Object> entry : bindings.entrySet()) {
             spec = spec.bind(entry.getKey(), entry.getValue());
@@ -182,7 +180,6 @@ public class AdminService {
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с ID " + userId + " не найден")))
                 .flatMap(user -> {
-                    // 1. Обновление простых полей
                     if (request.password() != null && !request.password().isBlank()) {
                         passwordValidator.validate(request.password());
                         user.setPassword(passwordEncoder.encode(request.password()));
@@ -193,12 +190,10 @@ public class AdminService {
                         user.setTelegramID(request.telegramID().isEmpty() ? null : Long.parseLong(request.telegramID()));
                     }
 
-                    // 2. Логика смены роли
                     Mono<User> userMono = Mono.just(user);
 
                     if (request.roleName() != null && !request.roleName().isBlank()) {
-                        // Если роль меняется
-                        userMono = roleRepository.findById(user.getRoleID()) // Получаем ТЕКУЩУЮ роль
+                        userMono = roleRepository.findById(user.getRoleID())
                                 .flatMap(currentRole -> {
                                     if (currentRole.getRoleName().equals(request.roleName())) {
                                         return Mono.just(currentRole);
@@ -209,11 +204,9 @@ public class AdminService {
                                         ));
                                     }
                                     if ("Contractor".equals(currentRole.getRoleName())) {
-                                        // Проверяем, есть ли активные заявки
                                         return requestRepository.existsByAssignedContractorIDAndStatus(userId, "In work")
                                                 .flatMap(hasActive -> {
                                                     if (hasActive) {
-                                                        // Если есть, запрещаем смену роли
                                                         return Mono.error(new OperationNotAllowedException(
                                                                 "Нельзя изменить роль: у этого подрядчика есть активные заявки. Сначала переназначьте или завершите их."
                                                         ));
@@ -222,9 +215,8 @@ public class AdminService {
                                                 });
                                     }
                                     if ("StoreManager".equals(currentRole.getRoleName())) {
-                                        // Проверяем, есть ли магазины, где этот user указан как UserID
                                         return shopRepository.findAllByUserID(userId)
-                                                .hasElements() // Возвращает true, если найден хотя бы один магазин
+                                                .hasElements()
                                                 .flatMap(hasShops -> {
                                                     if (hasShops) {
                                                         return Mono.error(new OperationNotAllowedException(
@@ -236,7 +228,7 @@ public class AdminService {
                                     }
                                     return Mono.just(currentRole);
                                 })
-                                .then(roleRepository.findByRoleName(request.roleName())) // Ищем НОВУЮ роль
+                                .then(roleRepository.findByRoleName(request.roleName()))
                                 .switchIfEmpty(Mono.error(new RuntimeException("Роль '" + request.roleName() + "' не найдена")))
                                 .map(newRole -> {
                                     user.setRoleID(newRole.getRoleID());

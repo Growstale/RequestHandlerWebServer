@@ -221,7 +221,6 @@ export default function Requests({ archived = false }) {
             setRequests(response.data.content);
             setPaginationData({ totalPages: response.data.totalPages, totalItems: response.data.totalItems });
 
-            // Обновляем текущую заявку, если она открыта (например, изменились комменты)
             setCurrentRequest(prevReq => {
                 if (prevReq) {
                     const updatedReq = response.data.content.find(r => r.requestID === prevReq.requestID);
@@ -445,10 +444,8 @@ export default function Requests({ archived = false }) {
                 )}
             </div>
 
-            {/* ПАНЕЛЬ ФИЛЬТРОВ */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2 mb-4 p-4 border rounded-lg bg-gray-50 items-end">
                  
-                 {/* Поиск */}
                  <div className="space-y-1 xl:col-span-2">
                     <Label className="text-xs text-muted-foreground ml-1">Поиск</Label>
                     <Input placeholder="Поиск..." value={searchTerm} onChange={e => updateQueryParam('searchTerm', e.target.value)} className="bg-white" />
@@ -679,7 +676,6 @@ export default function Requests({ archived = false }) {
                                                         'bg-red-100': req.isOverdue && req.status === 'In work',
                                                         'bg-blue-100': req.status === 'Done' 
                                                     })}>
-                                                        {/* Копируем ячейки, но без магазина */}
                                                         <TableCell>{req.requestID}</TableCell>
                                                         <TableCell className="font-medium">{req.description?.substring(0, 50)}...</TableCell>
                                                         <TableCell>{req.workCategoryName}</TableCell>
@@ -688,7 +684,6 @@ export default function Requests({ archived = false }) {
                                                         <TableCell>{getStatusDisplayName(req.status)}</TableCell>
                                                         <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 })}>{req.daysRemaining !== null ? req.daysRemaining : '—'}</TableCell>
                                                         <TableCell>
-                                                            {/* Копируем блок с кнопками действий */}
                                                             <div className="flex gap-1">
                                                                 <Button variant="ghost" size="icon" onClick={() => openDetails(req)} title="Просмотр деталей"><Eye className="h-4 w-4"/></Button>
                                                                 <Button variant="ghost" size="icon" onClick={() => openComments(req)}><MessageSquare className="h-4 w-4"/><span className="text-xs ml-1">{req.commentCount}</span></Button>

@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'; // Добавили стрелки
+import { X, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthProvider'; 
 
 export default function PhotosModal({ isOpen, onClose, request }) {
@@ -14,7 +14,6 @@ export default function PhotosModal({ isOpen, onClose, request }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Вместо ID храним индекс текущего фото в массиве photoIds
     const [viewerIndex, setViewerIndex] = useState(null); 
     
     const [deletingPhotoId, setDeletingPhotoId] = useState(null);
@@ -49,19 +48,14 @@ export default function PhotosModal({ isOpen, onClose, request }) {
         }
     }, [request, isOpen]);
 
-    // --- ЛОГИКА ГАЛЕРЕИ ---
-
-    // Переключение влево
     const handlePrev = useCallback(() => {
         setViewerIndex(prev => (prev === null || prev === 0 ? photoIds.length - 1 : prev - 1));
     }, [photoIds.length]);
 
-    // Переключение вправо
     const handleNext = useCallback(() => {
         setViewerIndex(prev => (prev === null || prev === photoIds.length - 1 ? 0 : prev + 1));
     }, [photoIds.length]);
 
-    // Обработка клавиатуры
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (viewerIndex === null) return;
@@ -74,7 +68,6 @@ export default function PhotosModal({ isOpen, onClose, request }) {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [viewerIndex, handlePrev, handleNext]);
 
-    // --- ЗАГРУЗКА И УДАЛЕНИЕ ---
 
     const handleFileChange = (e) => {
         const selectedFiles = Array.from(e.target.files);
@@ -106,7 +99,6 @@ export default function PhotosModal({ isOpen, onClose, request }) {
             await deletePhoto(deletingPhotoId);
             setDeletingPhotoId(null);
             
-            // Если удалили фото, которое сейчас смотрим — закрываем просмотрщик
             if (viewerIndex !== null && photoIds[viewerIndex] === deletingPhotoId) {
                 setViewerIndex(null);
             }
@@ -119,14 +111,12 @@ export default function PhotosModal({ isOpen, onClose, request }) {
 
     return (
         <>
-            {/* МОДАЛКА СПИСКА ФОТО (СЕТКА) */}
             <Dialog open={isOpen} onOpenChange={onClose}>
                 <DialogContent className="max-w-4xl w-full">
                     <DialogHeader>
                         <DialogTitle>Фото к заявке #{request?.requestID}</DialogTitle>
                     </DialogHeader>
                     
-                    {/* Сетка миниатюр */}
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-h-[60vh] overflow-y-auto p-1">
                         {loading && <p className="col-span-full text-center py-4">Загрузка...</p>}
                         
@@ -160,7 +150,6 @@ export default function PhotosModal({ isOpen, onClose, request }) {
                         ))}
                     </div>
 
-                    {/* Блок загрузки */}
                     {canUpload && (
                         <div className="mt-4 pt-4 border-t">
                             <p className="text-sm text-muted-foreground mb-2">Загрузить новые фото (макс. 10)</p>
@@ -183,11 +172,9 @@ export default function PhotosModal({ isOpen, onClose, request }) {
                 </DialogContent>
             </Dialog>
 
-            {/* МОДАЛКА ПРОСМОТРА ОДНОГО ФОТО (ГАЛЕРЕЯ) */}
             <Dialog open={viewerIndex !== null} onOpenChange={(open) => !open && setViewerIndex(null)}>
                 <DialogContent className="max-w-[95vw] h-[90vh] p-0 border-none bg-transparent shadow-none flex flex-col justify-center items-center outline-none">
                     
-                    {/* Кнопка Закрыть (кастомная, т.к. стандартная может быть мелкой или не там) */}
                     <button 
                         onClick={() => setViewerIndex(null)}
                         className="absolute top-4 right-4 z-50 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition-colors"
@@ -195,10 +182,8 @@ export default function PhotosModal({ isOpen, onClose, request }) {
                         <X size={24} />
                     </button>
 
-                    {/* Контейнер картинки */}
                     <div className="relative w-full h-full flex items-center justify-center">
                         
-                        {/* Кнопка НАЗАД */}
                         {photoIds.length > 1 && (
                             <button 
                                 onClick={handlePrev}
@@ -208,18 +193,16 @@ export default function PhotosModal({ isOpen, onClose, request }) {
                             </button>
                         )}
 
-                        {/* Картинка */}
                         {viewerIndex !== null && photoIds[viewerIndex] && (
                             <div className="w-full h-full flex items-center justify-center p-2 md:p-12">
                                 <SecureImage 
-                                    key={photoIds[viewerIndex]}  // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
+                                    key={photoIds[viewerIndex]}
                                     photoId={photoIds[viewerIndex]} 
                                     className="max-w-full max-h-full object-contain rounded-md shadow-2xl"
                                 />
                             </div>
                         )}
 
-                        {/* Кнопка ВПЕРЕД */}
                         {photoIds.length > 1 && (
                             <button 
                                 onClick={handleNext}
@@ -230,7 +213,6 @@ export default function PhotosModal({ isOpen, onClose, request }) {
                         )}
                     </div>
                     
-                    {/* Счетчик */}
                     {photoIds.length > 0 && (
                         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 text-white px-4 py-1 rounded-full text-sm">
                             {viewerIndex + 1} / {photoIds.length}
@@ -240,7 +222,6 @@ export default function PhotosModal({ isOpen, onClose, request }) {
                 </DialogContent>
             </Dialog>
 
-            {/* Подтверждение удаления */}
             <AlertDialog open={!!deletingPhotoId} onOpenChange={() => setDeletingPhotoId(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>

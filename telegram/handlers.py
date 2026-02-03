@@ -13,7 +13,6 @@ from bot_logging import logger
 
 
 class CustomContext(CallbackContext[ExtBot, Dict, Dict, Dict]):
-    """Кастомный класс контекста для строгой типизации."""
 
     @classmethod
     def from_update(cls, update: object, application: object) -> "CustomContext":
@@ -416,7 +415,6 @@ async def view_menu_callback(update: Update, context: Context) -> int:
 
 
 async def show_request_details_in_message(query, context: Context, request_id: int) -> int:
-    """Отображает детали заявки, редактируя сообщение со списком."""
     user_id = query.from_user.id
     user_info = context.user_data.get('user_info') or await api_client.get_user_by_telegram_id(user_id)
     if not user_info:
@@ -626,22 +624,17 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
     await safe_answer_query(query)
     data = query.data
 
-    # --- 1. Обработка переходов к удалению (Спец. паттерны) ---
     if data.startswith('start_del_cmt_'):
         return await start_delete_comment_handler(update, context)
 
     if data.startswith('start_del_img_'):
         return await start_delete_photo_handler(update, context)
 
-    # --- 2. Стандартная обработка действий (act_...) ---
     parts = data.split('_')
-    # Пример: act_comments_123 -> action='comments', value='123'
-    # Пример: act_add_photo_123 -> action='add_photo', value='123'
 
     if len(parts) < 2:
         return None
 
-    # Собираем action из всех частей между префиксом (0) и ID (последний)
     action = "_".join(parts[1:-1]) if len(parts) > 2 else parts[1]
     value = parts[-1]
 
@@ -666,15 +659,12 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
 
         class FakeUpdate:
             class FakeMessage:
-                text = f"/{value}"  # value здесь это ID заявки
+                text = f"/{value}"
 
             message = FakeMessage()
             effective_user = query.from_user
             effective_chat = query.message.chat
 
-            # Передаем правильный update для view_request_details
-
-        # Нам нужно, чтобы view_request_details смог прочитать ID из текста
         return await view_request_details(FakeUpdate(query), context)
 
     elif action == 'back_to_request':
@@ -718,29 +708,20 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
 
 
 async def show_comments(query, context: Context, request_id: int):
-    """Показывает список комментариев с возможностью перехода к удалению."""
-    # 1. Гарантируем загрузку информации о пользователе
     user_info = context.user_data.get('user_info')
     if not user_info:
         user_info = await api_client.get_user_by_telegram_id(query.from_user.id)
         context.user_data['user_info'] = user_info
 
-    # 2. Проверяем права
     is_admin = user_info and user_info.get('roleName') == 'RetailAdmin'
 
     comments = await api_client.get_comments(request_id)
 
-    # Если комментариев нет
     if not comments:
-        # ИЗМЕНЕНИЕ: Вместо простого alert, проверяем контекст.
-        # Если мы пришли сюда после успешного удаления (или просто открыли пустой список),
-        # лучше показать сообщение "Нет комментариев" с кнопкой "Назад",
-        # чтобы интерфейс обновился и не завис.
 
         text = "💬 *Комментарии к заявке*\n\n_Комментариев пока нет\\._"
         keyboard = [[InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_to_request_{request_id}")]]
 
-        # Пытаемся обновить сообщение. Если текст не изменился (было "Комментариев нет"), игнорируем ошибку.
         try:
             await query.edit_message_text(
                 text,
@@ -748,11 +729,10 @@ async def show_comments(query, context: Context, request_id: int):
                 parse_mode=ParseMode.MARKDOWN_V2
             )
         except BadRequest:
-            pass  # Сообщение уже такое же
+            pass
 
         return
 
-    # Если комментарии есть — формируем список
     text = f"💬 *Комментарии к заявке \\#{request_id}*\n\n"
     for comment in comments:
         created_at = datetime.datetime.fromisoformat(comment['createdAt']).strftime('%d.%m %H:%M')
@@ -762,7 +742,6 @@ async def show_comments(query, context: Context, request_id: int):
 
     keyboard = []
 
-    # Кнопка удаления (только для Админа)
     if is_admin:
         keyboard.append([InlineKeyboardButton("🗑 Удалить комментарий", callback_data=f"start_del_cmt_{request_id}")])
 
@@ -772,7 +751,6 @@ async def show_comments(query, context: Context, request_id: int):
 
 
 async def start_delete_comment_handler(update: Update, context: Context) -> int:
-    """Показывает кнопки для выбора комментария на удаление."""
     query = update.callback_query
     await safe_answer_query(query)
 
@@ -785,7 +763,6 @@ async def start_delete_comment_handler(update: Update, context: Context) -> int:
 
     keyboard = []
     for c in comments:
-        # Делаем превью текста для кнопки (первые 20 символов)
         snippet = c['commentText'][:20] + "..." if len(c['commentText']) > 20 else c['commentText']
         btn_text = f"{c['userLogin']}: {snippet}"
         keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"conf_del_cmt_{c['commentID']}_{request_id}")])
@@ -800,44 +777,36 @@ async def start_delete_comment_handler(update: Update, context: Context) -> int:
 
 
 async def confirm_delete_comment_handler(update: Update, context: Context) -> int:
-    """Выполняет удаление комментария."""
     query = update.callback_query
-    # data format: conf_del_cmt_{commentID}_{requestID}
     _, _, _, comment_id, request_id = query.data.split('_')
 
     await api_client.delete_comment(int(comment_id))
     await query.answer("Комментарий удален")
 
-    # Возвращаемся к списку комментариев
     await show_comments(query, context, int(request_id))
     return VIEW_DETAILS
 
 
 async def show_photos(query, context: Context, request_id: int):
-    """Показывает фото и кнопку перехода к удалению."""
-    # 1. Гарантируем загрузку информации о пользователе
     user_info = context.user_data.get('user_info')
     if not user_info:
         user_info = await api_client.get_user_by_telegram_id(query.from_user.id)
         context.user_data['user_info'] = user_info
 
-    # 2. Проверяем права
     is_admin = user_info and user_info.get('roleName') == 'RetailAdmin'
 
     photo_ids = await api_client.get_photo_ids(request_id)
 
     if not photo_ids:
         await safe_answer_query(query, text="Фотографий нет.", show_alert=True)
-        # Если мы удалили последнее фото, возвращаемся в детали
         if query.data.startswith("fin_del_img"):
             await show_request_details_in_message(query, context, request_id)
         return
 
-    # 1. Отправляем MediaGroup (просмотр)
     status_message = await query.message.reply_text(f"Загружаю {len(photo_ids)} фото...")
 
     media_group = []
-    display_ids = photo_ids[-10:]  # Показываем последние 10
+    display_ids = photo_ids[-10:]
 
     for pid in display_ids:
         photo_bytes = await api_client.get_photo(pid)
@@ -852,10 +821,8 @@ async def show_photos(query, context: Context, request_id: int):
     except:
         pass
 
-    # 2. Обновляем меню (добавляем кнопку удаления)
     keyboard = []
 
-    # Кнопка удаления (только для Админа)
     if is_admin:
         keyboard.append([InlineKeyboardButton("🗑 Удалить фото", callback_data=f"start_del_img_{request_id}")])
 
@@ -869,7 +836,6 @@ async def show_photos(query, context: Context, request_id: int):
 
 
 async def start_delete_photo_handler(update: Update, context: Context) -> int:
-    """Показывает список фото (кнопки) для выбора."""
     query = update.callback_query
     request_id = int(query.data.split('_')[-1])
 
@@ -898,12 +864,9 @@ async def start_delete_photo_handler(update: Update, context: Context) -> int:
 
 
 async def preview_delete_photo_handler(update: Update, context: Context) -> int:
-    """Показывает одно фото с кнопкой подтверждения удаления."""
     query = update.callback_query
-    # data: preview_del_img_{pid}_{request_id}
     _, _, _, photo_id, request_id = query.data.split('_')
 
-    # Удаляем меню выбора (чтобы не засорять)
     await query.delete_message()
 
     photo_bytes = await api_client.get_photo(int(photo_id))
@@ -923,39 +886,29 @@ async def preview_delete_photo_handler(update: Update, context: Context) -> int:
 
 
 async def finalize_delete_photo_handler(update: Update, context: Context) -> int:
-    """Удаляет фото и возвращает в меню фото."""
     query = update.callback_query
-    # data: fin_del_img_{pid}_{request_id}
     _, _, _, photo_id, request_id = query.data.split('_')
 
-    # 1. Удаляем фото через API
     await api_client.delete_photo(int(photo_id))
     await query.answer("Фото удалено")
 
-    # 2. Удаляем сообщение с превью фото (которое мы показывали для подтверждения)
     try:
         await query.delete_message()
     except:
         pass
 
-    # 3. Отправляем временное сообщение "Обновляю..."
-    # Нам нужно новое сообщение, в котором мы отрисуем список фото
     msg = await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="🔄 Обновляю список фото..."
     )
 
-    # 4. Создаем "Фейковый" Query объект.
-    # show_photos ожидает объект, у которого есть .message, .from_user и метод .edit_message_text.
-    # Так как query.message менять нельзя, мы создаем свой класс.
     class FakeQuery:
         def __init__(self, original_user, message_obj, bot):
             self.from_user = original_user
-            self.message = message_obj  # Сюда кладем наше новое сообщение
+            self.message = message_obj
             self.data = "fake_data"
             self._bot = bot
 
-        # Имитируем метод редактирования сообщения
         async def edit_message_text(self, text, reply_markup=None, parse_mode=None):
             await self._bot.edit_message_text(
                 chat_id=self.message.chat_id,
@@ -965,15 +918,12 @@ async def finalize_delete_photo_handler(update: Update, context: Context) -> int
                 parse_mode=parse_mode
             )
 
-        # Заглушка для answer (так как уведомление уже показали)
         async def answer(self, *args, **kwargs):
             pass
 
-            # Создаем экземпляр фейкового запроса
 
     fake_query = FakeQuery(query.from_user, msg, context.bot)
 
-    # 5. Вызываем show_photos с нашим фейковым объектом
     await show_photos(fake_query, context, int(request_id))
 
     return VIEW_DETAILS
@@ -984,13 +934,11 @@ async def add_comment_handler(update: Update, context: Context) -> int:
     request_id = context.user_data.get('current_request_id')
     user_id = update.effective_user.id
 
-    # 1. Удаляем сообщение пользователя с текстом комментария
     try:
         await update.message.delete()
     except Exception:
         pass
 
-    # 2. Удаляем сообщение бота "Введите текст..."
     comment_input_msg_id = context.user_data.get('comment_input_message_id')
     if comment_input_msg_id:
         try:
@@ -999,26 +947,21 @@ async def add_comment_handler(update: Update, context: Context) -> int:
             logger.warning(f"Не удалось удалить сообщение ввода комментария: {e}")
         context.user_data.pop('comment_input_message_id', None)
 
-    # 3. Отправляем комментарий на сервер
     response = await api_client.add_comment(request_id, user_id, comment_text)
 
     if not response:
         await context.bot.send_message(update.effective_chat.id, "❌ Не удалось добавить комментарий.")
-        # Если ошибка, всё равно пытаемся восстановить меню
         await restore_request_menu(context, update.effective_chat.id, user_id, request_id)
         return VIEW_DETAILS
 
     _invalidate_requests_cache(context)
 
-    # 4. ВМЕСТО РЕДАКТИРОВАНИЯ (которое вызывало ошибку) ИСПОЛЬЗУЕМ restore_request_menu
-    # Эта функция отправит НОВОЕ сообщение с актуальным статусом заявки.
     await restore_request_menu(context, update.effective_chat.id, user_id, request_id)
 
     return VIEW_DETAILS
 
 
 async def add_photo_handler(update: Update, context: Context) -> int:
-    """Обрабатывает загрузку фото (сжатого или файла) для заявки с группировкой."""
     request_id = context.user_data.get('current_request_id')
     user_id = update.effective_user.id
 
@@ -1026,7 +969,6 @@ async def add_photo_handler(update: Update, context: Context) -> int:
         await update.message.reply_text("❌ Ошибка: не найдена заявка.")
         return VIEW_MAIN_MENU
 
-    # 1. Получение фото
     photo_bytes = None
     if update.message.photo:
         photo = update.message.photo[-1]
@@ -1040,13 +982,11 @@ async def add_photo_handler(update: Update, context: Context) -> int:
         await update.message.reply_text("❌ Не удалось получить фото. Пожалуйста, отправьте изображение.")
         return VIEW_ADD_PHOTO
 
-    # Удаляем сообщение пользователя с фото (для чистоты чата)
     try:
         await update.message.delete()
     except Exception:
         pass
 
-    # 2. Удаление приглашения (только один раз)
     photo_prompt_id = context.user_data.get('photo_prompt_message_id')
     if photo_prompt_id:
         try:
@@ -1055,31 +995,25 @@ async def add_photo_handler(update: Update, context: Context) -> int:
             pass
         context.user_data.pop('photo_prompt_message_id', None)
 
-    # 3. Логика группировки (MediaGroup)
     media_group_id = update.message.media_group_id
 
     if not media_group_id:
-        # Одиночное фото - обрабатываем сразу как список из одного элемента
         return await finalize_photo_upload(context, update.effective_chat.id, user_id, request_id, [photo_bytes])
 
-    # Работа с группой
     if 'upload_buffer' not in context.user_data:
         context.user_data['upload_buffer'] = {}
 
     if media_group_id not in context.user_data['upload_buffer']:
         context.user_data['upload_buffer'][media_group_id] = []
-        # Запускаем таймер на 2 секунды
         asyncio.create_task(process_media_group(context, media_group_id, update.effective_chat.id, user_id, request_id))
 
     context.user_data['upload_buffer'][media_group_id].append(photo_bytes)
 
-    # Остаемся в том же состоянии, чтобы поймать следующие фото
     return VIEW_ADD_PHOTO
 
 
 async def process_media_group(context, media_group_id, chat_id, user_id, request_id):
-    """Фоновая задача для обработки группы фото."""
-    await asyncio.sleep(2)  # Ждем, пока дойдут все фото
+    await asyncio.sleep(2)
 
     buffer = context.user_data.get('upload_buffer', {}).pop(media_group_id, [])
     if not buffer:
@@ -1089,9 +1023,6 @@ async def process_media_group(context, media_group_id, chat_id, user_id, request
 
 
 async def finalize_photo_upload(context, chat_id, user_id, request_id, photos):
-    """Отправка фото на сервер и восстановление меню."""
-
-    # 1. Проверка лимита (запрашиваем данные с сервера)
     req_details = await api_client.get_request_details(user_id, request_id)
 
     if req_details:
@@ -1103,36 +1034,28 @@ async def finalize_photo_upload(context, chat_id, user_id, request_id, photos):
                 chat_id=chat_id,
                 text=f"❌ Ошибка: Лимит 10 фото. Уже загружено: {current_count}. Пытались добавить: {incoming_count}."
             )
-            # Удаляем сообщение об ошибке через 5 сек
             asyncio.create_task(delayed_delete(context, chat_id, error_msg.message_id, 5))
 
-            # Восстанавливаем меню
             await restore_request_menu(context, chat_id, user_id, request_id)
             return VIEW_DETAILS
 
-    # 2. Загрузка фото
     success = await api_client.upload_photos(request_id, user_id, photos)
 
     if success:
         _invalidate_requests_cache(context)
-        # Успешное сообщение убрано, так как сервер пришлет уведомление.
-        # Просто обновляем меню.
     else:
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Не удалось загрузить фото для заявки #{request_id}.")
 
-    # 3. Восстановление меню (ОБЯЗАТЕЛЬНО)
     await restore_request_menu(context, chat_id, user_id, request_id)
     return VIEW_DETAILS
 
 
 async def restore_request_menu(context, chat_id, user_id, request_id):
-    """Восстанавливает сообщение с деталями заявки. С обработкой ошибок."""
     try:
         user_info = context.user_data.get('user_info') or await api_client.get_user_by_telegram_id(user_id)
         req_details = await api_client.get_request_details(user_id, request_id)
 
         if not user_info or not req_details:
-            # Если данные не пришли, сообщаем пользователю, чтобы он не гадал
             await context.bot.send_message(chat_id=chat_id, text="⚠️ Не удалось обновить меню заявки. Попробуйте ввести /start или открыть список заявок заново.")
             return
 
@@ -1160,7 +1083,6 @@ async def restore_request_menu(context, chat_id, user_id, request_id):
 
         keyboard.append([InlineKeyboardButton("◀️ Назад к списку", callback_data="act_back_list")])
 
-        # Отправляем НОВОЕ сообщение с меню
         sent_menu = await context.bot.send_message(
             chat_id=chat_id,
             text=message_text,
@@ -1441,45 +1363,38 @@ async def start_command(update: Update, context: CallbackContext):
 
 
 (
-    EDITOR_MAIN_MENU,       # Главное меню редактора (показывает текущие поля)
-    EDITOR_SELECT_SHOP,     # Выбор магазина
-    EDITOR_SELECT_CONTRACTOR, # Выбор подрядчика
-    EDITOR_SELECT_WORK,     # Выбор вида работ
-    EDITOR_SELECT_URGENCY,  # Выбор срочности
-    EDITOR_INPUT_TEXT,      # Ввод описания или кастомных дней
-    EDITOR_SELECT_STATUS,    # Выбор статуса (только для редактирования)
-    DELETE_COMMENT_SELECT, # Выбор комментария для удаления
-    DELETE_PHOTO_SELECT    # Выбор фото для удаления
-) = range(20, 29) # <-- Увеличьте range до 29
+    EDITOR_MAIN_MENU,
+    EDITOR_SELECT_SHOP,
+    EDITOR_SELECT_CONTRACTOR,
+    EDITOR_SELECT_WORK,
+    EDITOR_SELECT_URGENCY,
+    EDITOR_INPUT_TEXT,
+    EDITOR_SELECT_STATUS,
+    DELETE_COMMENT_SELECT,
+    DELETE_PHOTO_SELECT
+) = range(20, 29)
 
 
-# handlers.py - Добавить новые функции
 
 def _get_editor_keyboard(draft: dict, is_new: bool, role: str) -> InlineKeyboardMarkup:
-    """Генерирует клавиатуру для редактора заявки."""
     buttons = []
 
-    # Иконки состояния полей
     shop_ico = "✅" if draft.get('shopID') else "❌"
     contr_ico = "✅" if draft.get('assignedContractorID') else "❌"
     work_ico = "✅" if draft.get('workCategoryID') else "❌"
     urg_ico = "✅" if draft.get('urgencyID') else "❌"
     desc_ico = "✅" if draft.get('description') else "❌"
 
-    # 1. Основные поля
     buttons.append([InlineKeyboardButton(f"{shop_ico} Магазин", callback_data="edit_field_shop")])
     buttons.append([InlineKeyboardButton(f"{contr_ico} Исполнитель", callback_data="edit_field_contractor")])
     buttons.append([InlineKeyboardButton(f"{work_ico} Вид работ", callback_data="edit_field_work")])
     buttons.append([InlineKeyboardButton(f"{urg_ico} Срочность", callback_data="edit_field_urgency")])
     buttons.append([InlineKeyboardButton(f"{desc_ico} Описание", callback_data="edit_field_desc")])
 
-    # 2. Статус (только при редактировании существующей)
     if not is_new:
         status_label = draft.get('status', 'In work')
         buttons.append([InlineKeyboardButton(f"Статус: {status_label}", callback_data="edit_field_status")])
 
-    # 3. Кнопка сохранения
-    # Разрешаем сохранять только если все обязательные поля заполнены
     is_ready = all([
         draft.get('shopID'),
         draft.get('assignedContractorID'),
@@ -1498,15 +1413,12 @@ def _get_editor_keyboard(draft: dict, is_new: bool, role: str) -> InlineKeyboard
 
 
 async def render_editor_menu(update: Update, context: Context):
-    """Отрисовывает меню редактора (черновика)."""
     draft = context.user_data.get('editor_draft', {})
     is_new = context.user_data.get('editor_is_new', True)
     user_info = context.user_data.get('user_info', {})
 
-    # Формируем текст предпросмотра
     text = f"🛠 <b>{'СОЗДАНИЕ' if is_new else 'РЕДАКТИРОВАНИЕ'} ЗАЯВКИ</b>\n\n"
 
-    # Получаем названия из ID (если они есть в кэше, иначе просто ID)
     shop_name = draft.get('shopName', '--- Не выбрано ---')
     contr_name = draft.get('contractorName', '--- Не выбрано ---')
     work_name = draft.get('workCategoryName', '--- Не выбрано ---')
@@ -1529,29 +1441,22 @@ async def render_editor_menu(update: Update, context: Context):
     keyboard = _get_editor_keyboard(draft, is_new, user_info.get('roleName'))
 
     if update.callback_query:
-        # Пытаемся отредактировать сообщение (если нажали кнопку)
         try:
             await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
         except BadRequest:
             pass
     else:
-        # === ИСПРАВЛЕНИЕ ЗДЕСЬ ===
-        # Используем context.bot.send_message вместо update.message.reply_text
-        # Это позволяет отправить меню, даже если сообщение пользователя было удалено
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=text,
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
-        # =========================
 
     return EDITOR_MAIN_MENU
 
-# --- Точки входа ---
 
 async def start_create_request(update: Update, context: Context) -> int:
-    """Начинает процесс создания новой заявки."""
     user_id = update.effective_user.id
     user_data = await api_client.get_user_by_telegram_id(user_id)
 
@@ -1566,28 +1471,17 @@ async def start_create_request(update: Update, context: Context) -> int:
         'status': 'In work'
     }
 
-    # Предзагрузка словарей для быстрого отображения имен
     await _preload_dictionaries(context)
 
     return await render_editor_menu(update, context)
 
 
-# handlers.py
 
 async def start_edit_request(update: Update, context: Context) -> int:
-    """
-    Начинает процесс редактирования:
-    1. Получает ID заявки.
-    2. Загружает детали с бэкенда.
-    3. Заполняет editor_draft.
-    4. Открывает редактор.
-    """
     query = update.callback_query
 
-    # Парсим ID из callback_data (ожидается формат "act_edit_123")
     try:
         parts = query.data.split('_')
-        # parts = ['act', 'edit', '123']
         request_id = int(parts[-1])
     except (IndexError, ValueError):
         await query.answer("Ошибка ID заявки", show_alert=True)
@@ -1595,10 +1489,8 @@ async def start_edit_request(update: Update, context: Context) -> int:
 
     user_id = update.effective_user.id
 
-    # Показываем "часики", пока грузим данные
     await query.answer("Загружаю данные заявки...")
 
-    # 1. Загружаем полные детали заявки
     req = await api_client.get_request_details(user_id, request_id)
     if not req:
         await query.edit_message_text("❌ Не удалось загрузить данные заявки. Возможно, она была удалена.")
@@ -1610,17 +1502,14 @@ async def start_edit_request(update: Update, context: Context) -> int:
 
     context.user_data['user_info'] = user_data
 
-    # 2. Устанавливаем флаг, что это редактирование, а не создание
     context.user_data['editor_is_new'] = False
 
-    # 3. Заполняем черновик данными с сервера
-    # Важно: поля должны совпадать с теми, что ожидает _submit_editor_data
     context.user_data['editor_draft'] = {
         'requestID': req['requestID'],
         'description': req['description'],
 
         'shopID': req['shopID'],
-        'shopName': req['shopName'],  # Для отображения в меню
+        'shopName': req['shopName'],
 
         'workCategoryID': req['workCategoryID'],
         'workCategoryName': req['workCategoryName'],
@@ -1635,21 +1524,15 @@ async def start_edit_request(update: Update, context: Context) -> int:
         'daysForTask': req['daysForTask']
     }
 
-    # Если срочность "Customizable", нужно сохранить customDays,
-    # чтобы при сохранении они не потерялись
     if req['urgencyName'] == 'Customizable':
         context.user_data['editor_draft']['customDays'] = req['daysForTask']
 
-    # 4. Предзагружаем справочники (чтобы работали кнопки выбора)
     await _preload_dictionaries(context)
 
-    # 5. Рендерим меню редактора
     return await render_editor_menu(update, context)
 
 
 async def _preload_dictionaries(context: Context):
-    """Загружает списки один раз, чтобы отображать имена в меню."""
-    # В реальном приложении лучше кэшировать это глобально или использовать Redis
     shops = await api_client.get_all_shops()
     contractors = await api_client.get_all_contractors()
     works = await api_client.get_all_work_categories()
@@ -1661,10 +1544,7 @@ async def _preload_dictionaries(context: Context):
     context.user_data['dict_urgencies'] = urgencies if urgencies else []
 
 
-# handlers.py - продолжение
-
 async def editor_main_callback(update: Update, context: Context) -> int:
-    """Обработчик нажатий в главном меню редактора."""
     query = update.callback_query
     await safe_answer_query(query)
     data = query.data
@@ -1676,11 +1556,9 @@ async def editor_main_callback(update: Update, context: Context) -> int:
     elif data == "editor_save":
         return await _submit_editor_data(update, context)
 
-    # Переходы к выбору полей
     elif data == "edit_field_shop":
         items = context.user_data.get('dict_shops', [])
         keyboard = create_paginated_keyboard(items, 0, 'eshop', 'shopName', 'shopID')
-        # ИСПРАВЛЕНИЕ: Преобразуем кортеж в список перед добавлением
         new_rows = list(keyboard.inline_keyboard)
         new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="eshop_back")])
         await query.edit_message_text("Выберите магазин:", reply_markup=InlineKeyboardMarkup(new_rows))
@@ -1689,7 +1567,6 @@ async def editor_main_callback(update: Update, context: Context) -> int:
     elif data == "edit_field_contractor":
         items = context.user_data.get('dict_contractors', [])
         keyboard = create_paginated_keyboard(items, 0, 'econtr', 'login', 'userID')
-        # ИСПРАВЛЕНИЕ
         new_rows = list(keyboard.inline_keyboard)
         new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="econtr_back")])
         await query.edit_message_text("Выберите подрядчика:", reply_markup=InlineKeyboardMarkup(new_rows))
@@ -1698,7 +1575,6 @@ async def editor_main_callback(update: Update, context: Context) -> int:
     elif data == "edit_field_work":
         items = context.user_data.get('dict_works', [])
         keyboard = create_paginated_keyboard(items, 0, 'ework', 'workCategoryName', 'workCategoryID')
-        # ИСПРАВЛЕНИЕ
         new_rows = list(keyboard.inline_keyboard)
         new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="ework_back")])
         await query.edit_message_text("Выберите вид работ:", reply_markup=InlineKeyboardMarkup(new_rows))
@@ -1707,7 +1583,6 @@ async def editor_main_callback(update: Update, context: Context) -> int:
     elif data == "edit_field_urgency":
         items = context.user_data.get('dict_urgencies', [])
         keyboard = create_paginated_keyboard(items, 0, 'eurg', 'urgencyName', 'urgencyID')
-        # ИСПРАВЛЕНИЕ
         new_rows = list(keyboard.inline_keyboard)
         new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="eurg_back")])
         await query.edit_message_text("Выберите срочность:", reply_markup=InlineKeyboardMarkup(new_rows))
@@ -1716,7 +1591,6 @@ async def editor_main_callback(update: Update, context: Context) -> int:
     elif data == "edit_field_desc":
         current_desc = context.user_data['editor_draft'].get('description', '')
 
-        # Сохраняем ID сообщения, которое стало "промптом"
         context.user_data['editor_prompt_message_id'] = query.message.message_id
 
         await query.edit_message_text(
@@ -1739,11 +1613,9 @@ async def editor_main_callback(update: Update, context: Context) -> int:
     return EDITOR_MAIN_MENU
 
 
-# --- Helper для выбора из списка ---
 async def _handle_selection(update: Update, context: Context,
                             prefix: str, list_key: str, id_key: str, name_key: str,
                             draft_id_key: str, draft_name_key: str, next_state: int):
-    """Универсальный обработчик выбора из пагинированного списка."""
     query = update.callback_query
     await safe_answer_query(query)
     data = query.data
@@ -1751,12 +1623,11 @@ async def _handle_selection(update: Update, context: Context,
     if data == f"{prefix}_back":
         return await render_editor_menu(update, context)
 
-    action, value = data.split('_', 2)[1:]  # eshop_page_1 или eshop_select_5
+    action, value = data.split('_', 2)[1:]
 
     if action == 'page':
         items = context.user_data.get(list_key, [])
         keyboard = create_paginated_keyboard(items, int(value), prefix, name_key, id_key)
-        # ИСПРАВЛЕНИЕ: Преобразуем кортеж в список перед добавлением кнопки Назад
         new_rows = list(keyboard.inline_keyboard)
         new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data=f"{prefix}_back")])
 
@@ -1769,12 +1640,10 @@ async def _handle_selection(update: Update, context: Context,
         item = next((i for i in items if i[id_key] == selected_id), None)
 
         if item:
-            # Сохраняем в черновик
             context.user_data['editor_draft'][draft_id_key] = selected_id
             context.user_data['editor_draft'][draft_name_key] = item[name_key]
 
             if list_key == 'dict_urgencies' and item['urgencyName'] == 'Customizable':
-                # Сохраняем ID сообщения
                 context.user_data['editor_prompt_message_id'] = query.message.message_id
 
                 await query.edit_message_text("Введите количество дней (число от 1 до 365):")
@@ -1786,7 +1655,6 @@ async def _handle_selection(update: Update, context: Context,
     return next_state
 
 
-# --- Конкретные обработчики выбора ---
 
 async def editor_select_shop(update: Update, context: Context) -> int:
     return await _handle_selection(update, context, 'eshop', 'dict_shops', 'shopID', 'shopName',
@@ -1821,18 +1689,15 @@ async def editor_select_status(update: Update, context: Context) -> int:
     return await render_editor_menu(update, context)
 
 
-# handlers.py
 
 async def editor_input_text(update: Update, context: Context) -> int:
     text = update.message.text
 
-    # 1. Удаляем сообщение пользователя (как и было)
     try:
         await update.message.delete()
     except:
         pass
 
-    # 2. Удаляем сообщение бота с просьбой ввести текст (НОВОЕ)
     prompt_msg_id = context.user_data.pop('editor_prompt_message_id', None)
     if prompt_msg_id:
         try:
@@ -1847,22 +1712,18 @@ async def editor_input_text(update: Update, context: Context) -> int:
             return await render_editor_menu(update, context)
         else:
             msg = await update.message.reply_text("❌ Введите число от 1 до 365.")
-            # Можно сохранить ID ошибки, чтобы удалить его при следующем вводе, но это уже опционально
             return EDITOR_INPUT_TEXT
     else:
-        # Это ввод описания
         context.user_data['editor_draft']['description'] = text
         return await render_editor_menu(update, context)
 
 async def _submit_editor_data(update: Update, context: Context) -> int:
-    """Отправка данных на сервер."""
     query = update.callback_query
     draft = context.user_data['editor_draft']
     is_new = context.user_data['editor_is_new']
 
     await query.edit_message_text("⏳ Сохранение данных...", reply_markup=None)
 
-    # Подготовка payload
     payload = {
         "description": draft['description'],
         "shopID": draft['shopID'],
@@ -1885,38 +1746,31 @@ async def _submit_editor_data(update: Update, context: Context) -> int:
         success_msg = f"✅ Заявка #{request_id} обновлена!" if response else "❌ Ошибка обновления."
 
     if response:
-        # Сброс кэша заявок
         context.user_data.pop('requests_cache', None)
         context.user_data.pop('requests_cache_key', None)
 
-        # 1. Показываем результат БЕЗ кнопок
         await query.edit_message_text(
             success_msg,
             reply_markup=None
         )
 
-        # 2. Создаем задачу на удаление сообщения через 10 секунд
         async def delayed_delete():
             try:
                 await asyncio.sleep(10)
                 await query.delete_message()
             except Exception as e:
-                # Сообщение могло быть уже удалено пользователем или чат очищен
                 logger.warning(f"Не удалось удалить сообщение об успехе: {e}")
 
         asyncio.create_task(delayed_delete())
 
     else:
-        # Возвращаем в редактор при ошибке
         await query.answer("Произошла ошибка при сохранении", show_alert=True)
         return await render_editor_menu(update, context)
 
     return ConversationHandler.END
 
-# handlers.py
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Создает постоянную клавиатуру под строкой ввода."""
     keyboard = [
         [KeyboardButton("📋 Мои заявки"), KeyboardButton("➕ Новая заявка")],
         [KeyboardButton("🆔 ID Чата"), KeyboardButton("🔄 Обновить")]

@@ -32,7 +32,6 @@ export const deleteNotification = (notificationId) => {
   return api.delete(`/api/admin/notifications/${notificationId}`)
 }
 
-// Утилиты для работы с cron выражениями
 export const cronPresets = {
   daily: { label: 'Ежедневно', value: '0 9 * * *' },
   weekly: { label: 'Еженедельно (понедельник)', value: '0 9 * * 1' },
@@ -55,15 +54,12 @@ export const generateCronExpression = (type, hour = 9, minute = 0, dayOfWeek = 1
 export const parseCronExpression = (cronExpression) => {
   if (!cronExpression) return null;
 
-  // Используем trim и split по регулярке (любое количество пробелов), 
-  // чтобы избежать ошибок из-за двойных пробелов
   const parts = cronExpression.trim().split(/\s+/)
   
   if (parts.length !== 5) return null
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts
 
-  // Определяем тип расписания
   if (dayOfMonth === '*' && dayOfWeek === '*') {
     return { type: 'daily', hour: parseInt(hour), minute: parseInt(minute) }
   } else if (dayOfMonth === '*' && dayOfWeek !== '*') {

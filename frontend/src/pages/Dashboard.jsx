@@ -14,12 +14,11 @@ import { cn } from '@/lib/utils';
 import { getUrgencyDisplayName } from '@/lib/displayNames';
 import * as XLSX from 'xlsx';
 
-// Цвета для графиков
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 const STATUS_COLORS = {
-    'In work': '#3b82f6', // blue
-    'Done': '#22c55e',    // green
-    'Closed': '#64748b'   // slate
+    'In work': '#3b82f6',
+    'Done': '#22c55e',
+    'Closed': '#64748b'
 };
 
 export default function Dashboard() {
@@ -47,7 +46,6 @@ export default function Dashboard() {
 
         const workbook = XLSX.utils.book_new();
 
-        // 1. Лист "Сводка"
         const summaryData = [
             ["Показатель", "Значение"],
             ["Всего заявок", stats.totalRequests],
@@ -58,7 +56,6 @@ export default function Dashboard() {
         const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
         XLSX.utils.book_append_sheet(workbook, summarySheet, "Сводка");
 
-        // 2. Лист "Топ подрядчиков"
         const contractorsData = [
             ["Имя подрядчика", "Выполнено заявок"],
             ...stats.topContractors.map(c => [c.name, c.completedCount])
@@ -66,7 +63,6 @@ export default function Dashboard() {
         const contractorsSheet = XLSX.utils.aoa_to_sheet(contractorsData);
         XLSX.utils.book_append_sheet(workbook, contractorsSheet, "Топ подрядчиков");
 
-        // 3. Лист "По статусам"
         const statusDataSheet = [
             ["Статус", "Количество"],
             ...stats.requestsByStatus.map(s => [s.name, s.value])
@@ -74,7 +70,6 @@ export default function Dashboard() {
         const statusSheet = XLSX.utils.aoa_to_sheet(statusDataSheet);
         XLSX.utils.book_append_sheet(workbook, statusSheet, "Статусы");
 
-        // 4. Лист "По срочности"
         const urgencyDataSheet = [
             ["Срочность", "Количество"],
             ...stats.requestsByUrgency.map(u => [getUrgencyDisplayName(u.name), u.value])
@@ -82,7 +77,6 @@ export default function Dashboard() {
         const urgencySheet = XLSX.utils.aoa_to_sheet(urgencyDataSheet);
         XLSX.utils.book_append_sheet(workbook, urgencySheet, "Срочность");
 
-        // Сохранение файла
         const dateStr = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
         XLSX.writeFile(workbook, `Otchet_Dashboard_${dateStr}.xlsx`);
     };
@@ -99,7 +93,6 @@ export default function Dashboard() {
         return <div className="p-8 text-red-600 text-center">{error}</div>;
     }
 
-    // Подготовка данных для PieChart (по статусам)
     const statusData = stats.requestsByStatus.map(item => ({
         name: item.name,
         value: item.value,
@@ -161,10 +154,8 @@ export default function Dashboard() {
                 />
             </div>
 
-            {/* --- 2. MAIN CHARTS --- */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 
-                {/* График тренда (Линейный) */}
                 <Card className="col-span-4">
                     <CardHeader>
                         <CardTitle>Динамика заявок</CardTitle>
@@ -193,7 +184,6 @@ export default function Dashboard() {
                     </CardContent>
                 </Card>
 
-                {/* Круговая диаграмма по Срочности */}
                 <Card className="col-span-3">
                     <CardHeader>
                         <CardTitle>Распределение по срочности</CardTitle>
@@ -232,10 +222,8 @@ export default function Dashboard() {
                 </Card>
             </div>
 
-            {/* --- 3. BOTTOM CHARTS --- */}
             <div className="grid gap-4 md:grid-cols-2">
                 
-                {/* Топ категорий работ (Бар) */}
                 <Card>
                     <CardHeader>
                         <CardTitle>Топ категорий работ</CardTitle>
@@ -256,7 +244,6 @@ export default function Dashboard() {
                     </CardContent>
                 </Card>
 
-                {/* Топ подрядчиков (Таблица/Список) */}
                 <Card>
                     <CardHeader>
                         <CardTitle>Лидеры по выполнению</CardTitle>

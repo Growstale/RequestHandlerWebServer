@@ -19,9 +19,9 @@ public interface ReactiveShopContractorChatRepository extends ReactiveCrudReposi
         AND (
             (r.AssignedContractorID IS NOT NULL AND scc.ContractorID = r.AssignedContractorID)
             OR
-            (scc.ContractorID IS NULL) -- Fallback на общий чат магазина
+            (scc.ContractorID IS NULL)
         )
-        ORDER BY scc.ContractorID DESC -- Приоритет чату с конкретным исполнителем (null в SQL при сортировке обычно идет последним или первым, но DESC для ID > 0 поставит конкретного исполнителя выше NULL)
+        ORDER BY scc.ContractorID DESC
     """)
     Mono<Long> findTelegramIdByRequestId(Integer requestId);
 }

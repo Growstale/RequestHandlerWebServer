@@ -15,11 +15,8 @@ async def _make_request(method: str, endpoint: str, **kwargs):
             response = await client.request(method, api_url, headers=headers, **kwargs)
             response.raise_for_status()
 
-            # --- ИСПРАВЛЕНИЕ ---
-            # Если статус 204 (No Content), возвращаем True, так как JSON пустой
             if response.status_code == 204:
                 return True
-            # -------------------
 
             return response.json()
         except httpx.HTTPStatusError as e:
@@ -113,11 +110,8 @@ def get_photo_url(photo_id: int) -> str:
 
 
 async def upload_photos(request_id: int, telegram_id: int, photo_files: list):
-    """Загружает фото для заявки через API бота."""
-    # ИЗМЕНЕНИЕ: Используем endpoint /api/bot/..., а не /api/requests/...
     api_url = f"{BACKEND_URL}/api/bot/requests/{request_id}/photos"
     headers = {"X-API-KEY": API_KEY}
-    # ИЗМЕНЕНИЕ: Передаем telegram_id как query параметр
     params = {"telegram_id": telegram_id}
 
     files = []
@@ -127,7 +121,6 @@ async def upload_photos(request_id: int, telegram_id: int, photo_files: list):
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            # ИЗМЕНЕНИЕ: добавили params=params
             response = await client.post(api_url, headers=headers, files=files, params=params)
             response.raise_for_status()
             return True
@@ -143,7 +136,6 @@ async def upload_photos(request_id: int, telegram_id: int, photo_files: list):
 
 
 async def get_photo(photo_id: int):
-    """Загружает байты изображения по его ID."""
     api_url = f"{BACKEND_URL}/api/requests/photos/{photo_id}"
     headers = {"X-API-KEY": API_KEY}
 
