@@ -68,17 +68,25 @@ export default function PhotosModal({ isOpen, onClose, request }) {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [viewerIndex, handlePrev, handleNext]);
 
-
     const handleFileChange = (e) => {
         const selectedFiles = Array.from(e.target.files);
+        const MAX_SIZE = 5 * 1024 * 1024;
+
         if (photoIds.length + selectedFiles.length > 10) {
             setError('Можно загрузить не более 10 фотографий в сумме.');
             e.target.value = null;
-            setFiles([]);
-        } else {
-            setError('');
-            setFiles(selectedFiles);
+            return;
         }
+
+        const oversizedFile = selectedFiles.find(f => f.size > MAX_SIZE);
+        if (oversizedFile) {
+            setError(`Файл ${oversizedFile.name} слишком большой (макс. 5МБ).`);
+            e.target.value = null;
+            return;
+        }
+
+        setError('');
+        setFiles(selectedFiles);
     };
 
     const handleUpload = async () => {

@@ -30,6 +30,9 @@ import java.util.stream.Collectors;
 @Service
 public class RequestService {
 
+    private static final long MAX_SINGLE_FILE_SIZE = 5 * 1024 * 1024;
+    private static final List<String> ALLOWED_MIMES = List.of("image/jpeg", "image/png");
+
     private final R2dbcEntityTemplate template;
     private final DatabaseClient databaseClient;
     private final ReactiveRequestRepository requestRepository;
@@ -571,26 +574,6 @@ public class RequestService {
     }
 
     public Mono<Void> addPhotosToRequest(Integer requestId, Flux<FilePart> filePartFlux, Integer userId) {
-        Flux<byte[]> imagesDataFlux = filePartFlux.flatMap(filePart ->
-                filePart.content()
-                        .collectList()
-                        .mapNotNull(dataBuffers -> {
-                            if (dataBuffers.isEmpty()) return null;
-                            DataBuffer joinedBuffer = dataBuffers.get(0).factory().join(dataBuffers);
-                            dataBuffers.forEach(buffer -> {
-                                if (buffer != joinedBuffer) DataBufferUtils.release(buffer);
-                            });
-                            return joinedBuffer;
-                        })
-                        .filter(Objects::nonNull)
-                        .map(dataBuffer -> {
-                            byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                            dataBuffer.read(bytes);
-                            DataBufferUtils.release(dataBuffer);
-                            return bytes;
-                        })
-        );
-
         return requestRepository.findById(requestId)
                 .switchIfEmpty(Mono.error(new RuntimeException("Заявка с ID " + requestId + " не найдена")))
                 .zipWith(userRepository.findById(userId))
@@ -599,36 +582,65 @@ public class RequestService {
                     User user = tuple.getT2();
 
                     return canUserModify(request, user).flatMap(canModify -> {
-                        if (!canModify) return Mono.error(new OperationNotAllowedException("Нет прав"));
+                        if (!canModify) return Mono.error(new OperationNotAllowedException("Нет прав для редактирования этой заявки"));
                         if ("Closed".equalsIgnoreCase(request.getStatus()))
-                            return Mono.error(new OperationNotAllowedException("Заявка закрыта"));
+                            return Mono.error(new OperationNotAllowedException("Нельзя добавить фото в закрытую заявку"));
 
-                        return imagesDataFlux.flatMap(imageData -> {
-                            RequestPhoto photo = new RequestPhoto();
-                            photo.setRequestID(requestId);
-                            photo.setImageData(imageData);
+                        return filePartFlux.flatMap(filePart -> {
 
-                            return photoRepository.save(photo)
-                                    .flatMap(savedPhoto -> {
-                                        return chatRepository.findTelegramIdByRequestId(requestId)
-                                                .flatMap(chatId -> {
-                                                    String author = notificationService.escapeMarkdown(user.getLogin());
-                                                    String caption = String.format(
-                                                            "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
-                                                            requestId, author
-                                                    );
-                                                    return notificationService.sendPhoto(chatId, caption, imageData);
-                                                })
-                                                .switchIfEmpty(Mono.empty())
-                                                .onErrorResume(e -> {
-                                                    System.err.println("Ошибка отправки фото в Telegram: " + e.getMessage());
-                                                    return Mono.empty();
+                            // ЭТАП 1: Быстрая проверка MIME-типа из заголовков (без чтения контента)
+                            String contentType = filePart.headers().getContentType() != null
+                                    ? filePart.headers().getContentType().toString()
+                                    : "";
+
+                            if (!ALLOWED_MIMES.contains(contentType)) {
+                                return Mono.error(new OperationNotAllowedException(
+                                        "Файл " + filePart.filename() + " имеет недопустимый тип данных (разрешены только JPG/PNG)"));
+                            }
+
+                            return DataBufferUtils.join(filePart.content())
+                                    .flatMap(dataBuffer -> {
+                                        int byteCount = dataBuffer.readableByteCount();
+
+                                        if (byteCount > MAX_SINGLE_FILE_SIZE) {
+                                            DataBufferUtils.release(dataBuffer);
+                                            return Mono.error(new OperationNotAllowedException(
+                                                    "Файл " + filePart.filename() + " слишком большой (максимум 5 МБ)"));
+                                        }
+
+                                        byte[] bytes = new byte[byteCount];
+                                        dataBuffer.read(bytes);
+                                        DataBufferUtils.release(dataBuffer);
+
+                                        if (!isValidImageSignature(bytes)) {
+                                            return Mono.error(new OperationNotAllowedException(
+                                                    "Файл " + filePart.filename() + " поврежден или не является настоящим изображением"));
+                                        }
+
+                                        RequestPhoto photo = new RequestPhoto();
+                                        photo.setRequestID(requestId);
+                                        photo.setImageData(bytes);
+
+                                        return photoRepository.save(photo)
+                                                .flatMap(savedPhoto -> {
+                                                    return chatRepository.findTelegramIdByRequestId(requestId)
+                                                            .flatMap(chatId -> {
+                                                                String author = notificationService.escapeMarkdown(user.getLogin());
+                                                                String caption = String.format(
+                                                                        "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
+                                                                        requestId, author
+                                                                );
+                                                                return notificationService.sendPhoto(chatId, caption, bytes);
+                                                            })
+                                                            .onErrorResume(e -> {
+                                                                System.err.println("Ошибка отправки фото в Telegram: " + e.getMessage());
+                                                                return Mono.empty();
+                                                            });
                                                 });
                                     });
                         }).then();
                     });
-                })
-                .then();
+                });
     }
 
     public Mono<RequestResponse> completeRequest(Integer requestId, Integer contractorId) {
@@ -812,4 +824,13 @@ public class RequestService {
                 .thenReturn(response);
     }
 
+    private boolean isValidImageSignature(byte[] data) {
+        if (data.length < 4) return false;
+
+        boolean isJpeg = data[0] == (byte) 0xFF && data[1] == (byte) 0xD8 && data[2] == (byte) 0xFF;
+        boolean isPng = data[0] == (byte) 0x89 && data[1] == (byte) 0x50 &&
+                data[2] == (byte) 0x4E && data[3] == (byte) 0x47;
+
+        return isJpeg || isPng;
+    }
 }
