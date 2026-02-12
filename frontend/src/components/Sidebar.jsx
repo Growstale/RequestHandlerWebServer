@@ -6,7 +6,7 @@ import { Button } from './ui/button'
 import { 
     LayoutDashboard, Users as UsersIcon, Building as ShopsIcon, 
     ClipboardList, CalendarClock, Briefcase, Archive, 
-    MessageSquare, Mail, Bell, Wrench 
+    MessageSquare, Mail, Bell, Wrench, FileText, Shield
 } from 'lucide-react';
 import { getRoleDisplayName } from '@/lib/displayNames';
 
@@ -21,6 +21,8 @@ const allLinks = [
   { href: '/notifications', label: 'Уведомления', icon: Bell, roles: ['RetailAdmin'] },
   { href: '/work-categories', label: 'Виды работ', icon: ClipboardList, roles: ['RetailAdmin'] },
   { href: '/urgency-categories', label: 'Сроки заявок', icon: CalendarClock, roles: ['RetailAdmin'] },
+  { href: '/logs', label: 'Логи', icon: FileText, roles: ['RetailAdmin'] },
+  { href: '/audit', label: 'Аудит', icon: Shield, roles: ['RetailAdmin'] },
   { href: '/testing', label: 'Тестирование', icon: Wrench, roles: ['RetailAdmin'] },
 ];
 

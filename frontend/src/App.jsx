@@ -18,6 +18,8 @@ import ShopContractorChats from './pages/ShopContractorChats';
 import Messaging from './pages/Messaging';
 import Notifications from './pages/Notifications';
 import Testing from './pages/Testing';
+import Logs from './pages/Logs';
+import Audit from './pages/Audit';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -56,6 +58,8 @@ export default function App() {
           <Route path="/requests" element={ <ProtectedRoute><Requests /></ProtectedRoute> } />
           <Route path="/requests/archive" element={ <ProtectedRoute><ArchivedRequests /></ProtectedRoute> } />
           <Route path="/testing" element={<ProtectedRoute allowedRoles={['RetailAdmin']}><Testing /></ProtectedRoute>} />
+          <Route path="/logs" element={<ProtectedRoute allowedRoles={['RetailAdmin']}><Logs /></ProtectedRoute>} />
+          <Route path="/audit" element={<ProtectedRoute allowedRoles={['RetailAdmin']}><Audit /></ProtectedRoute>} />
         </Routes>        
       </div>
     </>

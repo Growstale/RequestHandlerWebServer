@@ -209,8 +209,13 @@ CREATE TABLE dbo.AuditLog (
                               Action NVARCHAR(10),
                               RecordID INT,
                               UserID INT NULL,
+                              UserLogin NVARCHAR(100) NULL,
                               LogDate DATETIME2 DEFAULT GETDATE(),
                               Changes NVARCHAR(MAX) NULL,
+                              IPAddress NVARCHAR(50) NULL,
+                              UserAgent NVARCHAR(500) NULL,
+                              Endpoint NVARCHAR(500) NULL,
+                              RequestMethod NVARCHAR(10) NULL,
                               CONSTRAINT PK_AuditLog PRIMARY KEY (LogID)
 )
 END;
@@ -266,4 +271,52 @@ END;
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='UQ_Users_TelegramID_Filtered' AND object_id = OBJECT_ID('dbo.Users'))
 BEGIN
 CREATE UNIQUE INDEX UQ_Users_TelegramID_Filtered ON dbo.Users(TelegramID) WHERE TelegramID IS NOT NULL
+END;
+
+-- 17. ApplicationLog
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ApplicationLog' AND xtype='U')
+BEGIN
+CREATE TABLE dbo.ApplicationLog (
+                                    LogID BIGINT IDENTITY(1,1) NOT NULL,
+                                    LogLevel NVARCHAR(10) NOT NULL,
+                                    LoggerName NVARCHAR(255) NOT NULL,
+                                    Message NVARCHAR(MAX) NOT NULL,
+                                    ExceptionMessage NVARCHAR(MAX) NULL,
+                                    StackTrace NVARCHAR(MAX) NULL,
+                                    UserID INT NULL,
+                                    UserLogin NVARCHAR(100) NULL,
+                                    IPAddress NVARCHAR(50) NULL,
+                                    UserAgent NVARCHAR(500) NULL,
+                                    Endpoint NVARCHAR(500) NULL,
+                                    RequestMethod NVARCHAR(10) NULL,
+                                    RequestID NVARCHAR(100) NULL,
+                                    LogDate DATETIME2 NOT NULL DEFAULT GETDATE(),
+                                    CONSTRAINT PK_ApplicationLog PRIMARY KEY (LogID)
+)
+END;
+
+-- Индексы для логов
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_ApplicationLog_LogDate' AND object_id = OBJECT_ID('dbo.ApplicationLog'))
+BEGIN
+CREATE INDEX IX_ApplicationLog_LogDate ON dbo.ApplicationLog(LogDate)
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_ApplicationLog_LogLevel' AND object_id = OBJECT_ID('dbo.ApplicationLog'))
+BEGIN
+CREATE INDEX IX_ApplicationLog_LogLevel ON dbo.ApplicationLog(LogLevel)
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_ApplicationLog_UserID' AND object_id = OBJECT_ID('dbo.ApplicationLog'))
+BEGIN
+CREATE INDEX IX_ApplicationLog_UserID ON dbo.ApplicationLog(UserID)
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_AuditLog_LogDate' AND object_id = OBJECT_ID('dbo.AuditLog'))
+BEGIN
+CREATE INDEX IX_AuditLog_LogDate ON dbo.AuditLog(LogDate)
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_AuditLog_UserID' AND object_id = OBJECT_ID('dbo.AuditLog'))
+BEGIN
+CREATE INDEX IX_AuditLog_UserID ON dbo.AuditLog(UserID)
 END;
