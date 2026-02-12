@@ -92,9 +92,17 @@ def format_request_list_item(req: dict) -> str:
     overdue_icon = "❗️" if req['isOverdue'] else ""
 
     shop_name = escape_markdown(req['shopName'])
-    description = escape_markdown(req['description'][:50])
 
-    return f"{status_icon} /_{req['requestID']}_: {shop_name} {overdue_icon}\n_{description}\\.\\.\\._"
+    raw_description = req.get('description', '')
+    limit = 50
+    if len(raw_description) > limit:
+        description_text = raw_description[:limit] + "..."
+    else:
+        description_text = raw_description
+
+    description = escape_markdown(description_text)
+
+    return f"{status_icon} *ID {req['requestID']}*: {shop_name} {overdue_icon}\n_{description}_"
 
 
 def format_request_details(req: dict) -> str:

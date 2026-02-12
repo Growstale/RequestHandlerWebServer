@@ -39,7 +39,7 @@ public class AuditLog {
     private String changes;
 
     @Column("IPAddress")
-    private String ipAddress;
+    private String IPAddress;
 
     @Column("UserAgent")
     private String userAgent;

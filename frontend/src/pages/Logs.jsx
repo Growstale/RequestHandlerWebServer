@@ -19,7 +19,7 @@ export default function Logs() {
     const [totalElements, setTotalElements] = useState(0);
     
     // Filters
-    const [logLevel, setLogLevel] = useState('');
+    const [logLevel, setLogLevel] = useState('ALL');
     const [loggerName, setLoggerName] = useState('');
     const [userID, setUserID] = useState('');
     const [startDate, setStartDate] = useState('');
@@ -38,7 +38,7 @@ export default function Logs() {
             const params = {
                 page,
                 size,
-                ...(logLevel && { logLevel }),
+                ...(logLevel && logLevel !== 'ALL' && { logLevel }),
                 ...(loggerName && { loggerName }),
                 ...(userID && { userID: parseInt(userID) }),
                 ...(startDate && { startDate }),
@@ -101,7 +101,7 @@ export default function Logs() {
     };
 
     const clearFilters = () => {
-        setLogLevel('');
+        setLogLevel('ALL');
         setLoggerName('');
         setUserID('');
         setStartDate('');
@@ -155,7 +155,7 @@ export default function Logs() {
                                 <SelectValue placeholder="Уровень лога" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="">Все уровни</SelectItem>
+                                <SelectItem value="ALL">Все уровни</SelectItem>
                                 <SelectItem value="ERROR">ERROR</SelectItem>
                                 <SelectItem value="WARN">WARN</SelectItem>
                                 <SelectItem value="INFO">INFO</SelectItem>

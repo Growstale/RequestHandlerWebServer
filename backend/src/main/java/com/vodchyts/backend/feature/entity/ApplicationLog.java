@@ -39,7 +39,7 @@ public class ApplicationLog {
     private String userLogin;
 
     @Column("IPAddress")
-    private String ipAddress;
+    private String IPAddress;
 
     @Column("UserAgent")
     private String userAgent;
