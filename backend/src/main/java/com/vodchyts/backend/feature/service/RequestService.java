@@ -514,9 +514,33 @@ public class RequestService {
                                 comment.getRequestID(),
                                 user.getLogin(),
                                 comment.getCommentText(),
-                                comment.getCreatedAt()
+                                comment.getCreatedAt(),
+                                comment.getParentCommentID(),
+                                new ArrayList<>()
                         ))
-                );
+                )
+                .collectList()
+                .flatMapMany(allComments -> {
+                    Map<Integer, CommentResponse> rootComments = new LinkedHashMap<>();
+                    List<CommentResponse> replies = new ArrayList<>();
+
+                    for (var c : allComments) {
+                        if (c.parentCommentID() == null) {
+                            rootComments.put(c.commentID(), c);
+                        } else {
+                            replies.add(c);
+                        }
+                    }
+
+                    for (var r : replies) {
+                        CommentResponse parent = rootComments.get(r.parentCommentID());
+                        if (parent != null) {
+                            parent.replies().add(r);
+                        }
+                    }
+
+                    return Flux.fromIterable(rootComments.values());
+                });
     }
 
     public Mono<CommentResponse> addCommentToRequest(Integer requestId, CreateCommentRequest dto, Integer userId) {
@@ -529,10 +553,10 @@ public class RequestService {
 
                     return canUserModify(request, user).flatMap(canModify -> {
                         if (!canModify) {
-                            return Mono.error(new OperationNotAllowedException("У вас нет прав для комментирования этой заявки."));
+                            return Mono.error(new OperationNotAllowedException("У вас нет прав для комментирования."));
                         }
                         if ("Closed".equalsIgnoreCase(request.getStatus())) {
-                            return Mono.error(new OperationNotAllowedException("Нельзя комментировать закрытую заявку."));
+                            return Mono.error(new OperationNotAllowedException("Заявка закрыта."));
                         }
 
                         RequestComment newComment = new RequestComment();
@@ -540,21 +564,26 @@ public class RequestService {
                         newComment.setUserID(userId);
                         newComment.setCommentText(dto.commentText());
                         newComment.setCreatedAt(LocalDateTime.now());
+                        newComment.setParentCommentID(dto.parentCommentID());
 
                         return commentRepository.save(newComment)
                                 .flatMap(savedComment -> {
                                     String author = notificationService.escapeMarkdown(user.getLogin());
                                     String safeText = notificationService.escapeMarkdown(dto.commentText());
-
                                     String msg = String.format(
-                                            "💬 *Новый комментарий к заявке \\#%d*\n" +
-                                                    "👤 *От:* %s\n\n" +
-                                                    "%s",
+                                            "💬 *Новый комментарий к заявке \\#%d*\n👤 *От:* %s\n\n%s",
                                             requestId, author, safeText
                                     );
 
                                     return chatRepository.findTelegramIdByRequestId(requestId)
-                                            .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
+                                            .flatMap(chatId -> {
+                                                // Если это корень — отвечаем на него. Если это уже ответ — отвечаем на его родителя.
+                                                Integer replyToId = (dto.parentCommentID() == null)
+                                                        ? savedComment.getCommentID()
+                                                        : dto.parentCommentID();
+
+                                                return notificationService.sendCommentNotification(chatId, msg, requestId, replyToId);
+                                            })
                                             .thenReturn(savedComment);
                                 });
                     });
@@ -564,7 +593,9 @@ public class RequestService {
                         savedComment.getRequestID(),
                         user.getLogin(),
                         savedComment.getCommentText(),
-                        savedComment.getCreatedAt()
+                        savedComment.getCreatedAt(),
+                        savedComment.getParentCommentID(),
+                        new ArrayList<>()
                 )));
     }
 

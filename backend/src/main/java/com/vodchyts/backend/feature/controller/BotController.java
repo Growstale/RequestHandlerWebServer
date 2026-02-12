@@ -21,8 +21,9 @@ import java.util.List;
 @RequestMapping("/api/bot")
 public class BotController {
 
+    // Обновленная структура запроса от бота (теперь включает parentCommentID)
     record BotActionRequest(Long telegram_id) {}
-    record BotCommentRequest(Long telegram_id, String commentText) {}
+    record BotCommentRequest(Long telegram_id, String commentText, Integer parentCommentID) {}
 
     private final UserService userService;
     private final AdminService adminService;
@@ -105,7 +106,8 @@ public class BotController {
         return userService.findByTelegramId(botRequest.telegram_id())
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с таким Telegram ID не найден.")))
                 .flatMap(user -> {
-                    CreateCommentRequest commentDto = new CreateCommentRequest(botRequest.commentText());
+                    // ИСПРАВЛЕНО: Теперь передаем два аргумента в конструктор CreateCommentRequest
+                    CreateCommentRequest commentDto = new CreateCommentRequest(botRequest.commentText(), botRequest.parentCommentID());
                     return requestService.addCommentToRequest(requestId, commentDto, user.getUserID());
                 });
     }

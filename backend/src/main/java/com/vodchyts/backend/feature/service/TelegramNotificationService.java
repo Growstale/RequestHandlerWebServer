@@ -42,6 +42,24 @@ public class TelegramNotificationService {
                 });
     }
 
+    public Mono<Void> sendCommentNotification(Long chatId, String text, Integer requestId, Integer commentId) {
+        if (chatId == null) return Mono.empty();
+
+        record CommentNotifyPayload(Long chatId, String text, Integer requestId, Integer commentId) {}
+
+        return webClient.post()
+                .uri("/notify-comment")
+                .bodyValue(new CommentNotifyPayload(chatId, text, requestId, commentId))
+                .retrieve()
+                .bodyToMono(String.class)
+                .doOnSuccess(s -> log.info("Comment notification sent to chat {}", chatId))
+                .onErrorResume(e -> {
+                    log.error("Failed to send comment notification to chat {}: {}", chatId, e.getMessage());
+                    return Mono.empty();
+                })
+                .then();
+    }
+
     public Mono<Void> sendPhoto(Long chatId, String caption, byte[] imageData) {
         if (chatId == null || imageData == null || imageData.length == 0) return Mono.empty();
 

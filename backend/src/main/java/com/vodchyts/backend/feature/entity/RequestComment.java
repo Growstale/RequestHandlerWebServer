@@ -22,5 +22,6 @@ public class RequestComment {
     private String commentText;
     @Column("CreatedAt")
     private LocalDateTime createdAt;
-
+    @Column("ParentCommentID")
+    private Integer parentCommentID ;
 }

@@ -84,9 +84,10 @@ public class RequestController {
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<CommentResponse> addComment(@PathVariable Integer requestId, @Valid @RequestBody Mono<CreateCommentRequest> commentDto, @AuthenticationPrincipal String username) {
         return userService.findByLogin(username)
-                .flatMap(user -> commentDto.flatMap(dto -> requestService.addCommentToRequest(requestId, dto, user.getUserID())));
+                .flatMap(user -> commentDto.flatMap(dto -> {
+                    return requestService.addCommentToRequest(requestId, dto, user.getUserID());
+                }));
     }
-
     @GetMapping("/{requestId}/photos")
     public Flux<ResponseEntity<byte[]>> getPhotos(@PathVariable Integer requestId) {
         return requestService.getPhotosForRequest(requestId)

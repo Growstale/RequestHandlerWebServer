@@ -139,9 +139,11 @@ CREATE TABLE dbo.RequestComments (
                                      UserID INT NOT NULL,
                                      CommentText NVARCHAR(1000) NOT NULL,
                                      CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+                                     ParentCommentID INT NULL,
                                      CONSTRAINT PK_RequestComments PRIMARY KEY (CommentID),
                                      CONSTRAINT FK_RequestComments_Requests FOREIGN KEY (RequestID) REFERENCES dbo.Requests(RequestID) ON DELETE CASCADE,
-                                     CONSTRAINT FK_RequestComments_Users FOREIGN KEY (UserID) REFERENCES dbo.Users(UserID) ON DELETE NO ACTION
+                                     CONSTRAINT FK_RequestComments_Users FOREIGN KEY (UserID) REFERENCES dbo.Users(UserID) ON DELETE NO ACTION,
+                                     CONSTRAINT FK_RequestComments_Parent FOREIGN KEY (ParentCommentID) REFERENCES RequestComments(CommentID)
 )
 END;
 

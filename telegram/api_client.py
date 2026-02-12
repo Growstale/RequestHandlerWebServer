@@ -96,8 +96,12 @@ async def get_comments(request_id: int):
     return await _make_request("GET", f"/api/bot/requests/{request_id}/comments")
 
 
-async def add_comment(request_id: int, telegram_id: int, text: str):
-    data = {'telegram_id': telegram_id, 'commentText': text}
+async def add_comment(request_id: int, telegram_id: int, text: str, parent_id: int = None):
+    data = {
+        'telegram_id': telegram_id,
+        'commentText': text,
+        'parentCommentID': parent_id
+    }
     return await _make_request("POST", f"/api/bot/requests/{request_id}/comments", json=data)
 
 
