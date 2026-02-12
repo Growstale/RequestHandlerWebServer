@@ -1,6 +1,6 @@
 import logging
 import asyncio
-import io  # <--- ВАЖНО: Добавили этот импорт
+import io
 from aiohttp import web
 from telegram.error import BadRequest, TelegramError
 from telegram.constants import ParseMode
@@ -12,13 +12,11 @@ from config import BOT_TOKEN
 from bot_logging import logger
 from handlers import (
     Context, start_command, chat_id_command, refresh_command,
-    # Создание
     new_request_start, cancel_command,
     CREATE_SELECT_SHOP, CREATE_SELECT_CONTRACTOR, CREATE_SELECT_WORK_CATEGORY,
     CREATE_SELECT_URGENCY, CREATE_ENTER_DESCRIPTION, CREATE_ENTER_CUSTOM_DAYS,
     select_shop_callback, select_contractor_callback, select_work_category_callback,
     select_urgency_callback, description_handler, custom_days_handler,
-    # Просмотр и действия
     view_requests_start, view_menu_callback, view_search_handler,
     view_sort_callback, action_callback_handler, add_comment_handler, add_photo_handler, view_request_details,
     VIEW_MAIN_MENU, VIEW_SET_SEARCH_TERM, VIEW_SET_SORTING, VIEW_DETAILS, VIEW_ADD_COMMENT, VIEW_ADD_PHOTO,
@@ -33,9 +31,7 @@ from handlers import (
 )
 
 
-# --- WEB SERVER HANDLER ---
 async def http_notify_handler(request):
-    """Принимает POST запросы с текстом от Java Backend."""
     try:
         data = await request.json()
         chat_id = data.get('chatId')
@@ -59,7 +55,6 @@ async def http_notify_handler(request):
 
 
 async def http_notify_photo_handler(request):
-    """Принимает POST запрос с картинкой и caption от Java Backend."""
     try:
         reader = await request.multipart()
 
@@ -82,10 +77,8 @@ async def http_notify_photo_handler(request):
 
         bot_app = request.app['bot_app']
 
-        # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-        # Оборачиваем байты в BytesIO, чтобы telegram-bot понял, что это файл
         photo_file = io.BytesIO(file_data)
-        photo_file.name = 'image.jpg'  # Желательно дать имя
+        photo_file.name = 'image.jpg'
 
         await bot_app.bot.send_photo(
             chat_id=chat_id,
@@ -109,16 +102,13 @@ async def http_notify_photo_handler(request):
 
 
 async def check_chat_handler(request):
-    """Проверяет существование чата по ID."""
     chat_id_str = request.match_info['chat_id']
     try:
         chat_id = int(chat_id_str)
         bot_app = request.app['bot_app']
 
-        # Пытаемся получить информацию о чате у Телеграма
         chat = await bot_app.bot.get_chat(chat_id)
 
-        # Если успех — возвращаем название чата (для информации) и 200 OK
         return web.json_response({
             "exists": True,
             "title": chat.title or chat.first_name or "Unknown"
@@ -127,7 +117,6 @@ async def check_chat_handler(request):
     except ValueError:
         return web.Response(status=400, text="Invalid Chat ID format")
     except BadRequest:
-        # Чат не найден или бот не имеет к нему доступа
         return web.json_response({"exists": False}, status=404)
     except Exception as e:
         logger.error(f"Error checking chat {chat_id_str}: {e}")
@@ -141,9 +130,16 @@ async def main():
         return
 
     context_types = ContextTypes(context=Context)
-    application = Application.builder().token(BOT_TOKEN).context_types(context_types).build()
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .context_types(context_types)
+        .read_timeout(30)
+        .write_timeout(30)
+        .connect_timeout(30)
+        .build()
+    )
 
-    # --- Регистрация хендлеров (ConversationHandler'ы) ---
     create_conv = ConversationHandler(
         entry_points=[
             CommandHandler("newrequest", start_create_request),
@@ -214,23 +210,19 @@ async def main():
     application.add_handler(MessageHandler(filters.Regex("^🔄 Обновить$"), refresh_command))
     application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
 
-    # --- ЗАПУСК СЕРВЕРА И БОТА ---
-
-    # 1. Инициализация бота
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
 
-    # 2. Настройка веб-сервера с увеличенным лимитом
-    MAX_SIZE = 100 * 1024 * 1024  # 100 MB
-    server = web.Application(client_max_size=MAX_SIZE)  # <--- ВАЖНО: Применяем лимит
+    MAX_SIZE = 100 * 1024 * 1024
+    server = web.Application(client_max_size=MAX_SIZE)
 
     server['bot_app'] = application
     server.router.add_post('/notify', http_notify_handler)
     server.router.add_post('/notify/photo', http_notify_photo_handler)
     server.router.add_get('/check/{chat_id}', check_chat_handler)
 
-    runner = web.AppRunner(server)
+    runner = web.AppRunner(server, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', 8081)
     await site.start()

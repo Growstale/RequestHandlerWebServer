@@ -34,10 +34,9 @@ public class TelegramNotificationService {
         return webClient.get()
                 .uri("/check/" + chatId)
                 .retrieve()
-                .toEntity(String.class) // Получаем ответ целиком
+                .toEntity(String.class)
                 .map(response -> response.getStatusCode().is2xxSuccessful())
                 .onErrorResume(e -> {
-                    // Если 404 или ошибка соединения — считаем, что чат невалиден
                     log.warn("Validation failed for chat {}: {}", chatId, e.getMessage());
                     return Mono.just(false);
                 });
@@ -48,7 +47,7 @@ public class TelegramNotificationService {
 
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
         builder.part("chatId", chatId);
-        builder.part("caption", caption != null ? caption : ""); // Защита от null caption
+        builder.part("caption", caption != null ? caption : "");
         builder.part("file", new ByteArrayResource(imageData))
                 .header("Content-Disposition", "form-data; name=file; filename=image.jpg");
 
@@ -59,15 +58,10 @@ public class TelegramNotificationService {
                 .retrieve()
                 .bodyToMono(String.class)
                 .doOnSuccess(s -> log.info("Photo sent to chat {}", chatId))
-                // === ИЗМЕНЕНИЕ ЗДЕСЬ ===
-                // Вместо простого логгирования в doOnError, мы перехватываем ошибку
                 .onErrorResume(e -> {
-                    // Логируем ошибку, но не прерываем поток выполнения
                     log.error("НЕ УДАЛОСЬ отправить фото в чат {}: {}", chatId, e.getMessage());
-                    // Возвращаем пустой результат, как будто всё хорошо (для вызывающего кода)
                     return Mono.empty();
                 })
-                // =======================
                 .then();
     }
 
@@ -75,7 +69,6 @@ public class TelegramNotificationService {
         if (chatId == null) return Mono.empty();
 
         record NotifyPayload(Long chatId, String text) {}
-        // Экранируем текст, если еще не экранирован (лучше делать это на уровне бизнес-логики, но на всякий случай)
         String safeText = text;
 
         return webClient.post()
@@ -84,18 +77,14 @@ public class TelegramNotificationService {
                 .retrieve()
                 .bodyToMono(String.class)
                 .doOnSuccess(s -> log.info("Message sent to chat {}", chatId))
-                // === ИЗМЕНЕНИЕ ЗДЕСЬ ===
                 .onErrorResume(e -> {
                     log.error("НЕ УДАЛОСЬ отправить текст в чат {}: {}", chatId, e.getMessage());
                     return Mono.empty();
                 })
-                // =======================
                 .then();
     }
-    // Вспомогательный метод для экранирования, можно использовать в RequestService
     public String escapeMarkdown(String text) {
         if (text == null) return "";
-        // Экранируем спецсимволы MarkdownV2
         return text.replaceAll("([_\\*\\[\\]()~`>#\\+\\-=|{}.!])", "\\\\$1");
     }
 }

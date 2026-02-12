@@ -66,7 +66,6 @@ public class BotController {
             @RequestParam(required = false) String searchTerm,
             @RequestParam(required = false) List<String> sort
     ) {
-        // Находим пользователя по telegramId, чтобы делать запрос от его имени
         return userService.findByTelegramId(telegram_id)
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с таким Telegram ID не найден.")))
                 .flatMap(user -> {
@@ -74,11 +73,10 @@ public class BotController {
                             ? sort
                             : List.of("requestID,asc");
 
-                    // ИСПРАВЛЕНИЕ: Добавлены null, null для startDate и endDate
                     return requestService.getAllRequests(
                             archived, searchTerm, null, null, null, null,
                             null, null,
-                            null, null, // <--- startDate, endDate (для бота пока null)
+                            null, null,
                             sortParams, page, size, user.getLogin()
                     );
                 });

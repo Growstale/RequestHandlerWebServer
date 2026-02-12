@@ -1,79 +1,112 @@
 version: '3.8'
 
 services:
-  # --- База данных MS SQL ---
   db:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: sql_server
-    environment:
-      - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=SuperStrong!Pass123
-      - MSSQL_PID=Express
+    env_file: .env
     ports:
       - "1433:1433"
     volumes:
       - sqlvolume:/var/opt/mssql
+      - ./backups:/backups
     networks:
       - app-network
     healthcheck:
       test: ["CMD", "bash", "-c", "</dev/tcp/localhost/1433"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 15s
+      retries: 10
+      start_period: 60s
 
-  # --- Java Backend ---
-  backend:
-    build: ./backend
-    container_name: backend_app
+  db-init:
+    image: mcr.microsoft.com/mssql-tools
+    container_name: sql_init
+    env_file: .env
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - app-network
+    entrypoint: >
+      /bin/bash -c "
+      echo 'Waiting for SQL Server...';
+      sleep 30;
+      echo 'Creating Database...';
+      /opt/mssql-tools/bin/sqlcmd -S db -U sa -P \$MSSQL_SA_PASSWORD -Q 'CREATE DATABASE RequestHandlerWebServer' || echo 'Database likely exists';
+      "
+
+  backend:
+    build: ./backend
+    container_name: backend_app
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
-      # Переопределяем настройки подключения к БД
-      - SPRING_R2DBC_URL=r2dbc:mssql://db:1433/master?encrypt=false&trustServerCertificate=true
+      - SPRING_R2DBC_URL=r2dbc:mssql://db:1433/RequestHandlerWebServer?encrypt=false&trustServerCertificate=true
       - SPRING_R2DBC_USERNAME=sa
-      - SPRING_R2DBC_PASSWORD=SuperStrong!Pass123
-      - SPRING_SQL_INIT_MODE=never
-      # Настройки JWT
-      - JWT_SECRET=mySuperSecureSecretKeyThatIsLongEnough123456789
-      # Адрес бота (имя сервиса 'bot')
+      - SPRING_SQL_INIT_MODE=always
       - BOT_URL=http://bot:8081
-      # Ключ API для бота
-      - BOT_API_KEY=QLHJgYUOa80kRCtrA0RH8+rxYya4xCAut36B8wanYUo=
-      # Разрешаем запросы от Nginx (он будет на том же хосте для браузера)
+      - BOT_API_KEY=${INTERNAL_API_KEY} 
       - FRONTEND_ALLOWED_ORIGINS=http://localhost
+      - INITIAL_ADMIN_LOGIN=admin
+      - INITIAL_ADMIN_PASSWORD=admin
     networks:
       - app-network
 
-  # --- Python Telegram Bot ---
   bot:
     build: ./telegram
     container_name: telegram_bot
+    env_file: .env
     depends_on:
       - backend
     environment:
-      - TELEGRAM_BOT_TOKEN=8364635812:AAHnXEn6HkKaXCc_yWkr1Jgw4Sv8IggqBXg
-      - BACKEND_API_KEY=QLHJgYUOa80kRCtrA0RH8+rxYya4xCAut36B8wanYUo=
-      # Бот обращается к бэкенду внутри сети Docker
       - BACKEND_URL=http://backend:8080
     networks:
       - app-network
 
-  # --- Frontend + Nginx ---
   frontend:
     build:
       context: ./frontend
       args:
-        # При сборке говорим Vite, что API находится по тому же адресу (через прокси /api)
         - VITE_API_BASE=/
     container_name: frontend_nginx
     ports:
-      - "80:80" # Открываем веб-сайт на порту 80
+      - "80:80"
     depends_on:
       - backend
     networks:
       - app-network
+
+  db-backup:
+    image: mcr.microsoft.com/mssql-tools
+    container_name: sql_backup
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+    networks:
+      - app-network
+    restart: unless-stopped
+    entrypoint: >
+      /bin/bash -c "
+      while true; do
+        echo '[backup] start at '$$(date);
+
+        /opt/mssql-tools/bin/sqlcmd -S db -U sa -P $$MSSQL_SA_PASSWORD -Q \"BACKUP DATABASE RequestHandlerWebServer TO DISK = '/backups/RequestHandlerWebServer_$$(date +%Y%m%d_%H%M%S).bak' WITH INIT\";
+
+        find /backups -type f -mtime +3 -delete;
+
+        echo '[backup] done';
+
+        sleep 86400;
+      done
+      "
 
 volumes:
   sqlvolume:

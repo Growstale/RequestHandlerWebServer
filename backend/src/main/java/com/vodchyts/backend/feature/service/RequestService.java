@@ -30,6 +30,9 @@ import java.util.stream.Collectors;
 @Service
 public class RequestService {
 
+    private static final long MAX_SINGLE_FILE_SIZE = 5 * 1024 * 1024;
+    private static final List<String> ALLOWED_MIMES = List.of("image/jpeg", "image/png");
+
     private final R2dbcEntityTemplate template;
     private final DatabaseClient databaseClient;
     private final ReactiveRequestRepository requestRepository;
@@ -368,19 +371,15 @@ public class RequestService {
     }
 
     protected Mono<Tuple2<Request, List<String>>> updateRequest(Integer requestId, UpdateRequestRequest dto) {
-        // 1. Подготовка источников данных
         Mono<Request> requestMono = requestRepository.findById(requestId);
 
-        // Получаем новую категорию срочности
         Mono<UrgencyCategory> urgencyMono = urgencyCategoryRepository.findById(dto.urgencyID())
                 .switchIfEmpty(Mono.error(new RuntimeException("Срочность не найдена")));
 
-        // Получаем старое количество дней (если было), чтобы сравнить
         Mono<Integer> oldCustomDaysMono = customDayRepository.findByRequestID(requestId)
                 .map(RequestCustomDay::getDays)
-                .defaultIfEmpty(0); // Если не было, считаем 0
+                .defaultIfEmpty(0);
 
-        // Лук-ап имен
         Mono<String> shopNameMono = shopRepository.findById(dto.shopID())
                 .map(Shop::getShopName).defaultIfEmpty("Неизвестный магазин");
         Mono<String> workNameMono = workCategoryRepository.findById(dto.workCategoryID())
@@ -389,7 +388,6 @@ public class RequestService {
                 ? userRepository.findById(dto.assignedContractorID()).map(User::getLogin).defaultIfEmpty("Не назначен")
                 : Mono.just("Не назначен");
 
-        // 2. Собираем все данные (теперь 6 источников)
         return Mono.zip(requestMono, urgencyMono, shopNameMono, workNameMono, contractorNameMono, oldCustomDaysMono)
                 .flatMap(tuple -> {
                     Request request = tuple.getT1();
@@ -401,31 +399,24 @@ public class RequestService {
 
                     List<String> changes = new ArrayList<>();
 
-                    // --- СРАВНЕНИЕ ---
-
-                    // 1. Статус
                     if (!Objects.equals(request.getStatus(), dto.status())) {
                         changes.add(String.format("📊 *Статус:* %s ➡️ %s",
                                 getStatusDisplayName(request.getStatus()),
                                 getStatusDisplayName(dto.status())));
                     }
 
-                    // 2. Исполнитель
                     if (!Objects.equals(request.getAssignedContractorID(), dto.assignedContractorID())) {
                         changes.add("👷 *Исполнитель:* " + notificationService.escapeMarkdown(newContractorName));
                     }
 
-                    // 3. Магазин
                     if (!Objects.equals(request.getShopID(), dto.shopID())) {
                         changes.add("🏪 *Магазин:* " + notificationService.escapeMarkdown(newShopName));
                     }
 
-                    // 4. Вид работ
                     if (!Objects.equals(request.getWorkCategoryID(), dto.workCategoryID())) {
                         changes.add("🛠 *Вид работ:* " + notificationService.escapeMarkdown(newWorkName));
                     }
 
-                    // 5. Срочность (Сложная логика: ID или Дни)
                     boolean isCustomizable = "Customizable".equalsIgnoreCase(newUrgency.getUrgencyName());
                     boolean urgencyIdChanged = !Objects.equals(request.getUrgencyID(), dto.urgencyID());
                     boolean daysChanged = isCustomizable && !Objects.equals(oldCustomDays, dto.customDays());
@@ -433,30 +424,24 @@ public class RequestService {
                     if (urgencyIdChanged || daysChanged) {
                         String localizedUrgency = getUrgencyDisplayName(newUrgency.getUrgencyName());
 
-                        // Если настраиваемая — добавляем дни в скобки
                         if (isCustomizable && dto.customDays() != null) {
-                            // ИСПРАВЛЕНИЕ: Добавляем \\ перед ( и )
                             localizedUrgency += " \\(" + dto.customDays() + " дн\\.\\)";
                         }
 
                         changes.add("🔥 *Срочность:* " + localizedUrgency);
                     }
 
-// 6. Описание
                     if (!Objects.equals(request.getDescription(), dto.description())) {
                         String rawDesc = dto.description() != null ? dto.description() : "";
 
-                        // Обрезаем до 100 символов, чтобы не спамить в чат
                         String shortDesc = rawDesc.length() > 100
                                 ? rawDesc.substring(0, 100) + "..."
                                 : rawDesc;
 
-                        // ОБЯЗАТЕЛЬНО экранируем для Telegram MarkdownV2
                         String safeDesc = notificationService.escapeMarkdown(shortDesc);
 
                         changes.add("📝 *Описание:* " + safeDesc);
                     }
-                    // --- СОХРАНЕНИЕ ---
 
                     request.setDescription(dto.description());
                     request.setShopID(dto.shopID());
@@ -469,39 +454,28 @@ public class RequestService {
                     }
                     request.setStatus(dto.status());
 
-// === ЛОГИКА ПЕРЕСЧЕТА ПРОСРОЧКИ И УВЕДОМЛЕНИЯ ===
-
-// 1. Запоминаем, была ли она просрочена ДО изменений
                     boolean wasOverdue = Boolean.TRUE.equals(request.getIsOverdue());
+                    Integer daysForTask = isCustomizable ? dto.customDays() : newUrgency.getDefaultDays();
 
-                    if (!"In work".equalsIgnoreCase(request.getStatus())) {
-                        request.setIsOverdue(false);
-                        // Если она была просрочена, а теперь мы её закрыли или выполнили — это хорошо, уведомлять о снятии просрочки обычно не нужно (статус и так поменялся)
-                    } else {
-                        Integer daysForTask = isCustomizable ? dto.customDays() : newUrgency.getDefaultDays();
+                    if (daysForTask != null) {
+                        LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
+                        boolean isNowOverdue = LocalDateTime.now().isAfter(deadline);
 
-                        if (daysForTask != null) {
-                            LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
-                            boolean isNowOverdue = LocalDateTime.now().isAfter(deadline);
+                        request.setIsOverdue(isNowOverdue);
 
-                            request.setIsOverdue(isNowOverdue);
-
-                            // 2. Сравниваем старое и новое состояние
+                        if ("In work".equalsIgnoreCase(request.getStatus())) {
                             if (!wasOverdue && isNowOverdue) {
-                                // Если раньше НЕ была просрочена, а теперь СТАЛА
                                 changes.add("❗️ *Внимание:* Срок выполнения истек\\!");
                             } else if (wasOverdue && !isNowOverdue) {
-                                // Если БЫЛА просрочена, а мы увеличили дни и она перестала быть такой
                                 changes.add("✅ *Срок:* Просрочка устранена \\(время добавлено\\)");
                             }
-                        } else {
-                            request.setIsOverdue(false);
                         }
+                    } else {
+                        request.setIsOverdue(false);
                     }
 
                     Mono<Request> updatedRequestMono = requestRepository.save(request);
 
-                    // Перезапись дней
                     Mono<Void> customDaysLogic = customDayRepository.deleteByRequestID(requestId)
                             .then(Mono.defer(() -> {
                                 if (isCustomizable && dto.customDays() != null) {
@@ -569,12 +543,9 @@ public class RequestService {
 
                         return commentRepository.save(newComment)
                                 .flatMap(savedComment -> {
-                                    // 1. Экранируем данные пользователя (чтобы никнейм типа "User_Name" не ломал разметку)
                                     String author = notificationService.escapeMarkdown(user.getLogin());
                                     String safeText = notificationService.escapeMarkdown(dto.commentText());
 
-                                    // 2. Формируем сообщение.
-                                    // ВАЖНО: Символ # экранируем как \\#
                                     String msg = String.format(
                                             "💬 *Новый комментарий к заявке \\#%d*\n" +
                                                     "👤 *От:* %s\n\n" +
@@ -582,7 +553,6 @@ public class RequestService {
                                             requestId, author, safeText
                                     );
 
-                                    // 3. Отправляем
                                     return chatRepository.findTelegramIdByRequestId(requestId)
                                             .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
                                             .thenReturn(savedComment);
@@ -604,26 +574,6 @@ public class RequestService {
     }
 
     public Mono<Void> addPhotosToRequest(Integer requestId, Flux<FilePart> filePartFlux, Integer userId) {
-        Flux<byte[]> imagesDataFlux = filePartFlux.flatMap(filePart ->
-                filePart.content()
-                        .collectList()
-                        .mapNotNull(dataBuffers -> {
-                            if (dataBuffers.isEmpty()) return null;
-                            DataBuffer joinedBuffer = dataBuffers.getFirst().factory().join(dataBuffers);
-                            dataBuffers.forEach(buffer -> {
-                                if (buffer != joinedBuffer) DataBufferUtils.release(buffer);
-                            });
-                            return joinedBuffer;
-                        })
-                        .filter(Objects::nonNull)
-                        .map(dataBuffer -> {
-                            byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                            dataBuffer.read(bytes);
-                            DataBufferUtils.release(dataBuffer);
-                            return bytes;
-                        })
-        );
-
         return requestRepository.findById(requestId)
                 .switchIfEmpty(Mono.error(new RuntimeException("Заявка с ID " + requestId + " не найдена")))
                 .zipWith(userRepository.findById(userId))
@@ -632,40 +582,66 @@ public class RequestService {
                     User user = tuple.getT2();
 
                     return canUserModify(request, user).flatMap(canModify -> {
-                        if (!canModify) return Mono.error(new OperationNotAllowedException("Нет прав"));
-                        if ("Closed".equalsIgnoreCase(request.getStatus())) return Mono.error(new OperationNotAllowedException("Заявка закрыта"));
+                        if (!canModify) return Mono.error(new OperationNotAllowedException("Нет прав для редактирования этой заявки"));
+                        if ("Closed".equalsIgnoreCase(request.getStatus()))
+                            return Mono.error(new OperationNotAllowedException("Нельзя добавить фото в закрытую заявку"));
 
-                        return chatRepository.findTelegramIdByRequestId(requestId)
-                                .flatMap(chatId -> {
-                                    String author = notificationService.escapeMarkdown(user.getLogin());
+                        return filePartFlux.flatMap(filePart -> {
 
-                                    String caption = String.format(
-                                            "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
-                                            requestId, author
-                                    );
+                            // ЭТАП 1: Быстрая проверка MIME-типа из заголовков (без чтения контента)
+                            String contentType = filePart.headers().getContentType() != null
+                                    ? filePart.headers().getContentType().toString()
+                                    : "";
 
-                                    return imagesDataFlux.flatMap(imageData -> {
+                            if (!ALLOWED_MIMES.contains(contentType)) {
+                                return Mono.error(new OperationNotAllowedException(
+                                        "Файл " + filePart.filename() + " имеет недопустимый тип данных (разрешены только JPG/PNG)"));
+                            }
+
+                            return DataBufferUtils.join(filePart.content())
+                                    .flatMap(dataBuffer -> {
+                                        int byteCount = dataBuffer.readableByteCount();
+
+                                        if (byteCount > MAX_SINGLE_FILE_SIZE) {
+                                            DataBufferUtils.release(dataBuffer);
+                                            return Mono.error(new OperationNotAllowedException(
+                                                    "Файл " + filePart.filename() + " слишком большой (максимум 5 МБ)"));
+                                        }
+
+                                        byte[] bytes = new byte[byteCount];
+                                        dataBuffer.read(bytes);
+                                        DataBufferUtils.release(dataBuffer);
+
+                                        if (!isValidImageSignature(bytes)) {
+                                            return Mono.error(new OperationNotAllowedException(
+                                                    "Файл " + filePart.filename() + " поврежден или не является настоящим изображением"));
+                                        }
+
                                         RequestPhoto photo = new RequestPhoto();
                                         photo.setRequestID(requestId);
-                                        photo.setImageData(imageData);
+                                        photo.setImageData(bytes);
 
-                                        // ИЗМЕНЕНИЕ ЗДЕСЬ:
                                         return photoRepository.save(photo)
-                                                .flatMap(saved -> notificationService.sendPhoto(chatId, caption, imageData)
-                                                        // Если телеграм упал - игнорируем ошибку, чтобы фронт получил ОК
-                                                        .onErrorResume(e -> {
-                                                            System.err.println("Ошибка отправки фото в Telegram: " + e.getMessage());
-                                                            return Mono.empty();
-                                                        })
-                                                        .thenReturn(saved)
-                                                );
-                                    }).then();
-                                });
+                                                .flatMap(savedPhoto -> {
+                                                    return chatRepository.findTelegramIdByRequestId(requestId)
+                                                            .flatMap(chatId -> {
+                                                                String author = notificationService.escapeMarkdown(user.getLogin());
+                                                                String caption = String.format(
+                                                                        "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
+                                                                        requestId, author
+                                                                );
+                                                                return notificationService.sendPhoto(chatId, caption, bytes);
+                                                            })
+                                                            .onErrorResume(e -> {
+                                                                System.err.println("Ошибка отправки фото в Telegram: " + e.getMessage());
+                                                                return Mono.empty();
+                                                            });
+                                                });
+                                    });
+                        }).then();
                     });
-                })
-                .then();
+                });
     }
-
 
     public Mono<RequestResponse> completeRequest(Integer requestId, Integer contractorId) {
         return requestRepository.findById(requestId)
@@ -677,8 +653,31 @@ public class RequestService {
                     if (!"In work".equalsIgnoreCase(request.getStatus())) {
                         return Mono.error(new OperationNotAllowedException("Заявку можно завершить только из статуса 'В работе'."));
                     }
+
                     request.setStatus("Done");
-                    return requestRepository.save(request);
+
+                    Mono<UrgencyCategory> urgencyMono = urgencyCategoryRepository.findById(request.getUrgencyID());
+                    Mono<RequestCustomDay> customDayMono = customDayRepository.findByRequestID(requestId)
+                            .defaultIfEmpty(new RequestCustomDay());
+
+                    return Mono.zip(urgencyMono, customDayMono).flatMap(tuple -> {
+                        UrgencyCategory urgency = tuple.getT1();
+                        RequestCustomDay customDay = tuple.getT2();
+
+                        Integer daysForTask = "Customizable".equalsIgnoreCase(urgency.getUrgencyName())
+                                ? customDay.getDays()
+                                : urgency.getDefaultDays();
+
+                        boolean isOverdue = false;
+                        if (daysForTask != null) {
+                            LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
+                            isOverdue = LocalDateTime.now().isAfter(deadline);
+                        }
+
+                        request.setIsOverdue(isOverdue);
+
+                        return requestRepository.save(request);
+                    });
                 })
                 .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()));
     }
@@ -703,9 +702,55 @@ public class RequestService {
                     if (!"Closed".equalsIgnoreCase(request.getStatus())) {
                         return Mono.error(new OperationNotAllowedException("Можно восстановить только закрытую заявку."));
                     }
+
                     request.setStatus("In work");
                     request.setClosedAt(null);
-                    return requestRepository.save(request);
+
+                    Mono<UrgencyCategory> urgencyMono = urgencyCategoryRepository.findById(request.getUrgencyID());
+                    Mono<RequestCustomDay> customDayMono = customDayRepository.findByRequestID(requestId)
+                            .defaultIfEmpty(new RequestCustomDay());
+
+                    return Mono.zip(urgencyMono, customDayMono)
+                            .flatMap(tuple -> {
+                                UrgencyCategory urgency = tuple.getT1();
+                                RequestCustomDay customDay = tuple.getT2();
+
+                                Integer daysForTask = "Customizable".equalsIgnoreCase(urgency.getUrgencyName())
+                                        ? customDay.getDays()
+                                        : urgency.getDefaultDays();
+
+                                boolean isOverdue = false;
+                                long daysOverdue = 0;
+
+                                if (daysForTask != null) {
+                                    LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
+                                    isOverdue = LocalDateTime.now().isAfter(deadline);
+                                    if (isOverdue) {
+                                        daysOverdue = Duration.between(deadline, LocalDateTime.now()).toDays();
+                                        daysOverdue = Math.max(1, daysOverdue);
+                                    }
+                                }
+
+                                request.setIsOverdue(isOverdue);
+
+                                StringBuilder msgBuilder = new StringBuilder();
+                                msgBuilder.append("🔄 *ЗАЯВКА \\#").append(requestId).append(" ВОССТАНОВЛЕНА*\n\n");
+                                msgBuilder.append("Статус: *Закрыта* ➡️ *В работе*");
+
+                                if (isOverdue) {
+                                    msgBuilder.append("\n\n⚠️ *Обратите внимание:* Заявка просрочена на *")
+                                            .append(daysOverdue)
+                                            .append(" дн\\.*");
+                                }
+
+                                String finalMessage = msgBuilder.toString();
+
+                                return requestRepository.save(request)
+                                        .flatMap(savedReq -> chatRepository.findTelegramIdByRequestId(requestId)
+                                                .flatMap(chatId -> notificationService.sendNotification(chatId, finalMessage))
+                                                .onErrorResume(e -> Mono.empty())
+                                                .thenReturn(savedReq));
+                            });
                 })
                 .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()));
     }
@@ -779,4 +824,13 @@ public class RequestService {
                 .thenReturn(response);
     }
 
+    private boolean isValidImageSignature(byte[] data) {
+        if (data.length < 4) return false;
+
+        boolean isJpeg = data[0] == (byte) 0xFF && data[1] == (byte) 0xD8 && data[2] == (byte) 0xFF;
+        boolean isPng = data[0] == (byte) 0x89 && data[1] == (byte) 0x50 &&
+                data[2] == (byte) 0x4E && data[3] == (byte) 0x47;
+
+        return isJpeg || isPng;
+    }
 }

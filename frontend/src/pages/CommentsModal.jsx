@@ -1,5 +1,3 @@
-// src/pages/CommentsModal.jsx
-
 import React, { useState, useEffect } from 'react';
 import { getComments, addComment, deleteComment } from '@/api/requestApi';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";

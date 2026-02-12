@@ -90,7 +90,6 @@ public class ShopContractorChatService {
     }
 
     public Mono<ShopContractorChat> createChat(CreateShopContractorChatRequest request) {
-        // 1. Сначала проверяем валидность ID через Бот
         Mono<Void> botCheck = notificationService.validateChatId(request.telegramID())
                 .flatMap(isValid -> {
                     if (!isValid) {
@@ -102,7 +101,6 @@ public class ShopContractorChatService {
                     return Mono.empty();
                 });
 
-        // 2. Проверяем уникальность TelegramID в нашей БД
         Mono<Void> telegramIdCheck = databaseClient.sql("SELECT COUNT(*) FROM ShopContractorChats WHERE TelegramID = :telegramId")
                 .bind("telegramId", request.telegramID())
                 .map(row -> row.get(0, Long.class))
@@ -114,7 +112,6 @@ public class ShopContractorChatService {
                     return Mono.empty();
                 });
 
-        // 3. Проверяем бизнес-логику (пары Магазин-Подрядчик)
         Mono<Void> logicCheck;
         if (request.contractorID() != null) {
             logicCheck = chatRepository.existsByShopIDAndContractorID(request.shopID(), request.contractorID())
@@ -125,7 +122,6 @@ public class ShopContractorChatService {
                         return validateUserIsContractor(request.contractorID());
                     });
         } else {
-            // Проверяем, существует ли уже чат для этого магазина без подрядчика (общий чат)
             String checkSql = "SELECT COUNT(*) FROM ShopContractorChats WHERE ShopID = :shopId AND ContractorID IS NULL";
             logicCheck = databaseClient.sql(checkSql)
                     .bind("shopId", request.shopID())
@@ -139,7 +135,6 @@ public class ShopContractorChatService {
                     });
         }
 
-        // Выполняем проверки последовательно, затем сохраняем
         return botCheck
                 .then(telegramIdCheck)
                 .then(logicCheck)
@@ -156,7 +151,6 @@ public class ShopContractorChatService {
         return chatRepository.findById(chatId)
                 .switchIfEmpty(Mono.error(new RuntimeException("Чат не найден")))
                 .flatMap(existingChat -> {
-                    // 1. Проверяем валидность ID через Бот (ТОЛЬКО ЕСЛИ ID ИЗМЕНИЛСЯ)
                     Mono<Void> botCheck = Mono.empty();
                     if (!existingChat.getTelegramID().equals(request.telegramID())) {
                         botCheck = notificationService.validateChatId(request.telegramID())
@@ -170,7 +164,6 @@ public class ShopContractorChatService {
                                 });
                     }
 
-                    // 2. Проверяем уникальность TelegramID в БД (ТОЛЬКО ЕСЛИ ID ИЗМЕНИЛСЯ)
                     Mono<Void> telegramIdCheck = Mono.empty();
                     if (!existingChat.getTelegramID().equals(request.telegramID())) {
                         telegramIdCheck = databaseClient.sql("SELECT COUNT(*) FROM ShopContractorChats WHERE TelegramID = :telegramId AND ShopContractorChatID != :currentId")
@@ -186,7 +179,6 @@ public class ShopContractorChatService {
                                 });
                     }
 
-                    // 3. Проверяем бизнес-логику (пары)
                     boolean shopContractorPairChanged = !existingChat.getShopID().equals(request.shopID()) ||
                             !Objects.equals(existingChat.getContractorID(), request.contractorID());
 
@@ -216,13 +208,11 @@ public class ShopContractorChatService {
                                     });
                         }
                     } else {
-                        // Если пара не изменилась, просто проверяем, что подрядчик всё еще валиден (если он есть)
                         if (request.contractorID() != null) {
                             logicCheck = validateUserIsContractor(request.contractorID());
                         }
                     }
 
-                    // Выполняем проверки и возвращаем сущность для обновления
                     return botCheck
                             .then(telegramIdCheck)
                             .then(logicCheck)
@@ -246,7 +236,7 @@ public class ShopContractorChatService {
 
     private Mono<Void> validateUserIsContractor(Integer userId) {
         if (userId == null) {
-            return Mono.empty(); // Разрешаем null
+            return Mono.empty();
         }
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с ID " + userId + " не найден")))

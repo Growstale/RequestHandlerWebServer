@@ -70,7 +70,7 @@ public class WorkCategoryService {
         Map<String, String> columnMapping = Map.of(
                 "workCategoryID", "wc.WorkCategoryID",
                 "workCategoryName", "wc.WorkCategoryName",
-                "requestCount", "RequestCount" // Сортируем по псевдониму
+                "requestCount", "RequestCount"
         );
 
         String orders = sortParams.stream()

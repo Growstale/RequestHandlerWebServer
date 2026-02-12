@@ -27,8 +27,8 @@ public class MessagingService {
     private final ReactiveMessageTemplateRepository templateRepository;
     private final ReactiveMessageRecipientRepository recipientRepository;
     private final TransactionalOperator transactionalOperator;
-    private final TelegramNotificationService notificationService; // inject
-    private final ReactiveShopContractorChatRepository chatRepository; // Нужно для поиска TelegramID
+    private final TelegramNotificationService notificationService;
+    private final ReactiveShopContractorChatRepository chatRepository;
 
     public MessagingService(ReactiveMessageTemplateRepository templateRepository,
                             ReactiveMessageRecipientRepository recipientRepository,
@@ -176,9 +176,11 @@ public class MessagingService {
     }
 
     public Mono<Void> sendMessage(SendMessageRequest request) {
+        String safeMessage = notificationService.escapeMarkdown(request.message());
+
         return Flux.fromIterable(request.recipientChatIds())
-                .flatMap(chatId -> chatRepository.findById(chatId)) // Находим Chat сущность по ID связи
-                .flatMap(chat -> notificationService.sendNotification(chat.getTelegramID(), request.message()))
+                .flatMap(chatId -> chatRepository.findById(chatId))
+                .flatMap(chat -> notificationService.sendNotification(chat.getTelegramID(), safeMessage))
                 .then();
     }
 
@@ -194,6 +196,8 @@ public class MessagingService {
     }
 
     public Mono<Void> sendMessageWithImage(String message, List<Integer> recipientChatIds, Mono<FilePart> imageFile) {
+        String safeCaption = notificationService.escapeMarkdown(message);
+
         return extractBytes(imageFile).flatMap(imageData -> {
 
             if (imageData.length == 0) {
@@ -203,12 +207,9 @@ public class MessagingService {
             return Flux.fromIterable(recipientChatIds)
                     .flatMap(chatId -> chatRepository.findById(chatId))
                     .flatMap(chat -> {
-                        return notificationService.sendPhoto(chat.getTelegramID(), message, imageData);
+                        return notificationService.sendPhoto(chat.getTelegramID(), safeCaption, imageData);
                     })
                     .then();
         });
     }
-
-
-
 }
