@@ -2,6 +2,7 @@ import logging
 import asyncio
 import io
 from aiohttp import web
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest, TelegramError
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -51,6 +52,49 @@ async def http_notify_handler(request):
         return web.Response(text="OK")
     except Exception as e:
         logger.error(f"Failed to process notification: {e}")
+        return web.Response(status=500, text=str(e))
+
+
+async def http_notify_comment_handler(request):
+    try:
+        data = await request.json()
+        chat_id = data.get('chatId')
+        text = data.get('text')
+        req_id = data.get('requestId')
+        comment_id = data.get('commentId')
+
+        bot_app = request.app['bot_app']
+        keyboard = [[InlineKeyboardButton("↩️ Ответить", callback_data=f"act_add_comment_{req_id}_{comment_id}")]]
+
+        await bot_app.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return web.Response(text="OK")
+    except Exception as e:
+        logger.error(f"Failed to process comment notification: {e}")
+        return web.Response(status=500, text=str(e))
+
+
+async def http_notify_comment_handler(request):
+    try:
+        data = await request.json()
+        chat_id, text = data.get('chatId'), data.get('text')
+        req_id, comment_id = data.get('requestId'), data.get('commentId')
+
+        bot_app = request.app['bot_app']
+        # Кнопка "Ответить", которая несет в себе ID заявки и ID родительского комментария
+        keyboard = [[InlineKeyboardButton("↩️ Ответить", callback_data=f"act_add_comment_{req_id}_{comment_id}")]]
+
+        await bot_app.bot.send_message(
+            chat_id=chat_id, text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return web.Response(text="OK")
+    except Exception as e:
         return web.Response(status=500, text=str(e))
 
 
@@ -221,6 +265,7 @@ async def main():
     server.router.add_post('/notify', http_notify_handler)
     server.router.add_post('/notify/photo', http_notify_photo_handler)
     server.router.add_get('/check/{chat_id}', check_chat_handler)
+    server.router.add_post('/notify-comment', http_notify_comment_handler)
 
     runner = web.AppRunner(server, access_log=None)
     await runner.setup()

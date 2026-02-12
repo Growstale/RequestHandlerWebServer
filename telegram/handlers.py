@@ -718,10 +718,14 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
         return VIEW_DETAILS
 
     elif action == 'add_comment':
-        await query.edit_message_text("Введите текст вашего комментария:")
-        context.user_data['current_request_id'] = int(value)
-        if query.message:
-            context.user_data['comment_input_message_id'] = query.message.message_id
+        parts_val = value.split('_')
+        req_id = int(parts_val[0])
+        parent_id = int(parts_val[1]) if len(parts_val) > 1 else None
+
+        context.user_data['current_request_id'] = req_id
+        context.user_data['parent_comment_id'] = parent_id
+
+        await query.edit_message_text("Введите текст вашего ответа:" if parent_id else "Введите текст комментария:")
         return VIEW_ADD_COMMENT
 
     elif action == 'add_photo':
@@ -742,43 +746,32 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
 
 
 async def show_comments(query, context: Context, request_id: int):
-    user_info = context.user_data.get('user_info')
-    if not user_info:
-        user_info = await api_client.get_user_by_telegram_id(query.from_user.id)
-        context.user_data['user_info'] = user_info
-
+    user_info = context.user_data.get('user_info') or await api_client.get_user_by_telegram_id(query.from_user.id)
     is_admin = user_info and user_info.get('roleName') == 'RetailAdmin'
-
     comments = await api_client.get_comments(request_id)
 
     if not comments:
-
-        text = "💬 *Комментарии к заявке*\n\n_Комментариев пока нет\\._"
+        text = f"💬 *Комментарии к заявке \\#{request_id}*\n\n_Комментариев пока нет\\._"
         keyboard = [[InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_to_request_{request_id}")]]
-
-        try:
-            await query.edit_message_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
-        except BadRequest:
-            pass
-
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard),
+                                      parse_mode=ParseMode.MARKDOWN_V2)
         return
 
     text = f"💬 *Комментарии к заявке \\#{request_id}*\n\n"
-    for comment in comments:
-        created_at = datetime.datetime.fromisoformat(comment['createdAt']).strftime('%d.%m %H:%M')
-        user_login = escape_markdown(comment['userLogin'])
-        comment_text = escape_markdown(comment['commentText'])
-        text += f"👤 *{user_login}* \\({escape_markdown(created_at)}\\):\n{comment_text}\n\n"
+    for c in comments:
+        author = escape_markdown(c['userLogin'])
+        msg_text = escape_markdown(c['commentText'])
+        text += f"👤 *{author}*:\n{msg_text}\n"
+
+        for r in c.get('replies', []):
+            r_author = escape_markdown(r['userLogin'])
+            r_text = escape_markdown(r['commentText'])
+            text += f"  ↳ 👤 *{r_author}*: {r_text}\n"
+        text += "\n"
 
     keyboard = []
-
     if is_admin:
         keyboard.append([InlineKeyboardButton("🗑 Удалить комментарий", callback_data=f"start_del_cmt_{request_id}")])
-
     keyboard.append([InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_to_request_{request_id}")])
 
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN_V2)
@@ -971,30 +964,20 @@ async def add_comment_handler(update: Update, context: Context) -> int:
     request_id = context.user_data.get('current_request_id')
     user_id = update.effective_user.id
 
+    parent_id = context.user_data.pop('parent_comment_id', None)
+
     try:
         await update.message.delete()
-    except Exception:
+    except:
         pass
 
-    comment_input_msg_id = context.user_data.get('comment_input_message_id')
-    if comment_input_msg_id:
-        try:
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=comment_input_msg_id)
-        except Exception as e:
-            logger.warning(f"Не удалось удалить сообщение ввода комментария: {e}")
-        context.user_data.pop('comment_input_message_id', None)
-
-    response = await api_client.add_comment(request_id, user_id, comment_text)
+    response = await api_client.add_comment(request_id, user_id, comment_text, parent_id)
 
     if not response:
-        await context.bot.send_message(update.effective_chat.id, "❌ Не удалось добавить комментарий.")
-        await restore_request_menu(context, update.effective_chat.id, user_id, request_id)
-        return VIEW_DETAILS
+        await context.bot.send_message(update.effective_chat.id, "❌ Ошибка при отправке.")
 
     _invalidate_requests_cache(context)
-
     await restore_request_menu(context, update.effective_chat.id, user_id, request_id)
-
     return VIEW_DETAILS
 
 
