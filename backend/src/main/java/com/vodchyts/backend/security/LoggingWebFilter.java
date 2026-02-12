@@ -37,37 +37,35 @@ public class LoggingWebFilter implements WebFilter {
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
         String requestID = UUID.randomUUID().toString();
-        
-        // Добавляем requestID в атрибуты для использования в других местах
         exchange.getAttributes().put("requestID", requestID);
 
         String method = request.getMethod().name();
         String path = request.getURI().getPath();
         String ipAddress = getClientIP(request);
         String userAgent = request.getHeaders().getFirst("User-Agent");
-        
-        // Пропускаем статические ресурсы и health checks
+
         if (path.startsWith("/actuator") || path.startsWith("/favicon.ico")) {
             return chain.filter(exchange);
         }
 
-        // Получаем информацию о пользователе из токена
         String authHeader = request.getHeaders().getFirst("Authorization");
-        Mono<Integer> userIDMono = Mono.just((Integer) null);
-        Mono<String> userLoginMono = Mono.just((String) null);
-        
+
+        // Используем Optional, чтобы Mono никогда не был пустым и zip не прерывался
+        Mono<java.util.Optional<String>> userLoginMono = Mono.just(java.util.Optional.empty());
+        Mono<java.util.Optional<Integer>> userIDMono = Mono.just(java.util.Optional.empty());
+
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7);
             try {
                 if (jwtUtils.validateToken(token)) {
                     String login = jwtUtils.getUsernameFromToken(token);
-                    userLoginMono = Mono.just(login);
+                    userLoginMono = Mono.just(java.util.Optional.of(login));
                     userIDMono = userService.findByLogin(login)
-                            .map(user -> user.getUserID())
-                            .onErrorReturn(null);
+                            .map(user -> java.util.Optional.of(user.getUserID()))
+                            .onErrorReturn(java.util.Optional.empty());
                 }
             } catch (Exception e) {
-                // Игнорируем ошибки валидации токена
+                // Игнорируем ошибки парсинга токена
             }
         }
 
@@ -75,75 +73,35 @@ public class LoggingWebFilter implements WebFilter {
 
         return Mono.zip(userIDMono, userLoginMono)
                 .flatMap(tuple -> {
-                    Integer userID = tuple.getT1();
-                    String userLogin = tuple.getT2();
-                    
+                    // Извлекаем значения из Optional
+                    Integer userID = tuple.getT1().orElse(null);
+                    String userLogin = tuple.getT2().orElse(null);
+
                     return chain.filter(exchange)
                             .doOnSuccess(aVoid -> {
                                 ServerHttpResponse response = exchange.getResponse();
-                                int statusCode = response.getStatusCode() != null ? 
+                                int statusCode = response.getStatusCode() != null ?
                                         response.getStatusCode().value() : 200;
                                 long duration = System.currentTimeMillis() - startTime;
+                                String message = String.format("%s %s - %d - %dms", method, path, statusCode, duration);
 
-                                String message = String.format("%s %s - %d - %dms", 
-                                        method, path, statusCode, duration);
-
-                                if (statusCode >= 500) {
-                                    loggingService.logError(
-                                            "HTTP_REQUEST",
-                                            message,
-                                            null,
-                                            userID,
-                                            userLogin,
-                                            ipAddress,
-                                            userAgent,
-                                            path,
-                                            method
-                                    ).subscribe();
-                                } else if (statusCode >= 400) {
-                                    loggingService.logWarn(
-                                            "HTTP_REQUEST",
-                                            message,
-                                            userID,
-                                            userLogin,
-                                            ipAddress,
-                                            userAgent,
-                                            path,
-                                            method
-                                    ).subscribe();
-                                } else {
-                                    loggingService.logInfo(
-                                            "HTTP_REQUEST",
-                                            message,
-                                            userID,
-                                            userLogin,
-                                            ipAddress,
-                                            userAgent,
-                                            path,
-                                            method
-                                    ).subscribe();
+                                if (!"GET".equalsIgnoreCase(method) || statusCode >= 400) {
+                                    if (statusCode >= 500) {
+                                        loggingService.logError("HTTP_REQUEST", message, null, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
+                                    } else if (statusCode >= 400) {
+                                        loggingService.logWarn("HTTP_REQUEST", message, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
+                                    } else {
+                                        loggingService.logInfo("HTTP_REQUEST", message, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
+                                    }
                                 }
                             })
                             .doOnError(error -> {
                                 long duration = System.currentTimeMillis() - startTime;
-                                String message = String.format("%s %s - ERROR - %dms - %s", 
-                                        method, path, duration, error.getMessage());
-
-                                loggingService.logError(
-                                        "HTTP_REQUEST",
-                                        message,
-                                        error,
-                                        userID,
-                                        userLogin,
-                                        ipAddress,
-                                        userAgent,
-                                        path,
-                                        method
-                                ).subscribe();
+                                String message = String.format("%s %s - ERROR - %dms - %s", method, path, duration, error.getMessage());
+                                loggingService.logError("HTTP_REQUEST", message, error, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
                             });
                 });
     }
-
     private String getClientIP(ServerHttpRequest request) {
         String xForwardedFor = request.getHeaders().getFirst("X-Forwarded-For");
         if (xForwardedFor != null && !xForwardedFor.isEmpty()) {

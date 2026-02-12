@@ -20,7 +20,7 @@ export default function Audit() {
     
     // Filters
     const [tableName, setTableName] = useState('');
-    const [action, setAction] = useState('');
+    const [action, setAction] = useState('ALL');
     const [userID, setUserID] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -39,7 +39,7 @@ export default function Audit() {
                 page,
                 size,
                 ...(tableName && { tableName }),
-                ...(action && { action }),
+                ...(action && action !== 'ALL' && { action }),
                 ...(userID && { userID: parseInt(userID) }),
                 ...(startDate && { startDate }),
                 ...(endDate && { endDate })
@@ -111,7 +111,7 @@ export default function Audit() {
 
     const clearFilters = () => {
         setTableName('');
-        setAction('');
+        setAction('ALL');
         setUserID('');
         setStartDate('');
         setEndDate('');
@@ -164,7 +164,7 @@ export default function Audit() {
                                 <SelectValue placeholder="Действие" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="">Все действия</SelectItem>
+                                <SelectItem value="ALL">Все действия</SelectItem>
                                 <SelectItem value="CREATE">CREATE</SelectItem>
                                 <SelectItem value="UPDATE">UPDATE</SelectItem>
                                 <SelectItem value="DELETE">DELETE</SelectItem>
