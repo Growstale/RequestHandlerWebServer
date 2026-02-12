@@ -84,14 +84,12 @@ public class NotificationSchedulerService {
         boolean isDayOfWeekSpecified = !"*".equals(dayOfWeek);
 
         if (isDayOfMonthSpecified && isDayOfWeekSpecified) {
-            // Quartz не допускает одновременную конкретизацию дня месяца и дня недели
             dayOfWeek = "?";
         } else if (isDayOfWeekSpecified) {
             dayOfMonth = "?";
         } else if (isDayOfMonthSpecified) {
             dayOfWeek = "?";
         } else {
-            // ни день месяца, ни день недели не заданы — оставляем день месяца '*' и делаем день недели '?'
             dayOfWeek = "?";
         }
 
@@ -118,7 +116,6 @@ public class NotificationSchedulerService {
     @Component
     public static class NotificationJob implements Job {
 
-        // Инжектим нужные сервисы через сеттеры (Quartz так работает с SpringBeanJobFactory)
         private ReactiveNotificationRecipientRepository recipientRepository;
         private ReactiveShopContractorChatRepository chatRepository;
         private TelegramNotificationService telegramService;
@@ -140,7 +137,6 @@ public class NotificationSchedulerService {
 
         @Override
         public void execute(JobExecutionContext context) throws JobExecutionException {
-            // 1. Проверка на выходные (глобально для рассылок)
             DayOfWeek today = LocalDate.now().getDayOfWeek();
             if (today == DayOfWeek.SATURDAY || today == DayOfWeek.SUNDAY) {
                 logger.info("Сегодня выходной, рассылка уведомлений пропущена.");
@@ -149,17 +145,19 @@ public class NotificationSchedulerService {
 
             JobDataMap dataMap = context.getJobDetail().getJobDataMap();
             Integer notificationId = dataMap.getInt("notificationId");
-            String title = dataMap.getString("title");
-            String rawMessage = dataMap.getString("message");
+            String rawTitle = dataMap.getString("title");   // <-- Получаем сырой заголовок
+            String rawMessage = dataMap.getString("message"); // <-- Получаем сырое сообщение
 
-            String fullMessage = "*" + title + "*\n\n" + rawMessage;
+            String safeTitle = telegramService.escapeMarkdown(rawTitle);
+            String safeMessage = telegramService.escapeMarkdown(rawMessage);
+
+            String fullMessage = "*" + safeTitle + "*\n\n" + safeMessage;
 
             logger.info("Начало рассылки уведомления ID={}", notificationId);
 
             recipientRepository.findByNotificationID(notificationId)
                     .flatMap(recipient -> chatRepository.findById(recipient.getShopContractorChatID()))
                     .flatMap(chat -> {
-                        // Реальная отправка
                         return telegramService.sendNotification(chat.getTelegramID(), fullMessage);
                     })
                     .subscribe();

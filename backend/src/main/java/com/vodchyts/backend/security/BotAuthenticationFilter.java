@@ -20,20 +20,27 @@ public class BotAuthenticationFilter implements WebFilter {
     private String apiKey;
 
     private static final String API_KEY_HEADER = "X-API-KEY";
+    private static final String FORWARDED_HEADER = "X-Forwarded-For";
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        String requestApiKey = exchange.getRequest().getHeaders().getFirst(API_KEY_HEADER);
+        String path = exchange.getRequest().getURI().getPath();
 
-        if (apiKey.equals(requestApiKey)) {
-            var authorities = List.of(new SimpleGrantedAuthority("ROLE_BOT"));
-            var auth = new UsernamePasswordAuthenticationToken("telegram-bot", null, authorities);
-            var context = new SecurityContextImpl(auth);
+        if (path.startsWith("/api/bot")) {
+            String requestApiKey = exchange.getRequest().getHeaders().getFirst(API_KEY_HEADER);
+            String forwardedFor = exchange.getRequest().getHeaders().getFirst(FORWARDED_HEADER);
 
-            return chain.filter(exchange)
-                    .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(context)));
+            if (apiKey.equals(requestApiKey) && forwardedFor == null) {
+                var authorities = List.of(new SimpleGrantedAuthority("ROLE_BOT"));
+                var auth = new UsernamePasswordAuthenticationToken("telegram-bot", null, authorities);
+                var context = new SecurityContextImpl(auth);
+
+                return chain.filter(exchange)
+                        .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(context)));
+            }
         }
 
         return chain.filter(exchange);
     }
+
 }

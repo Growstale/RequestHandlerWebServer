@@ -1,12 +1,12 @@
 import api from './axios'
 
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 20;
 
 export const getRequests = (params = {}) => {
   const queryParams = new URLSearchParams();
 
   queryParams.append('page', params.page || 0);
-  queryParams.append('size', PAGE_SIZE);
+  queryParams.append('size', params.size || PAGE_SIZE);
   queryParams.append('archived', params.archived || false);
 
   if (params.searchTerm) queryParams.append('searchTerm', params.searchTerm);

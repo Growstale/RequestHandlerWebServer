@@ -37,7 +37,6 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
                 });
         }
         
-        // Сброс флагов при открытии формы
         setShouldDeleteImage(false);
         
         return () => {
@@ -76,7 +75,6 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
         setPreviewUrl(null);
         
         if (isEditing && existingImage) {
-            // Помечаем изображение для удаления, но не удаляем сразу
             setShouldDeleteImage(true);
             setExistingImage(false);
         }
@@ -103,7 +101,6 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
     const handleSubmit = async (e) => {
         e.preventDefault();
         
-        // Если нужно удалить изображение, удаляем его перед сохранением
         if (shouldDeleteImage && isEditing) {
             try {
                 await deleteTemplateImage(currentTemplate.messageID);
@@ -185,11 +182,9 @@ export default function MessageTemplateForm({ currentTemplate, allChats = [], gr
 
                 <div className="md:col-span-2 flex justify-end gap-2 pt-4 border-t mt-4">
                 <Button type="button" variant="outline" onClick={() => {
-                    // При отмене восстанавливаем состояние, если изображение было удалено
                     if (shouldDeleteImage && isEditing && currentTemplate?.hasImage) {
                         setShouldDeleteImage(false);
                         setExistingImage(true);
-                        // Перезагружаем изображение
                         getTemplateImageBlob(currentTemplate.messageID)
                             .then(response => {
                                 const objectUrl = URL.createObjectURL(response.data);

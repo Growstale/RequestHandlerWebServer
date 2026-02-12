@@ -71,10 +71,8 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
     };
 
     return (
-        // ИЗМЕНЕНИЕ 1: Убрали grid из самого тега form, сделали flex column
         <form onSubmit={handleSubmit} className="flex flex-col h-full pt-4">
             
-            {/* ИЗМЕНЕНИЕ 2: Обернули поля в div с ограничением высоты (max-h) и скроллом (overflow-y-auto) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[60vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
                 
                 {apiError && <p className="col-span-1 md:col-span-2 text-red-600 p-2 bg-red-50 rounded-md">{apiError}</p>}
@@ -101,7 +99,6 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
 
                 <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="description">Описание <span className="text-destructive">*</span></Label>
-                    {/* Textarea теперь внутри скроллируемого контейнера */}
                     <Textarea id="description" name="description" value={formData.description} onChange={handleChange} />
                 </div>
 
@@ -151,7 +148,6 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
                 )}
             </div>
 
-            {/* ИЗМЕНЕНИЕ 3: Кнопки вынесены в отдельный блок футера с border-t (линией сверху) */}
             <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
                 <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
                     Отмена

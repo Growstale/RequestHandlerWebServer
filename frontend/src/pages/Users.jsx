@@ -36,7 +36,6 @@ export default function Users() {
   const [currentUser, setCurrentUser] = useState(null)
   const [formApiError, setFormApiError] = useState(null)
 
-  // Состояние для ошибки удаления
   const [deleteError, setDeleteError] = useState(null);
 
   const reloadUsers = useCallback(async () => {
@@ -131,17 +130,14 @@ export default function Users() {
     }
   }
 
-  // --- ЛОГИКА УДАЛЕНИЯ ---
   const handleDeleteConfirm = async () => {
     if (!currentUser) return
     
-    // 1. Очищаем прошлые ошибки
     setDeleteError(null); 
     
     try {
       await deleteUser(currentUser.userID)
       
-      // 2. Если успех — закрываем окно и обновляем список
       setIsAlertOpen(false) 
       reloadUsers();
     } catch (err) {
@@ -155,7 +151,6 @@ export default function Users() {
           errorMessage = resData.message;
       }
 
-      // 4. Записываем сообщение в стейт
       setDeleteError(errorMessage);
     }
   }
@@ -191,7 +186,7 @@ export default function Users() {
   const openEditForm = (user) => { setCurrentUser(user); setFormApiError(null); setIsFormOpen(true); };
   const openDeleteAlert = (user) => { 
       setCurrentUser(user); 
-      setDeleteError(null); // Очищаем ошибку при открытии
+      setDeleteError(null);
       setIsAlertOpen(true); 
   };
 
@@ -280,9 +275,8 @@ export default function Users() {
         onPageChange={setCurrentPage}
       />
 
-      {/* --- МОДАЛЬНОЕ ОКНО ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ --- */}
       <AlertDialog open={isAlertOpen} onOpenChange={(val) => { 
-          if (!val) setDeleteError(null); // Сброс при закрытии (кликом мимо или Escape)
+          if (!val) setDeleteError(null);
           setIsAlertOpen(val); 
       }}>
         <AlertDialogContent>
@@ -292,7 +286,6 @@ export default function Users() {
               Вы собираетесь удалить пользователя <span className="font-bold">{currentUser?.login}</span>. Это действие нельзя будет отменить.
             </AlertDialogDescription>
             
-            {/* --- ВОТ ЗДЕСЬ ДОЛЖНА БЫТЬ ОШИБКА --- */}
             {deleteError && (
                 <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-md mt-2 flex items-start gap-2 text-sm">
                     <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
@@ -306,7 +299,7 @@ export default function Users() {
               <Button 
                 variant="destructive" 
                 onClick={(e) => {
-                    e.preventDefault(); // На всякий случай предотвращаем всплытие
+                    e.preventDefault();
                     handleDeleteConfirm();
                 }}
               >

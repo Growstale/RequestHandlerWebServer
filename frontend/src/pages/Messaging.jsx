@@ -86,7 +86,7 @@ export default function Messaging() {
             if (previewUrl) URL.revokeObjectURL(previewUrl);
             setPreviewUrl(null);
             setImageFile(null);
-            setSendError(''); // Очищаем предыдущие ошибки
+            setSendError('');
 
             if (template.hasImage) {
                 try {
@@ -99,8 +99,6 @@ export default function Messaging() {
                     setPreviewUrl(URL.createObjectURL(blob));
                 } catch (error) {
                     console.error("Не удалось загрузить изображение из шаблона", error);
-                    // Показываем ошибку только если шаблон должен содержать изображение
-                    // и произошла реальная ошибка (не 404)
                     if (error.response?.status !== 404) {
                         setSendError("Не удалось загрузить изображение из шаблона.");
                     }
@@ -124,7 +122,6 @@ export default function Messaging() {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setImageFile(null);
         setPreviewUrl(null);
-        // Очищаем значение input файла
         const fileInput = document.getElementById('send-image');
         if (fileInput) {
             fileInput.value = '';

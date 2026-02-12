@@ -8,17 +8,17 @@ import {
 } from 'recharts';
 import { 
     Activity, CheckCircle2, Clock, AlertTriangle, 
-    Briefcase, TrendingUp, Users, Printer 
+    Briefcase, TrendingUp, Users, Printer, Download
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getUrgencyDisplayName } from '@/lib/displayNames';
+import * as XLSX from 'xlsx';
 
-// Цвета для графиков
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 const STATUS_COLORS = {
-    'In work': '#3b82f6', // blue
-    'Done': '#22c55e',    // green
-    'Closed': '#64748b'   // slate
+    'In work': '#3b82f6',
+    'Done': '#22c55e',
+    'Closed': '#64748b'
 };
 
 export default function Dashboard() {
@@ -41,6 +41,46 @@ export default function Dashboard() {
         fetchStats();
     }, []);
 
+        const handleExportExcel = () => {
+        if (!stats) return;
+
+        const workbook = XLSX.utils.book_new();
+
+        const summaryData = [
+            ["Показатель", "Значение"],
+            ["Всего заявок", stats.totalRequests],
+            ["В работе", stats.activeRequests],
+            ["Просрочено", stats.overdueRequests],
+            ["Выполнено", stats.completedRequests]
+        ];
+        const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+        XLSX.utils.book_append_sheet(workbook, summarySheet, "Сводка");
+
+        const contractorsData = [
+            ["Имя подрядчика", "Выполнено заявок"],
+            ...stats.topContractors.map(c => [c.name, c.completedCount])
+        ];
+        const contractorsSheet = XLSX.utils.aoa_to_sheet(contractorsData);
+        XLSX.utils.book_append_sheet(workbook, contractorsSheet, "Топ подрядчиков");
+
+        const statusDataSheet = [
+            ["Статус", "Количество"],
+            ...stats.requestsByStatus.map(s => [s.name, s.value])
+        ];
+        const statusSheet = XLSX.utils.aoa_to_sheet(statusDataSheet);
+        XLSX.utils.book_append_sheet(workbook, statusSheet, "Статусы");
+
+        const urgencyDataSheet = [
+            ["Срочность", "Количество"],
+            ...stats.requestsByUrgency.map(u => [getUrgencyDisplayName(u.name), u.value])
+        ];
+        const urgencySheet = XLSX.utils.aoa_to_sheet(urgencyDataSheet);
+        XLSX.utils.book_append_sheet(workbook, urgencySheet, "Срочность");
+
+        const dateStr = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
+        XLSX.writeFile(workbook, `Otchet_Dashboard_${dateStr}.xlsx`);
+    };
+
     if (loading) {
         return (
             <div className="flex h-[80vh] items-center justify-center">
@@ -53,7 +93,6 @@ export default function Dashboard() {
         return <div className="p-8 text-red-600 text-center">{error}</div>;
     }
 
-    // Подготовка данных для PieChart (по статусам)
     const statusData = stats.requestsByStatus.map(item => ({
         name: item.name,
         value: item.value,
@@ -73,10 +112,16 @@ export default function Dashboard() {
         <main className="container mx-auto p-6 space-y-6">
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-3xl font-bold tracking-tight">Дашборд</h1>
-                <Button onClick={handlePrint} variant="outline" className="no-print gap-2">
-                    <Printer className="h-4 w-4" />
-                    Печать отчета
-                </Button>
+                <div className="flex gap-2 no-print">
+                    <Button onClick={handleExportExcel} variant="outline" className="gap-2 bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:text-green-800">
+                        <Download className="h-4 w-4" />
+                        Скачать Excel
+                    </Button>
+                    <Button onClick={handlePrint} variant="outline" className="gap-2">
+                        <Printer className="h-4 w-4" />
+                        Печать
+                    </Button>
+                </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -109,10 +154,8 @@ export default function Dashboard() {
                 />
             </div>
 
-            {/* --- 2. MAIN CHARTS --- */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 
-                {/* График тренда (Линейный) */}
                 <Card className="col-span-4">
                     <CardHeader>
                         <CardTitle>Динамика заявок</CardTitle>
@@ -141,7 +184,6 @@ export default function Dashboard() {
                     </CardContent>
                 </Card>
 
-                {/* Круговая диаграмма по Срочности */}
                 <Card className="col-span-3">
                     <CardHeader>
                         <CardTitle>Распределение по срочности</CardTitle>
@@ -180,10 +222,8 @@ export default function Dashboard() {
                 </Card>
             </div>
 
-            {/* --- 3. BOTTOM CHARTS --- */}
             <div className="grid gap-4 md:grid-cols-2">
                 
-                {/* Топ категорий работ (Бар) */}
                 <Card>
                     <CardHeader>
                         <CardTitle>Топ категорий работ</CardTitle>
@@ -204,7 +244,6 @@ export default function Dashboard() {
                     </CardContent>
                 </Card>
 
-                {/* Топ подрядчиков (Таблица/Список) */}
                 <Card>
                     <CardHeader>
                         <CardTitle>Лидеры по выполнению</CardTitle>

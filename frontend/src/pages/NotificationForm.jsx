@@ -8,18 +8,38 @@ import { generateCronExpression, parseCronExpression } from '@/api/notificationA
 import { getShopContractorChats } from '@/api/shopContractorChatApi'
 
 export default function NotificationForm({ currentNotification, onSubmit, onCancel, apiError }) {
-  const [formData, setFormData] = useState({
-    title: '',
-    message: '',
-    isActive: true,
-    scheduleType: 'daily',
-    hour: 9,
-    minute: 0,
-    dayOfWeek: 1,
-    dayOfMonth: 1,
-    customCron: '',
-    recipientChatIds: []
+  const [formData, setFormData] = useState(() => {
+    if (currentNotification) {
+      const cronData = parseCronExpression(currentNotification.cronExpression) || {}
+      
+      return {
+        title: currentNotification.title || '',
+        message: currentNotification.message || '',
+        isActive: currentNotification.isActive,
+        scheduleType: cronData.type || 'custom', 
+        hour: cronData.hour !== undefined ? cronData.hour : 9,
+        minute: cronData.minute !== undefined ? cronData.minute : 0,
+        dayOfWeek: cronData.dayOfWeek !== undefined ? cronData.dayOfWeek : 1,
+        dayOfMonth: cronData.dayOfMonth !== undefined ? cronData.dayOfMonth : 1,
+        customCron: cronData.type === 'custom' ? currentNotification.cronExpression : '',
+        recipientChatIds: currentNotification.recipientChatIds || []
+      }
+    }
+    
+    return {
+      title: '',
+      message: '',
+      isActive: true,
+      scheduleType: 'daily',
+      hour: 9,
+      minute: 0,
+      dayOfWeek: 1,
+      dayOfMonth: 1,
+      customCron: '',
+      recipientChatIds: []
+    }
   })
+
 
   const [availableChats, setAvailableChats] = useState([])
   const [loading, setLoading] = useState(false)
@@ -39,19 +59,20 @@ export default function NotificationForm({ currentNotification, onSubmit, onCanc
 
   useEffect(() => {
     if (currentNotification) {
-      const cronData = parseCronExpression(currentNotification.cronExpression)
-      setFormData({
-        title: currentNotification.title || '',
-        message: currentNotification.message || '',
-        isActive: currentNotification.isActive,
-        scheduleType: cronData?.type || 'custom',
-        hour: cronData?.hour || 9,
-        minute: cronData?.minute || 0,
-        dayOfWeek: cronData?.dayOfWeek || 1,
-        dayOfMonth: cronData?.dayOfMonth || 1,
-        customCron: cronData?.type === 'custom' ? currentNotification.cronExpression : '',
-        recipientChatIds: currentNotification.recipientChatIds || []
-      })
+        const cronData = parseCronExpression(currentNotification.cronExpression) || {}
+        setFormData(prev => ({
+            ...prev,
+            title: currentNotification.title || '',
+            message: currentNotification.message || '',
+            isActive: currentNotification.isActive,
+            scheduleType: cronData.type || 'custom',
+            hour: cronData.hour !== undefined ? cronData.hour : 9,
+            minute: cronData.minute !== undefined ? cronData.minute : 0,
+            dayOfWeek: cronData.dayOfWeek !== undefined ? cronData.dayOfWeek : 1,
+            dayOfMonth: cronData.dayOfMonth !== undefined ? cronData.dayOfMonth : 1,
+            customCron: cronData.type === 'custom' ? currentNotification.cronExpression : '',
+            recipientChatIds: currentNotification.recipientChatIds || []
+        }))
     }
   }, [currentNotification])
 
@@ -93,8 +114,16 @@ export default function NotificationForm({ currentNotification, onSubmit, onCanc
       newErrors.title = 'Заголовок обязателен'
     }
 
-    if (formData.scheduleType === 'custom' && !formData.customCron.trim()) {
-      newErrors.customCron = 'Cron выражение обязательно'
+    if (formData.scheduleType === 'custom') {
+      const cron = formData.customCron.trim();
+      if (!cron) {
+        newErrors.customCron = 'Cron выражение обязательно';
+      } else {
+        const parts = cron.split(/\s+/);
+        if (parts.length !== 5) {
+           newErrors.customCron = 'Выражение должно состоять из 5 частей (минута час день месяц день_недели)';
+        }
+      }
     }
 
     if (formData.hour < 0 || formData.hour > 23) {
@@ -275,15 +304,26 @@ export default function NotificationForm({ currentNotification, onSubmit, onCanc
             id="customCron"
             value={formData.customCron}
             onChange={(e) => handleInputChange('customCron', e.target.value)}
-            placeholder="* * * * * (минута час день_месяца месяц день_недели)"
+            placeholder="Например: 0 9 * * * (каждый день в 09:00)"
             className={errors.customCron ? 'border-red-500' : ''}
           />
           {errors.customCron && <p className="text-red-500 text-sm mt-1">{errors.customCron}</p>}
-          <p className="text-sm text-gray-500 mt-1">
-            Формат: минута час день_месяца месяц день_недели (0-6 = SUN-SAT)
-          </p>
+          
+          <div className="text-sm text-gray-500 mt-2 space-y-1">
+            <p>Формат: <code className="bg-gray-100 px-1 rounded">минута час день_месяца месяц день_недели</code></p>
+            <p className="text-xs">
+              Используйте <code className="bg-gray-100 px-1 rounded">*</code> для значения "каждый".
+            </p>
+            <ul className="text-xs list-disc pl-4 mt-1 space-y-1">
+                <li><code className="text-blue-600">0 10 * * *</code> — Каждый день в 10:00</li>
+                <li><code className="text-blue-600">30 * * * *</code> — Каждые полчаса (в 30-ю минуту)</li>
+                <li><code className="text-blue-600">0 9 * * 1</code> — Каждый понедельник в 09:00</li>
+                <li><code className="text-blue-600">*/10 * * * *</code> — Каждые 10 минут</li>
+            </ul>
+          </div>
         </div>
       )}
+
 
       <div>
         <div className="flex items-center justify-between">

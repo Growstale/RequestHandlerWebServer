@@ -1,8 +1,6 @@
-// src/pages/GanttChartView.jsx
-
 import React, { useState, useEffect, useRef } from 'react';
-import { gantt } from 'dhtmlx-gantt'; // <-- ПРАВИЛЬНЫЙ ИМПОРТ
-import 'dhtmlx-gantt/codebase/dhtmlxgantt.css'; // <-- ПРАВИЛЬНЫЙ ИМПОРТ СТИЛЕЙ
+import { gantt } from 'dhtmlx-gantt';
+import 'dhtmlx-gantt/codebase/dhtmlxgantt.css';
 import { getRequests } from '@/api/requestApi';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 
@@ -13,7 +11,6 @@ export default function GanttChartView({ filters, onTaskClick }) {
     const ganttContainer = useRef(null);
 
     useEffect(() => {
-        // --- Логика загрузки данных ---
         const fetchAllRequests = async () => {
             setLoading(true);
             setError(null);
@@ -24,17 +21,17 @@ export default function GanttChartView({ filters, onTaskClick }) {
                 const tasks = response.data.content
                     .filter(req => req.daysForTask > 0)
                     .map(req => {
-                        let color = '#22c55e'; // Зеленый
+                        let color = '#22c55e';
                         if (req.isOverdue && req.status === 'In work') {
-                            color = '#ef4444'; // Красный
+                            color = '#ef4444';
                         } else if (req.status === 'Done') {
-                            color = '#3b82f6'; // Синий
+                            color = '#3b82f6';
                         }
 
                         return {
                             id: req.requestID,
                             text: `#${req.requestID} ${req.shopName}`,
-                            start_date: new Date(req.createdAt), // Используем объект Date
+                            start_date: new Date(req.createdAt),
                             duration: req.daysForTask,
                             progress: req.status === 'Done' ? 1 : 0,
                             color: color,
@@ -53,12 +50,9 @@ export default function GanttChartView({ filters, onTaskClick }) {
         fetchAllRequests();
     }, [filters]);
 
-    // --- Инициализация и настройка диаграммы ---
     useEffect(() => {
-        // Локализация (русский язык)
         gantt.i18n.setLocale("ru");
 
-        // Конфигурация колонок
         gantt.config.columns = [
             { name: 'text', label: 'Название заявки', width: '*', tree: true },
             { name: 'start_date', label: 'Начало', align: 'center', width: 90 },
@@ -66,29 +60,25 @@ export default function GanttChartView({ filters, onTaskClick }) {
         ];
         
         gantt.config.date_grid = "%d.%m.%y";
-        gantt.config.readonly = true; // Запрещаем перетаскивание
+        gantt.config.readonly = true;
         gantt.config.row_height = 40;
         
-        // Инициализируем диаграмму в указанном контейнере
         gantt.init(ganttContainer.current);
         
-        // Привязываем событие клика
         const onTaskClickEvent = gantt.attachEvent("onTaskClick", (id) => {
             const task = gantt.getTask(id);
             if (task && onTaskClick && task.originalRequest) {
                 onTaskClick(task.originalRequest);
             }
-            return true; // Важно для стандартного поведения
+            return true;
         });
 
-        // Очистка при размонтировании компонента
         return () => {
             gantt.detachEvent(onTaskClickEvent);
             gantt.clearAll();
         };
-    }, [onTaskClick]); // Запускаем один раз при монтировании
+    }, [onTaskClick]);
 
-    // --- Загрузка данных в диаграмму при их изменении ---
     useEffect(() => {
         if (data && gantt) {
             gantt.parse(data);
