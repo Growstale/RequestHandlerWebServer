@@ -18,6 +18,9 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+    environment:
+      - TZ=Europe/Minsk
+      - ACCEPT_EULA=Y
 
   db-init:
     image: mcr.microsoft.com/mssql-tools
@@ -46,14 +49,16 @@ services:
       db-init:
         condition: service_completed_successfully
     environment:
+      - TZ=Europe/Minsk
       - SPRING_R2DBC_URL=r2dbc:mssql://db:1433/RequestHandlerWebServer?encrypt=false&trustServerCertificate=true
       - SPRING_R2DBC_USERNAME=sa
       - SPRING_SQL_INIT_MODE=always
       - BOT_URL=http://bot:8081
       - BOT_API_KEY=${INTERNAL_API_KEY} 
-      - FRONTEND_ALLOWED_ORIGINS=http://localhost
+      - FRONTEND_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
       - INITIAL_ADMIN_LOGIN=admin
       - INITIAL_ADMIN_PASSWORD=admin
+      - JAVA_TOOL_OPTIONS=-Duser.timezone=Europe/Minsk 
     networks:
       - app-network
 
@@ -64,6 +69,7 @@ services:
     depends_on:
       - backend
     environment:
+      - TZ=Europe/Minsk
       - BACKEND_URL=http://backend:8080
     networks:
       - app-network

@@ -31,6 +31,8 @@ from handlers import (
     DELETE_COMMENT_SELECT, DELETE_PHOTO_SELECT
 )
 
+REPLY_COMMENT_SELECT = 29
+
 
 async def http_notify_handler(request):
     try:
@@ -58,44 +60,27 @@ async def http_notify_handler(request):
 async def http_notify_comment_handler(request):
     try:
         data = await request.json()
-        chat_id = data.get('chatId')
-        text = data.get('text')
-        req_id = data.get('requestId')
-        comment_id = data.get('commentId')
-
-        bot_app = request.app['bot_app']
-        keyboard = [[InlineKeyboardButton("↩️ Ответить", callback_data=f"act_add_comment_{req_id}_{comment_id}")]]
-
-        await bot_app.bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
-        return web.Response(text="OK")
-    except Exception as e:
-        logger.error(f"Failed to process comment notification: {e}")
-        return web.Response(status=500, text=str(e))
-
-
-async def http_notify_comment_handler(request):
-    try:
-        data = await request.json()
         chat_id, text = data.get('chatId'), data.get('text')
         req_id, comment_id = data.get('requestId'), data.get('commentId')
 
         bot_app = request.app['bot_app']
-        # Кнопка "Ответить", которая несет в себе ID заявки и ID родительского комментария
-        keyboard = [[InlineKeyboardButton("↩️ Ответить", callback_data=f"act_add_comment_{req_id}_{comment_id}")]]
+        keyboard = None
+
+        if comment_id:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ Ответить", callback_data=f"act_add_comment_{req_id}_{comment_id}")]
+            ])
 
         await bot_app.bot.send_message(
-            chat_id=chat_id, text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            chat_id=chat_id,
+            text=text,
+            reply_markup=keyboard,
             parse_mode=ParseMode.MARKDOWN_V2
         )
         return web.Response(text="OK")
     except Exception as e:
-        return web.Response(status=500, text=str(e))
+        logger.error(f"Notify error: {e}")
+        return web.Response(status=500)
 
 
 async def http_notify_photo_handler(request):
@@ -204,7 +189,8 @@ async def main():
         entry_points=[
             CommandHandler("requests", view_requests_start),
             MessageHandler(filters.Regex(r'^\/[_]*(\d+)[_]*$'), view_request_details),
-            MessageHandler(filters.Regex("^📋 Мои заявки$"), view_requests_start)
+            MessageHandler(filters.Regex("^📋 Мои заявки$"), view_requests_start),
+            CallbackQueryHandler(action_callback_handler, pattern="^act_add_comment_")
         ],
         states={
             VIEW_MAIN_MENU: [
@@ -213,10 +199,17 @@ async def main():
             ],
             VIEW_DETAILS: [
                 CallbackQueryHandler(action_callback_handler, pattern="^act_"),
-                CallbackQueryHandler(action_callback_handler, pattern="^start_del_")
+                CallbackQueryHandler(action_callback_handler, pattern="^start_del_"),
+                CallbackQueryHandler(action_callback_handler, pattern="^start_reply_")
+            ],
+            REPLY_COMMENT_SELECT: [
+                CallbackQueryHandler(action_callback_handler, pattern="^act_add_comment_"),
+                CallbackQueryHandler(action_callback_handler, pattern="^act_comments_"),
+                CallbackQueryHandler(action_callback_handler, pattern="back_to_request")
             ],
             DELETE_COMMENT_SELECT: [
                 CallbackQueryHandler(confirm_delete_comment_handler, pattern="^conf_del_cmt_"),
+                CallbackQueryHandler(confirm_delete_comment_handler, pattern="^force_del_cmt_"),
                 CallbackQueryHandler(action_callback_handler, pattern="^act_")
             ],
             DELETE_PHOTO_SELECT: [
@@ -227,7 +220,9 @@ async def main():
             ],
             VIEW_SET_SEARCH_TERM: [MessageHandler(filters.TEXT & ~filters.COMMAND, view_search_handler)],
             VIEW_SET_SORTING: [CallbackQueryHandler(view_sort_callback, pattern="^(view|sort)_")],
+
             VIEW_ADD_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_comment_handler)],
+
             VIEW_ADD_PHOTO: [
                 MessageHandler(filters.PHOTO | filters.Document.IMAGE, add_photo_handler),
                 CallbackQueryHandler(action_callback_handler, pattern="^act_")

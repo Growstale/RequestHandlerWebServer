@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/context/AuthProvider';
 import { Trash2, Reply, X, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils'; 
 
 export default function CommentsModal({ isOpen, onClose, request }) {
     const [comments, setComments] = useState([]);
@@ -57,7 +58,7 @@ export default function CommentsModal({ isOpen, onClose, request }) {
     const handleDelete = async () => {
         if (!deletingComment) return;
         try {
-            await deleteComment(deletingComment.commentID);
+            await deleteComment(deletingComment.commentID); // Сервер удалит и детей сам
             setDeletingComment(null);
             loadComments();
         } catch (error) {
@@ -79,7 +80,6 @@ export default function CommentsModal({ isOpen, onClose, request }) {
                         {loading && <p className="text-center py-4">Загрузка...</p>}
                         {comments.map(c => (
                             <div key={c.commentID} className="space-y-3">
-                                {/* Основной комментарий */}
                                 <div className="p-3 bg-gray-50 rounded-lg group border border-gray-100">
                                     <div className="flex justify-between items-start mb-1">
                                         <div className="text-xs">
@@ -149,18 +149,39 @@ export default function CommentsModal({ isOpen, onClose, request }) {
                 </DialogContent>
             </Dialog>
 
-            <AlertDialog open={!!deletingComment} onOpenChange={() => setDeletingComment(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Удалить комментарий?</AlertDialogTitle>
-                        <AlertDialogDescription>Действие необратимо.</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Отмена</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete} className="bg-red-600">Удалить</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+      <AlertDialog open={!!deletingComment} onOpenChange={() => setDeletingComment(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deletingComment?.replies?.length > 0 
+                ? "Удалить ветку комментариев?" 
+                : "Удалить комментарий?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingComment?.replies?.length > 0 ? (
+                <span className="font-medium">
+                  Внимание: у этого комментария есть ответы ({deletingComment.replies.length} шт.). 
+                  При удалении родительского комментария вся ветка переписки будет безвозвратно удалена.
+                </span>
+              ) : (
+                "Это действие необратимо. Вы уверены, что хотите удалить этот комментарий?"
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDelete} 
+              className={cn(
+                "bg-red-600 hover:bg-red-700",
+                deletingComment?.replies?.length > 0 && "bg-destructive text-destructive-foreground animate-pulse"
+              )}
+            >
+              {deletingComment?.replies?.length > 0 ? "Да, удалить всё" : "Удалить"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
         </>
     );
 }
