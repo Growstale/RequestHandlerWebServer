@@ -565,15 +565,20 @@ export default function Requests({ archived = false }) {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <SortableHeader field="requestID">ID</SortableHeader>
-                                <SortableHeader field="description">Описание</SortableHeader>
-                                <SortableHeader field="shopName">Магазин</SortableHeader>
-                                <SortableHeader field="workCategoryName">Вид работы</SortableHeader>
-                                <SortableHeader field="urgencyName">Срочность</SortableHeader>
-                                <SortableHeader field="assignedContractorName">Подрядчик</SortableHeader>
-                                <SortableHeader field="status">Статус</SortableHeader>
-                                <SortableHeader field="daysRemaining">Срок</SortableHeader>
-                                <TableHead>Действия</TableHead>
+                                <SortableHeader field="requestID" className="w-[80px]">ID</SortableHeader>
+                                
+                                <SortableHeader field="description" className="w-full min-w-[300px]">
+                                    Описание
+                                </SortableHeader>
+                                
+                                <SortableHeader field="shopName" className="min-w-[150px]">Магазин</SortableHeader>
+                                <SortableHeader field="workCategoryName" className="min-w-[150px]">Вид работы</SortableHeader>
+                                <SortableHeader field="urgencyName" className="w-[120px]">Срочность</SortableHeader>
+                                <SortableHeader field="assignedContractorName" className="w-[150px]">Подрядчик</SortableHeader>
+                                <SortableHeader field="status" className="w-[120px]">Статус</SortableHeader>
+                                <SortableHeader field="daysRemaining" className="w-[80px]">Срок</SortableHeader>
+                                
+                                <TableHead className="w-[150px] text-right">Действия</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -583,11 +588,13 @@ export default function Requests({ archived = false }) {
                                     'bg-blue-100': req.status === 'Done' 
                                 })}>
                                     <TableCell>{req.requestID}</TableCell>
-                                    <TableCell className="font-medium">
-                                        {req.description?.length > 50 
-                                            ? req.description.substring(0, 50) + '...' 
-                                            : req.description
-                                        }
+                                    <TableCell className="max-w-0 w-full">
+                                        <div 
+                                            className="line-clamp-2 break-words text-sm" 
+                                            title={req.description}
+                                        >
+                                            {req.description}
+                                        </div>
                                     </TableCell>
                                     <TableCell>{req.shopName}</TableCell>
                                     <TableCell>{req.workCategoryName}</TableCell>
@@ -660,14 +667,20 @@ export default function Requests({ archived = false }) {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
-                                                    <SortableHeader field="requestID">ID</SortableHeader>
-                                                    <SortableHeader field="description">Описание</SortableHeader>
-                                                    <SortableHeader field="workCategoryName">Вид работы</SortableHeader>
-                                                    <SortableHeader field="urgencyName">Срочность</SortableHeader>
-                                                    <SortableHeader field="assignedContractorName">Подрядчик</SortableHeader>
-                                                    <SortableHeader field="status">Статус</SortableHeader>
-                                                    <SortableHeader field="daysRemaining">Срок</SortableHeader>
-                                                    <TableHead>Действия</TableHead>
+                                                    <SortableHeader field="requestID" className="w-[80px]">ID</SortableHeader>
+                                                    
+                                                    <SortableHeader field="description" className="w-full min-w-[300px]">
+                                                        Описание
+                                                    </SortableHeader>
+                                                    
+                                                    <SortableHeader field="shopName" className="min-w-[150px]">Магазин</SortableHeader>
+                                                    <SortableHeader field="workCategoryName" className="min-w-[150px]">Вид работы</SortableHeader>
+                                                    <SortableHeader field="urgencyName" className="w-[120px]">Срочность</SortableHeader>
+                                                    <SortableHeader field="assignedContractorName" className="w-[150px]">Подрядчик</SortableHeader>
+                                                    <SortableHeader field="status" className="w-[120px]">Статус</SortableHeader>
+                                                    <SortableHeader field="daysRemaining" className="w-[80px]">Срок</SortableHeader>
+                                                    
+                                                    <TableHead className="w-[150px] text-right">Действия</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -677,7 +690,14 @@ export default function Requests({ archived = false }) {
                                                         'bg-blue-100': req.status === 'Done' 
                                                     })}>
                                                         <TableCell>{req.requestID}</TableCell>
-                                                        <TableCell className="font-medium">{req.description?.substring(0, 50)}...</TableCell>
+                                                        <TableCell className="max-w-0 w-full">
+                                                            <div 
+                                                                className="line-clamp-2 break-words text-sm" 
+                                                                title={req.description}
+                                                            >
+                                                                {req.description}
+                                                            </div>
+                                                        </TableCell>
                                                         <TableCell>{req.workCategoryName}</TableCell>
                                                         <TableCell>{getUrgencyDisplayName(req.urgencyName)}</TableCell>
                                                         <TableCell>{req.assignedContractorName || '—'}</TableCell>

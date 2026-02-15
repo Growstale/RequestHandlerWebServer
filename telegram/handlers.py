@@ -138,7 +138,7 @@ def format_request_details(req: dict) -> str:
         f"*Магазин:* {escape_markdown(req['shopName'])}\n"
         f"*Исполнитель:* {executor}\n"
         f"*Вид работ:* {escape_markdown(req['workCategoryName'])}\n"
-        f"*Срочность:* {escape_markdown(req['urgencyName'])} \\({days_for_task_str} дн\\.\\)\n"
+        f"*Срочность:* {escape_markdown(get_urgency_ru(req['urgencyName']))} \\({days_for_task_str} дн\\.\\)\n"
         f"*Статус:* {escape_markdown(req['status'])}\n"
         f"*Создана:* {escaped_created_at}\n"
         f"*Срок:* {deadline_info}\n\n"
@@ -1388,16 +1388,24 @@ async def select_work_category_callback(update: Update, context: CallbackContext
 
 async def ask_urgency(update: Update, context: CallbackContext) -> int:
     urgencies = await api_client.get_all_urgency_categories()
-    if not urgencies:
-        await update.effective_message.reply_text("Не удалось загрузить категории срочности.")
+
+    if not isinstance(urgencies, list):
+        await update.effective_message.reply_text("❌ Не удалось загрузить категории срочности.")
         return ConversationHandler.END
+
+    for u in urgencies:
+        u['urgencyName'] = get_urgency_ru(u['urgencyName'])
 
     context.user_data['urgencies'] = urgencies
     keyboard = create_paginated_keyboard(context.user_data['urgencies'], 0, 'urgency', 'urgencyName', 'urgencyID')
-    await context.bot.send_message(update.effective_chat.id, "<b>Шаг 4/5:</b> Выберите срочность:",
-                                   reply_markup=keyboard, parse_mode=ParseMode.HTML)
-    return CREATE_SELECT_URGENCY
 
+    await context.bot.send_message(
+        update.effective_chat.id,
+        "<b>Шаг 4/5:</b> Выберите срочность:",
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML
+    )
+    return CREATE_SELECT_URGENCY
 
 async def select_urgency_callback(update: Update, context: CallbackContext) -> int | None:
     query = update.callback_query
@@ -1514,18 +1522,35 @@ async def start_command(update: Update, context: CallbackContext):
 ) = range(20, 29)
 
 
+URGENCY_TRANSLATIONS = {
+    "Emergency": "Аварийная",
+    "Urgent": "Срочная",
+    "Planned": "Плановая",
+    "Customizable": "Настраиваемая"
+}
+
+
+def get_urgency_ru(name: str) -> str:
+    return URGENCY_TRANSLATIONS.get(name, name)
+
 
 def _get_editor_keyboard(draft: dict, is_new: bool, role: str) -> InlineKeyboardMarkup:
     buttons = []
 
-    shop_ico = "✅" if draft.get('shopID') else "❌"
-    contr_ico = "✅" if draft.get('assignedContractorID') else "❌"
+    if not draft.get('shopID'):
+        buttons.append([InlineKeyboardButton("❌ Выбрать Магазин", callback_data="edit_field_shop")])
+    else:
+        buttons.append([InlineKeyboardButton(f"🏪 Магазин: {draft['shopName']}", callback_data="noop")])
+
+    if not draft.get('assignedContractorID'):
+        buttons.append([InlineKeyboardButton("❌ Выбрать Исполнителя", callback_data="edit_field_contractor")])
+    else:
+        buttons.append([InlineKeyboardButton(f"👷 Исполнитель: {draft['contractorName']}", callback_data="noop")])
+
     work_ico = "✅" if draft.get('workCategoryID') else "❌"
     urg_ico = "✅" if draft.get('urgencyID') else "❌"
     desc_ico = "✅" if draft.get('description') else "❌"
 
-    buttons.append([InlineKeyboardButton(f"{shop_ico} Магазин", callback_data="edit_field_shop")])
-    buttons.append([InlineKeyboardButton(f"{contr_ico} Исполнитель", callback_data="edit_field_contractor")])
     buttons.append([InlineKeyboardButton(f"{work_ico} Вид работ", callback_data="edit_field_work")])
     buttons.append([InlineKeyboardButton(f"{urg_ico} Срочность", callback_data="edit_field_urgency")])
     buttons.append([InlineKeyboardButton(f"{desc_ico} Описание", callback_data="edit_field_desc")])
@@ -1561,7 +1586,8 @@ async def render_editor_menu(update: Update, context: Context):
     shop_name = draft.get('shopName', '--- Не выбрано ---')
     contr_name = draft.get('contractorName', '--- Не выбрано ---')
     work_name = draft.get('workCategoryName', '--- Не выбрано ---')
-    urg_name = draft.get('urgencyName', '--- Не выбрано ---')
+    urg_raw = draft.get('urgencyName')
+    urg_name = get_urgency_ru(urg_raw) if urg_raw else '--- Не выбрано ---'
 
     if draft.get('customDays'):
         urg_name += f" ({draft['customDays']} дн.)"
@@ -1596,25 +1622,50 @@ async def render_editor_menu(update: Update, context: Context):
 
 
 async def start_create_request(update: Update, context: Context) -> int:
-    if not check_rate_limit(update.effective_user.id): return ConversationHandler.END
-    user_id = update.effective_user.id
-    user_data = await api_client.get_user_by_telegram_id(user_id)
+    if not check_rate_limit(update.effective_user.id):
+        return ConversationHandler.END
 
+    user_id = update.effective_user.id
+    chat = update.effective_chat
+
+    user_data = await api_client.get_user_by_telegram_id(user_id)
     if not user_data or user_data.get("roleName") != "RetailAdmin":
         await update.message.reply_text("❌ Только администратор может создавать заявки.")
         return ConversationHandler.END
 
-    context.user_data['user_info'] = user_data
-    context.user_data['editor_is_new'] = True
-    context.user_data['editor_draft'] = {
+    draft = {
         'createdByUserID': user_data['userID'],
         'status': 'In work'
     }
 
+    if chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        chat_info = await api_client.get_chat_info_by_telegram_id(chat.id)
+
+        if not chat_info:
+            await update.message.reply_text(
+                "❌ Этот чат не зарегистрирован в системе.\n"
+                "Создание заявок разрешено только в привязанных чатах магазинов или в личке с ботом."
+            )
+            return ConversationHandler.END
+
+        draft['shopID'] = chat_info['shopID']
+        draft['shopName'] = chat_info['shopName']
+
+        if chat_info.get('contractorID'):
+            draft['assignedContractorID'] = chat_info['contractorID']
+            draft['contractorName'] = chat_info['contractorLogin']
+
+        await update.message.reply_text(f"✅ Чат распознан: Магазин «{chat_info['shopName']}»")
+    else:
+        pass
+
+    context.user_data['user_info'] = user_data
+    context.user_data['editor_is_new'] = True
+    context.user_data['editor_draft'] = draft
+
     await _preload_dictionaries(context)
 
     return await render_editor_menu(update, context)
-
 
 
 async def start_edit_request(update: Update, context: Context) -> int:
@@ -1677,11 +1728,16 @@ async def _preload_dictionaries(context: Context):
     contractors = await api_client.get_all_contractors()
     works = await api_client.get_all_work_categories()
     urgencies = await api_client.get_all_urgency_categories()
+    context.user_data['dict_shops'] = shops.get('content', []) if (shops and isinstance(shops, dict)) else []
+    context.user_data['dict_contractors'] = contractors if isinstance(contractors, list) else []
+    context.user_data['dict_works'] = works.get('content', []) if (works and isinstance(works, dict)) else []
 
-    context.user_data['dict_shops'] = shops.get('content', []) if shops else []
-    context.user_data['dict_contractors'] = contractors if contractors else []
-    context.user_data['dict_works'] = works.get('content', []) if works else []
-    context.user_data['dict_urgencies'] = urgencies if urgencies else []
+    if isinstance(urgencies, list):
+        for u in urgencies:
+            u['urgencyName'] = get_urgency_ru(u['urgencyName'])
+        context.user_data['dict_urgencies'] = urgencies
+    else:
+        context.user_data['dict_urgencies'] = []
 
 
 async def editor_main_callback(update: Update, context: Context) -> int:
@@ -1723,6 +1779,7 @@ async def editor_main_callback(update: Update, context: Context) -> int:
         return EDITOR_SELECT_WORK
 
     elif data == "edit_field_urgency":
+
         items = context.user_data.get('dict_urgencies', [])
         keyboard = create_paginated_keyboard(items, 0, 'eurg', 'urgencyName', 'urgencyID')
         new_rows = list(keyboard.inline_keyboard)
@@ -1785,7 +1842,7 @@ async def _handle_selection(update: Update, context: Context,
             context.user_data['editor_draft'][draft_id_key] = selected_id
             context.user_data['editor_draft'][draft_name_key] = item[name_key]
 
-            if list_key == 'dict_urgencies' and item['urgencyName'] == 'Customizable':
+            if list_key == 'dict_urgencies' and item['urgencyName'] in ['Customizable', 'Настраиваемая']:
                 context.user_data['editor_prompt_message_id'] = query.message.message_id
 
                 await query.edit_message_text("Введите количество дней (число от 1 до 365):")
