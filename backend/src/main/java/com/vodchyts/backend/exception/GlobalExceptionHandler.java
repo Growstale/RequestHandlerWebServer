@@ -37,8 +37,7 @@ public class GlobalExceptionHandler {
             Map.entry("UQ_ShopContractorChats_Shop_User", "Связь для этой пары магазина и подрядчика уже существует."),
             Map.entry("UQ_MessageTemplates_Title", "Шаблон с таким заголовком уже существует."),
             Map.entry("UQ_Notifications_Title", "Уведомление с таким названием уже существует."),
-
-            // Ошибки удаления (Foreign Keys)
+            Map.entry("UQ_Users_TelegramID", "Пользователь с таким Telegram ID уже зарегистрирован в системе."),
             Map.entry("FK_Shops_Users", "Нельзя удалить пользователя: он назначен менеджером магазина."),
             Map.entry("FK_ShopContractorChats_Users", "Нельзя удалить пользователя: он назначен подрядчиком в настройках чатов."),
             Map.entry("FK_Requests_Shops", "Нельзя удалить магазин: в нем есть созданные заявки."),

@@ -13,11 +13,12 @@ async def _make_request(method: str, endpoint: str, **kwargs):
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.request(method, api_url, headers=headers, **kwargs)
+
+            if response.status_code in [400, 403, 404, 409]:
+                return {"error_message": response.text}  # Возвращаем текст ошибки
+
             response.raise_for_status()
-
-            if response.status_code == 204:
-                return True
-
+            if response.status_code == 204: return True
             return response.json()
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP Error for {e.request.url}: {e.response.status_code} - {e.response.text}")
@@ -74,9 +75,12 @@ def _normalize_query_params(params: dict):
     return items
 
 
-async def get_requests(telegram_id: int, params: dict):
+async def get_requests(telegram_id: int, params: dict, chat_id: int = None):
     params = params.copy()
     params['telegram_id'] = telegram_id
+    if chat_id:
+        params['chat_id'] = chat_id
+
     from httpx import QueryParams
     query_params = QueryParams(_normalize_query_params(params))
     return await _make_request("GET", "/api/bot/requests", params=query_params)

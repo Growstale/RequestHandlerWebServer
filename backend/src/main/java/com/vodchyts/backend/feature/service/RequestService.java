@@ -154,11 +154,11 @@ public class RequestService {
 
                             Mono<Void> roleConditionsMono = Mono.just(user).flatMap(u -> {
                                 String userRole = role.getRoleName();
+                                if (shopId != null) {
+                                    conditions.add("r.ShopID = :shopId");
+                                    bindings.put("shopId", shopId);
+                                }
                                 if ("RetailAdmin".equals(userRole)) {
-                                    if (shopId != null) {
-                                        conditions.add("r.ShopID = :shopId");
-                                        bindings.put("shopId", shopId);
-                                    }
                                     if (contractorId != null) {
                                         conditions.add("r.AssignedContractorID = :contractorId");
                                         bindings.put("contractorId", contractorId);

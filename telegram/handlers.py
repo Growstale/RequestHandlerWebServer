@@ -186,15 +186,19 @@ def _build_cache_key(filters: Dict[str, Any]) -> Tuple:
     return tuple(sorted(key_parts))
 
 
-async def _fetch_full_dataset(user_id: int, filters: Dict[str, Any]) -> List[dict] | None:
+async def _fetch_full_dataset(user_id: int, filters: Dict[str, Any], context: Context) -> List[dict] | None:
     base_filters = {k: v for k, v in filters.items() if k != 'page'}
     base_filters['size'] = API_BATCH_SIZE
     aggregated: List[dict] = []
     page = 0
     total_pages = 1
+    chat_id = context.user_data.get('view_chat_id')
     while page < total_pages:
         base_filters['page'] = page
-        response = await api_client.get_requests(user_id, base_filters)
+        response = await api_client.get_requests(user_id, base_filters, chat_id=chat_id)
+        if isinstance(response, dict) and "error_message" in response:
+            return response  # Возвращаем словарь с ошибкой дальше
+
         if response is None:
             return None
         aggregated.extend(response.get('content', []))
@@ -214,7 +218,11 @@ async def _get_sorted_dataset(user_id: int, context: Context) -> List[dict] | No
         if cached is not None:
             return cached
 
-    dataset = await _fetch_full_dataset(user_id, filters)
+    dataset = await _fetch_full_dataset(user_id, filters, context)
+
+    if isinstance(dataset, dict) and "error_message" in dataset:
+        return dataset
+
     if dataset is None:
         return None
 
@@ -298,6 +306,7 @@ async def view_requests_start(update: Update, context: Context) -> int:
         await update.message.reply_text("❌ Ваш Telegram ID не найден в системе.")
         return ConversationHandler.END
 
+    context.user_data['view_chat_id'] = update.effective_chat.id
     context.user_data['view_filters'] = {'archived': False, 'page': 0, 'sort': ['requestID,asc']}
     _invalidate_requests_cache(context)
     context.user_data['user_info'] = user_info
@@ -310,11 +319,34 @@ async def view_requests_start(update: Update, context: Context) -> int:
 
 async def render_main_view_menu(update: Update, context: Context, is_callback: bool = False) -> int:
     user_id = update.effective_user.id
+
     filters = context.user_data.get('view_filters', {})
-    logger.debug("Bot filters for requests: %s", filters)
+    if not filters:
+        filters = {'archived': False, 'page': 0, 'sort': ['requestID,asc']}
+        context.user_data['view_filters'] = filters
+
     dataset = await _get_sorted_dataset(user_id, context)
+
+    if isinstance(dataset, dict) and "error_message" in dataset:
+        import json
+        try:
+            err_data = json.loads(dataset['error_message'])
+            err_msg = err_data.get('message', dataset['error_message'])
+        except:
+            err_msg = dataset['error_message']
+
+        error_text = f"🚫 *Ошибка доступа:*\n{escape_markdown(err_msg)}"
+
+        keyboard = [[InlineKeyboardButton("❌ Закрыть", callback_data="view_exit")]]
+
+        if is_callback and update.callback_query:
+            await update.callback_query.edit_message_text(error_text, parse_mode=ParseMode.MARKDOWN_V2)
+        else:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=error_text, parse_mode=ParseMode.MARKDOWN_V2)
+        return VIEW_MAIN_MENU
+
     if dataset is None:
-        error_text = "❌ Не удалось загрузить список заявок. Попробуйте позже."
+        error_text = "❌ Ошибка связи с сервером."
         if is_callback:
             await update.callback_query.edit_message_text(error_text)
         else:
