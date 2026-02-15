@@ -39,20 +39,20 @@ async def get_chat_info_by_telegram_id(chat_id: int):
     return await _make_request("GET", f"/api/bot/chat/{chat_id}")
 
 
-async def get_all_shops():
-    return await _make_request("GET", "/api/shops?size=1000")
-
-
 async def get_all_contractors():
     return await _make_request("GET", "/api/user/contractors")
 
 
+async def get_all_shops():
+    return await _make_request("GET", "/api/bot/shops?size=1000")
+
+
 async def get_all_work_categories():
-    return await _make_request("GET", "/api/work-categories?size=1000")
+    return await _make_request("GET", "/api/bot/work-categories?size=1000")
 
 
 async def get_all_urgency_categories():
-    return await _make_request("GET", "/api/urgency-categories")
+    return await _make_request("GET", "/api/bot/urgency-categories")
 
 
 async def create_request(request_data: dict):

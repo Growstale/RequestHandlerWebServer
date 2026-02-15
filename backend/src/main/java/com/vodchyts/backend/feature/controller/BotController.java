@@ -3,10 +3,7 @@ package com.vodchyts.backend.feature.controller;
 import com.vodchyts.backend.exception.OperationNotAllowedException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.*;
-import com.vodchyts.backend.feature.service.AdminService;
-import com.vodchyts.backend.feature.service.RequestService;
-import com.vodchyts.backend.feature.service.ShopContractorChatService;
-import com.vodchyts.backend.feature.service.UserService;
+import com.vodchyts.backend.feature.service.*;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,8 +19,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/bot")
 public class BotController {
-
-    // Обновленная структура запроса от бота (теперь включает parentCommentID)
     record BotActionRequest(Long telegram_id) {}
     record BotCommentRequest(Long telegram_id, String commentText, Integer parentCommentID) {}
 
@@ -32,13 +27,19 @@ public class BotController {
     private final ShopContractorChatService chatService;
     private final RequestService requestService;
     private final ReactiveRoleRepository roleRepository;
+    private final WorkCategoryService workCategoryService;
+    private final UrgencyCategoryService urgencyCategoryService;
+    private final ShopService shopService;
 
-    public BotController(UserService userService, AdminService adminService, ShopContractorChatService chatService, RequestService requestService, ReactiveRoleRepository roleRepository) {
+    public BotController(UserService userService, AdminService adminService, ShopContractorChatService chatService, RequestService requestService, ReactiveRoleRepository roleRepository, WorkCategoryService workCategoryService, UrgencyCategoryService urgencyCategoryService, ShopService shopService) {
         this.userService = userService;
         this.adminService = adminService;
         this.chatService = chatService;
         this.requestService = requestService;
         this.roleRepository = roleRepository;
+        this.workCategoryService = workCategoryService;
+        this.urgencyCategoryService = urgencyCategoryService;
+        this.shopService = shopService;
     }
 
     @GetMapping("/user/telegram/{telegramId}")
@@ -79,33 +80,24 @@ public class BotController {
                             String roleName = role.getRoleName();
                             List<String> sortParams = (sort != null && !sort.isEmpty()) ? sort : List.of("requestID,asc");
 
-                            // Проверяем: личный это чат или групповой
                             boolean isPrivateChat = (chat_id == null || chat_id.equals(telegram_id));
 
                             if (isPrivateChat) {
-                                // --- ЛОГИКА ДЛЯ ЛИЧНОГО ЧАТА ---
                                 if ("RetailAdmin".equals(roleName)) {
-                                    // 1. Админ в личке: видит ВСЕ заявки системы
                                     return requestService.getAllRequests(archived, searchTerm, null, null, null, null, null, null, null, null, sortParams, page, size, user.getLogin());
                                 } else if ("Contractor".equals(roleName)) {
-                                    // 3. Подрядчик в личке: видит ВСЕ СВОИ заявки по всем магазинам
                                     return requestService.getAllRequests(archived, searchTerm, null, null, null, user.getUserID(), null, null, null, null, sortParams, page, size, user.getLogin());
                                 }
                             } else {
-                                // --- ЛОГИКА ДЛЯ ГРУППОВОГО ЧАТА ---
                                 return chatService.findByTelegramId(chat_id)
                                         .switchIfEmpty(Mono.error(new OperationNotAllowedException("Этот чат не привязан ни к одной связке Магазин-Подрядчик.")))
                                         .flatMap(link -> {
                                             if ("RetailAdmin".equals(roleName)) {
-                                                // 2. Админ в группе: видит только заявки ЭТОГО магазина и ЭТОГО подрядчика (из связки)
                                                 return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, link.contractorID(), null, null, null, null, sortParams, page, size, user.getLogin());
                                             } else if ("Contractor".equals(roleName)) {
-                                                // 4. Подрядчик в группе
-                                                // Проверка: тот ли это подрядчик?
                                                 if (link.contractorID() != null && !link.contractorID().equals(user.getUserID())) {
                                                     return Mono.error(new OperationNotAllowedException("У вас нет прав доступа к заявкам в этом чате (чат закреплен за другим исполнителем)."));
                                                 }
-                                                // Видит только свои заявки именно в этом магазине
                                                 return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, user.getUserID(), null, null, null, null, sortParams, page, size, user.getLogin());
                                             }
                                             return Mono.error(new OperationNotAllowedException("Доступ запрещен."));
@@ -176,5 +168,25 @@ public class BotController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> deletePhotoFromBot(@PathVariable Integer photoId) {
         return requestService.deletePhoto(photoId);
+    }
+
+    @GetMapping("/shops")
+    public Mono<PagedResponse<ShopResponse>> getShopsForBot(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1000") int size) {
+        return adminService.getAllUsers(null, null, page, size) // или вызов ShopService
+                .flatMap(u -> shopService.getAllShops(null, page, size));
+    }
+
+    @GetMapping("/work-categories")
+    public Mono<PagedResponse<WorkCategoryResponse>> getWorkCategoriesForBot(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1000") int size) {
+        return workCategoryService.getAllWorkCategories(null, page, size);
+    }
+
+    @GetMapping("/urgency-categories")
+    public Flux<UrgencyCategoryResponse> getUrgencyCategoriesForBot() {
+        return urgencyCategoryService.getAllUrgencyCategories();
     }
 }
