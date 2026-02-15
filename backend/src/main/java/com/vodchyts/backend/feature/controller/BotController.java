@@ -1,5 +1,6 @@
 package com.vodchyts.backend.feature.controller;
 
+import com.vodchyts.backend.exception.OperationNotAllowedException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.*;
 import com.vodchyts.backend.feature.service.AdminService;
@@ -14,6 +15,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
+import com.vodchyts.backend.feature.repository.ReactiveRoleRepository;
 
 import java.util.List;
 
@@ -29,12 +31,14 @@ public class BotController {
     private final AdminService adminService;
     private final ShopContractorChatService chatService;
     private final RequestService requestService;
+    private final ReactiveRoleRepository roleRepository;
 
-    public BotController(UserService userService, AdminService adminService, ShopContractorChatService chatService, RequestService requestService) {
+    public BotController(UserService userService, AdminService adminService, ShopContractorChatService chatService, RequestService requestService, ReactiveRoleRepository roleRepository) {
         this.userService = userService;
         this.adminService = adminService;
         this.chatService = chatService;
         this.requestService = requestService;
+        this.roleRepository = roleRepository;
     }
 
     @GetMapping("/user/telegram/{telegramId}")
@@ -61,6 +65,7 @@ public class BotController {
     @GetMapping("/requests")
     public Mono<PagedResponse<RequestResponse>> getRequestsForBot(
             @RequestParam Long telegram_id,
+            @RequestParam(required = false) Long chat_id,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "5") int size,
             @RequestParam(required = false) boolean archived,
@@ -68,20 +73,49 @@ public class BotController {
             @RequestParam(required = false) List<String> sort
     ) {
         return userService.findByTelegramId(telegram_id)
-                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с таким Telegram ID не найден.")))
-                .flatMap(user -> {
-                    List<String> sortParams = (sort != null && !sort.isEmpty())
-                            ? sort
-                            : List.of("requestID,asc");
+                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь не найден в системе.")))
+                .flatMap(user -> roleRepository.findById(user.getRoleID())
+                        .flatMap(role -> {
+                            String roleName = role.getRoleName();
+                            List<String> sortParams = (sort != null && !sort.isEmpty()) ? sort : List.of("requestID,asc");
 
-                    return requestService.getAllRequests(
-                            archived, searchTerm, null, null, null, null,
-                            null, null,
-                            null, null,
-                            sortParams, page, size, user.getLogin()
-                    );
-                });
+                            // Проверяем: личный это чат или групповой
+                            boolean isPrivateChat = (chat_id == null || chat_id.equals(telegram_id));
+
+                            if (isPrivateChat) {
+                                // --- ЛОГИКА ДЛЯ ЛИЧНОГО ЧАТА ---
+                                if ("RetailAdmin".equals(roleName)) {
+                                    // 1. Админ в личке: видит ВСЕ заявки системы
+                                    return requestService.getAllRequests(archived, searchTerm, null, null, null, null, null, null, null, null, sortParams, page, size, user.getLogin());
+                                } else if ("Contractor".equals(roleName)) {
+                                    // 3. Подрядчик в личке: видит ВСЕ СВОИ заявки по всем магазинам
+                                    return requestService.getAllRequests(archived, searchTerm, null, null, null, user.getUserID(), null, null, null, null, sortParams, page, size, user.getLogin());
+                                }
+                            } else {
+                                // --- ЛОГИКА ДЛЯ ГРУППОВОГО ЧАТА ---
+                                return chatService.findByTelegramId(chat_id)
+                                        .switchIfEmpty(Mono.error(new OperationNotAllowedException("Этот чат не привязан ни к одной связке Магазин-Подрядчик.")))
+                                        .flatMap(link -> {
+                                            if ("RetailAdmin".equals(roleName)) {
+                                                // 2. Админ в группе: видит только заявки ЭТОГО магазина и ЭТОГО подрядчика (из связки)
+                                                return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, link.contractorID(), null, null, null, null, sortParams, page, size, user.getLogin());
+                                            } else if ("Contractor".equals(roleName)) {
+                                                // 4. Подрядчик в группе
+                                                // Проверка: тот ли это подрядчик?
+                                                if (link.contractorID() != null && !link.contractorID().equals(user.getUserID())) {
+                                                    return Mono.error(new OperationNotAllowedException("У вас нет прав доступа к заявкам в этом чате (чат закреплен за другим исполнителем)."));
+                                                }
+                                                // Видит только свои заявки именно в этом магазине
+                                                return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, user.getUserID(), null, null, null, null, sortParams, page, size, user.getLogin());
+                                            }
+                                            return Mono.error(new OperationNotAllowedException("Доступ запрещен."));
+                                        });
+                            }
+                            return Mono.error(new OperationNotAllowedException("У вас недостаточно прав."));
+                        })
+                );
     }
+
 
     @GetMapping("/requests/{requestId}")
     public Mono<RequestResponse> getRequestDetailsForBot(@RequestParam Long telegram_id, @PathVariable Integer requestId) {
