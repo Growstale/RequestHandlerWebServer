@@ -11,10 +11,20 @@ import api_client
 from utils import create_paginated_keyboard
 from bot_logging import logger
 import time
+from telegram import ForceReply
 
 
 USER_LAST_ACTION_TIME = {}
 COOLDOWN_SECONDS = 1.0
+REPLY_COMMENT_SELECT = 29
+
+
+def format_dt(iso_str: str) -> str:
+    try:
+        dt = datetime.datetime.fromisoformat(iso_str)
+        return dt.strftime('%H:%M %d.%m.%Y')
+    except:
+        return iso_str
 
 
 def check_rate_limit(user_id: int) -> bool:
@@ -658,52 +668,54 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
     await safe_answer_query(query)
     data = query.data
 
+    if "back_to_request" in data:
+        req_id = int(data.split('_')[-1])
+        return await show_request_details_in_message(query, context, req_id)
+
+    if data.startswith('start_reply_cmt_'):
+        return await start_reply_comment_handler(update, context)
+
     if data.startswith('start_del_cmt_'):
         return await start_delete_comment_handler(update, context)
 
     if data.startswith('start_del_img_'):
         return await start_delete_photo_handler(update, context)
 
-    parts = data.split('_')
+    if data.startswith('act_add_comment_'):
+        parts = data.split('_')
+        try:
+            req_id = int(parts[3])
+            parent_id = int(parts[4]) if len(parts) > 4 else None
 
-    if len(parts) < 2:
+            context.user_data['current_request_id'] = req_id
+            context.user_data['parent_comment_id'] = parent_id
+
+            text = "💬 Введите текст вашего ОТВЕТА:" if parent_id else "💬 Введите текст КОММЕНТАРИЯ:"
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text,
+                reply_markup=ForceReply(selective=True)
+            )
+            return VIEW_ADD_COMMENT
+        except (IndexError, ValueError):
+            return VIEW_DETAILS
+
+    parts = data.split('_')
+    if len(parts) < 3:
         return None
 
-    action = "_".join(parts[1:-1]) if len(parts) > 2 else parts[1]
-    value = parts[-1]
+    action = parts[1]
+    value = parts[2]
 
-    if action == 'back' and value == 'list':
-        class FakeUpdate:
-            def __init__(self, query):
-                class FakeCallbackQuery:
-                    def __init__(self, q):
-                        self.from_user = q.from_user
-                        self.data = q.data
-                        self.message = q.message
+    if action == 'back':
+        if value == 'list':
+            class FakeUpdate:
+                def __init__(self, q):
+                    self.callback_query = q
+                    self.effective_chat = q.message.chat
+                    self.effective_user = q.from_user
 
-                self.callback_query = FakeCallbackQuery(query)
-                self.effective_chat = query.message.chat
-                self.effective_user = query.from_user
-
-        fake_update = FakeUpdate(query)
-        return await render_main_view_menu(fake_update, context, is_callback=True)
-
-    elif action == 'back' and value == 'details':
-        await query.delete_message()
-
-        class FakeUpdate:
-            class FakeMessage:
-                text = f"/{value}"
-
-            message = FakeMessage()
-            effective_user = query.from_user
-            effective_chat = query.message.chat
-
-        return await view_request_details(FakeUpdate(query), context)
-
-    elif action == 'back_to_request':
-        request_id = int(value)
-        return await show_request_details_in_message(query, context, request_id)
+            return await render_main_view_menu(FakeUpdate(query), context, is_callback=True)
 
     elif action == 'complete':
         await complete_request_action(query, context, int(value))
@@ -717,26 +729,13 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
         await show_photos(query, context, int(value))
         return VIEW_DETAILS
 
-    elif action == 'add_comment':
-        parts_val = value.split('_')
-        req_id = int(parts_val[0])
-        parent_id = int(parts_val[1]) if len(parts_val) > 1 else None
-
-        context.user_data['current_request_id'] = req_id
-        context.user_data['parent_comment_id'] = parent_id
-
-        await query.edit_message_text("Введите текст вашего ответа:" if parent_id else "Введите текст комментария:")
-        return VIEW_ADD_COMMENT
-
     elif action == 'add_photo':
-        await query.delete_message()
         request_id = int(value)
         context.user_data['current_request_id'] = request_id
-        prompt_message = await context.bot.send_message(
+        await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="📤 Пожалуйста, отправьте фото для заявки. Максимум 10 фото на заявку."
+            text="📤 Отправьте одно или несколько фото для заявки:"
         )
-        context.user_data['photo_prompt_message_id'] = prompt_message.message_id
         return VIEW_ADD_PHOTO
 
     elif action == 'edit':
@@ -758,23 +757,57 @@ async def show_comments(query, context: Context, request_id: int):
         return
 
     text = f"💬 *Комментарии к заявке \\#{request_id}*\n\n"
+
     for c in comments:
+        time_str = escape_markdown(format_dt(c['createdAt']))
         author = escape_markdown(c['userLogin'])
         msg_text = escape_markdown(c['commentText'])
-        text += f"👤 *{author}*:\n{msg_text}\n"
+
+        text += f"👤 *{author}* \\[{time_str}\\]:\n{msg_text}\n"
 
         for r in c.get('replies', []):
+            r_time = escape_markdown(format_dt(r['createdAt']))
             r_author = escape_markdown(r['userLogin'])
             r_text = escape_markdown(r['commentText'])
-            text += f"  ↳ 👤 *{r_author}*: {r_text}\n"
+            text += f"  ↳ 👤 *{r_author}* \\[{r_time}\\]: {r_text}\n"
         text += "\n"
 
+    if len(text) > 4000:
+        text = text[:3900] + "\n\\.\\.\\.\n_\\(сообщения слишком длинные, показана часть\\)_"
+
     keyboard = []
+    keyboard.append([InlineKeyboardButton("↩️ Ответить на коммент", callback_data=f"start_reply_cmt_{request_id}")])
+
     if is_admin:
         keyboard.append([InlineKeyboardButton("🗑 Удалить комментарий", callback_data=f"start_del_cmt_{request_id}")])
+
     keyboard.append([InlineKeyboardButton("◀️ Назад к заявке", callback_data=f"act_back_to_request_{request_id}")])
 
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN_V2)
+
+
+async def start_reply_comment_handler(update: Update, context: Context) -> int:
+    query = update.callback_query
+    await safe_answer_query(query)
+
+    request_id = int(query.data.split('_')[-1])
+    comments = await api_client.get_comments(request_id)
+
+    if not comments:
+        await query.answer("Нет комментариев")
+        return VIEW_DETAILS
+
+    keyboard = []
+    for c in comments:
+        snippet = c['commentText'][:25] + "..." if len(c['commentText']) > 25 else c['commentText']
+        keyboard.append([InlineKeyboardButton(f"💬 {c['userLogin']}: {snippet}",
+                                              callback_data=f"act_add_comment_{request_id}_{c['commentID']}")])
+
+    keyboard.append([InlineKeyboardButton("🔙 Отмена", callback_data=f"act_comments_{request_id}")])
+
+    await query.edit_message_text("Выберите комментарий, на который хотите ответить:",
+                                  reply_markup=InlineKeyboardMarkup(keyboard))
+    return REPLY_COMMENT_SELECT
 
 
 async def start_delete_comment_handler(update: Update, context: Context) -> int:
@@ -806,12 +839,45 @@ async def start_delete_comment_handler(update: Update, context: Context) -> int:
 async def confirm_delete_comment_handler(update: Update, context: Context) -> int:
     query = update.callback_query
     if not check_rate_limit(update.effective_user.id): return DELETE_COMMENT_SELECT
+    await safe_answer_query(query)
+
     _, _, _, comment_id, request_id = query.data.split('_')
+    comment_id = int(comment_id)
+    request_id = int(request_id)
 
-    await api_client.delete_comment(int(comment_id))
-    await query.answer("Комментарий удален")
+    all_comments = await api_client.get_comments(request_id)
 
-    await show_comments(query, context, int(request_id))
+    target_comment = None
+    for c in all_comments:
+        if c['commentID'] == comment_id:
+            target_comment = c
+            break
+
+    if not target_comment:
+        await query.edit_message_text("❌ Комментарий уже удален.")
+        return VIEW_DETAILS
+
+    has_children = len(target_comment.get('replies', [])) > 0
+
+    if has_children and not query.data.startswith("force_del_cmt_"):
+        child_count = len(target_comment['replies'])
+        keyboard = [
+            [InlineKeyboardButton(f"⚠️ Да, удалить всё ({child_count + 1} сообщ.)",
+                                  callback_data=f"force_del_cmt_{comment_id}_{request_id}")],
+            [InlineKeyboardButton("🔙 Отмена", callback_data=f"act_comments_{request_id}")]
+        ]
+        await query.edit_message_text(
+            f"❓ *Внимание\\!*\n\nУ этого комментария есть ответы \\({child_count} шт\\.\\)\\.\n"
+            f"Если вы его удалите, *вся ветка ответов* также исчезнет\\. Вы уверены?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return DELETE_COMMENT_SELECT
+
+    await api_client.delete_comment(comment_id)
+    await query.answer("✅ Комментарий и ответы удалены")
+
+    await show_comments(query, context, request_id)
     return VIEW_DETAILS
 
 
@@ -959,12 +1025,21 @@ async def finalize_delete_photo_handler(update: Update, context: Context) -> int
 
 
 async def add_comment_handler(update: Update, context: Context) -> int:
-    if not check_rate_limit(update.effective_user.id): return VIEW_ADD_COMMENT
-    comment_text = update.message.text
+    if not check_rate_limit(update.effective_user.id):
+        return VIEW_ADD_COMMENT
+
+    comment_text = update.message.text or update.message.caption
+    if not comment_text:
+        await update.message.reply_text("⚠️ Пожалуйста, введите текст комментария.")
+        return VIEW_ADD_COMMENT
+
     request_id = context.user_data.get('current_request_id')
+    parent_id = context.user_data.pop('parent_comment_id', None)
     user_id = update.effective_user.id
 
-    parent_id = context.user_data.pop('parent_comment_id', None)
+    if not request_id:
+        await update.message.reply_text("❌ Ошибка: сессия потеряна. Откройте заявку заново.")
+        return ConversationHandler.END
 
     try:
         await update.message.delete()
@@ -973,8 +1048,16 @@ async def add_comment_handler(update: Update, context: Context) -> int:
 
     response = await api_client.add_comment(request_id, user_id, comment_text, parent_id)
 
-    if not response:
-        await context.bot.send_message(update.effective_chat.id, "❌ Ошибка при отправке.")
+    if response:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"✅ Комментарий к заявке #{request_id} добавлен."
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ошибка бэкенда при сохранении комментария."
+        )
 
     _invalidate_requests_cache(context)
     await restore_request_menu(context, update.effective_chat.id, user_id, request_id)

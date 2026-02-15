@@ -570,21 +570,42 @@ public class RequestService {
                                 .flatMap(savedComment -> {
                                     String author = notificationService.escapeMarkdown(user.getLogin());
                                     String safeText = notificationService.escapeMarkdown(dto.commentText());
-                                    String msg = String.format(
-                                            "💬 *Новый комментарий к заявке \\#%d*\n👤 *От:* %s\n\n%s",
-                                            requestId, author, safeText
-                                    );
 
-                                    return chatRepository.findTelegramIdByRequestId(requestId)
-                                            .flatMap(chatId -> {
-                                                // Если это корень — отвечаем на него. Если это уже ответ — отвечаем на его родителя.
-                                                Integer replyToId = (dto.parentCommentID() == null)
-                                                        ? savedComment.getCommentID()
-                                                        : dto.parentCommentID();
+                                    if (dto.parentCommentID() != null) {
+                                        return commentRepository.findById(dto.parentCommentID())
+                                                .flatMap(parentComment -> {
+                                                    String parentText = parentComment.getCommentText();
+                                                    String parentSnippet = parentText.length() > 50
+                                                            ? parentText.substring(0, 47) + "..."
+                                                            : parentText;
 
-                                                return notificationService.sendCommentNotification(chatId, msg, requestId, replyToId);
-                                            })
-                                            .thenReturn(savedComment);
+                                                    String safeParentSnippet = notificationService.escapeMarkdown(parentSnippet);
+
+                                                    String msg = String.format(
+                                                            "↩️ *ОТВЕТ пользователю в заявке \\#%d*\n" +
+                                                                    "💬 _На комментарий: \"%s\"_\n" +
+                                                                    "👤 *От:* %s\n\n%s",
+                                                            requestId, safeParentSnippet, author, safeText
+                                                    );
+
+                                                    return chatRepository.findTelegramIdByRequestId(requestId)
+                                                            .flatMap(chatId ->
+                                                                    notificationService.sendCommentNotification(chatId, msg, requestId, null)
+                                                            )
+                                                            .thenReturn(savedComment);
+                                                });
+                                    } else {
+                                        String msg = String.format(
+                                                "💬 *Новый комментарий к заявке \\#%d*\n👤 *От:* %s\n\n%s",
+                                                requestId, author, safeText
+                                        );
+
+                                        return chatRepository.findTelegramIdByRequestId(requestId)
+                                                .flatMap(chatId ->
+                                                        notificationService.sendCommentNotification(chatId, msg, requestId, savedComment.getCommentID())
+                                                )
+                                                .thenReturn(savedComment);
+                                    }
                                 });
                     });
                 })
@@ -598,6 +619,7 @@ public class RequestService {
                         new ArrayList<>()
                 )));
     }
+
 
     public Flux<byte[]> getPhotosForRequest(Integer requestId) {
         return photoRepository.findByRequestID(requestId)
@@ -819,8 +841,11 @@ public class RequestService {
 
     public Mono<Void> deleteComment(Integer commentId) {
         return commentRepository.findById(commentId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Комментарий с ID " + commentId + " не найден")))
-                .flatMap(commentRepository::delete);
+                .switchIfEmpty(Mono.error(new RuntimeException("Комментарий не найден")))
+                .flatMap(comment ->
+                        commentRepository.deleteByParentCommentID(commentId)
+                                .then(commentRepository.deleteById(commentId))
+                );
     }
 
     private Mono<RequestResponse> sendCreationNotification(RequestResponse response) {
