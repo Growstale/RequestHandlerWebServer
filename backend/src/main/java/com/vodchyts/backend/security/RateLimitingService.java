@@ -17,13 +17,13 @@ public class RateLimitingService {
 
     private Bucket createNewLoginBucket() {
         return Bucket.builder()
-                .addLimit(Bandwidth.classic(5, Refill.intervally(5, Duration.ofMinutes(5))))
+                .addLimit(Bandwidth.classic(20, Refill.intervally(20, Duration.ofMinutes(1))))
                 .build();
     }
 
     private Bucket createNewGeneralBucket() {
         return Bucket.builder()
-                .addLimit(Bandwidth.classic(50, Refill.intervally(50, Duration.ofMinutes(1))))
+                .addLimit(Bandwidth.classic(500, Refill.intervally(500, Duration.ofMinutes(1))))
                 .build();
     }
 

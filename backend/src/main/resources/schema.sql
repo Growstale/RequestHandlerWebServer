@@ -236,6 +236,21 @@ CREATE TABLE dbo.RefreshTokens (
 )
 END;
 
+-- 17. WebNotifications
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='WebNotifications' AND xtype='U')
+BEGIN
+CREATE TABLE WebNotifications (
+                                  NotificationID INT IDENTITY(1,1) PRIMARY KEY,
+                                  UserID INT NOT NULL,
+                                  RequestID INT NULL,
+                                  Title NVARCHAR(200),
+                                  Message NVARCHAR(MAX),
+                                  CreatedAt DATETIME DEFAULT GETDATE(),
+                                  IsRead BIT DEFAULT 0,
+                                  CONSTRAINT FK_WebNotifications_Users FOREIGN KEY (UserID) REFERENCES Users(UserID) ON DELETE CASCADE
+)
+END;
+
 -- =============================================
 -- Создание индексов
 -- =============================================

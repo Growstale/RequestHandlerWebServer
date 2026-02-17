@@ -189,4 +189,10 @@ public class BotController {
     public Flux<UrgencyCategoryResponse> getUrgencyCategoriesForBot() {
         return urgencyCategoryService.getAllUrgencyCategories();
     }
+
+    @GetMapping("/user/contractors")
+    public Flux<UserResponse> getContractorsForBot() {
+        return adminService.getAllUsers("Contractor", null, 0, 1000)
+                .flatMapMany(pagedResponse -> Flux.fromIterable(pagedResponse.content()));
+    }
 }

@@ -40,7 +40,7 @@ async def get_chat_info_by_telegram_id(chat_id: int):
 
 
 async def get_all_contractors():
-    return await _make_request("GET", "/api/user/contractors")
+    return await _make_request("GET", "/api/bot/user/contractors")
 
 
 async def get_all_shops():
