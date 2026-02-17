@@ -190,7 +190,7 @@ async def main():
             CommandHandler("requests", view_requests_start),
             MessageHandler(filters.Regex(r'^\/[_]*(\d+)[_]*$'), view_request_details),
             MessageHandler(filters.Regex("^📋 Мои заявки$"), view_requests_start),
-            CallbackQueryHandler(action_callback_handler, pattern="^act_add_comment_")
+            CallbackQueryHandler(action_callback_handler, pattern="^act_")
         ],
         states={
             VIEW_MAIN_MENU: [

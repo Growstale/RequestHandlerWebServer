@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMe
 import datetime
 import math
 import asyncio
-
+import html
 from typing import Dict, Any, Coroutine, List, Tuple
 from telegram.ext import ContextTypes, ConversationHandler, CallbackContext, ExtBot
 from telegram.constants import ParseMode, ChatType
@@ -697,50 +697,62 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
     if not check_rate_limit(update.effective_user.id):
         await query.answer("⚠️ Подождите...", show_alert=False)
         return VIEW_DETAILS
+
     await safe_answer_query(query)
     data = query.data
 
+    # Обработка возврата к заявке
     if "back_to_request" in data:
         req_id = int(data.split('_')[-1])
         return await show_request_details_in_message(query, context, req_id)
 
-    if data.startswith('start_reply_cmt_'):
-        return await start_reply_comment_handler(update, context)
+    # Логика удаления и ответов
+    if data.startswith('start_reply_cmt_'): return await start_reply_comment_handler(update, context)
+    if data.startswith('start_del_cmt_'): return await start_delete_comment_handler(update, context)
+    if data.startswith('start_del_img_'): return await start_delete_photo_handler(update, context)
 
-    if data.startswith('start_del_cmt_'):
-        return await start_delete_comment_handler(update, context)
-
-    if data.startswith('start_del_img_'):
-        return await start_delete_photo_handler(update, context)
-
-    if data.startswith('act_add_comment_'):
+    # ПРАВИЛЬНЫЙ ПАРСИНГ:
+    # act_add_photo_123 -> action: add_photo, req_id: 123
+    if data.startswith('act_'):
         parts = data.split('_')
-        try:
+        # Если формат act_add_photo_123 (4 части)
+        if len(parts) >= 4:
+            action = f"{parts[1]}_{parts[2]}"  # 'add_photo'
             req_id = int(parts[3])
-            parent_id = int(parts[4]) if len(parts) > 4 else None
+        # Если формат act_comments_123 (3 части)
+        elif len(parts) == 3:
+            action = parts[1]  # 'comments'
+            req_id = int(parts[2])
+        else:
+            return None
 
+        # ДЕЙСТВИЕ: ДОБАВИТЬ ФОТО
+        if action == 'add_photo':
+            context.user_data['current_request_id'] = req_id
+            # Удаляем старое сообщение с кнопками или редактируем его, чтобы не мешало
+            sent_msg = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="📤 <b>Отправьте одно или несколько фото</b> для заявки.\n\n"
+                     "<i>Вы можете отправить их группой (альбомом). Как только загрузка закончится, меню обновится.</i>",
+                parse_mode=ParseMode.HTML
+            )
+            context.user_data['photo_prompt_message_id'] = sent_msg.message_id
+            return VIEW_ADD_PHOTO
+
+        # ДЕЙСТВИЕ: ДОБАВИТЬ КОММЕНТАРИЙ
+        elif action == 'add_comment':
+            # Логика ответа на комментарий (если есть 5-й элемент - parent_id)
+            parent_id = int(parts[4]) if len(parts) > 4 else None
             context.user_data['current_request_id'] = req_id
             context.user_data['parent_comment_id'] = parent_id
 
             text = "💬 Введите текст вашего ОТВЕТА:" if parent_id else "💬 Введите текст КОММЕНТАРИЯ:"
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=text,
-                reply_markup=ForceReply(selective=True)
-            )
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=text,
+                                           reply_markup=ForceReply(selective=True))
             return VIEW_ADD_COMMENT
-        except (IndexError, ValueError):
-            return VIEW_DETAILS
 
-    parts = data.split('_')
-    if len(parts) < 3:
-        return None
-
-    action = parts[1]
-    value = parts[2]
-
-    if action == 'back':
-        if value == 'list':
+        # Остальные действия
+        elif action == 'back':
             class FakeUpdate:
                 def __init__(self, q):
                     self.callback_query = q
@@ -749,29 +761,20 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
 
             return await render_main_view_menu(FakeUpdate(query), context, is_callback=True)
 
-    elif action == 'complete':
-        await complete_request_action(query, context, int(value))
-        return VIEW_DETAILS
+        elif action == 'complete':
+            await complete_request_action(query, context, req_id)
+            return VIEW_DETAILS
 
-    elif action == 'comments':
-        await show_comments(query, context, int(value))
-        return VIEW_DETAILS
+        elif action == 'comments':
+            await show_comments(query, context, req_id)
+            return VIEW_DETAILS
 
-    elif action == 'photos':
-        await show_photos(query, context, int(value))
-        return VIEW_DETAILS
+        elif action == 'photos':
+            await show_photos(query, context, req_id)
+            return VIEW_DETAILS
 
-    elif action == 'add_photo':
-        request_id = int(value)
-        context.user_data['current_request_id'] = request_id
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="📤 Отправьте одно или несколько фото для заявки:"
-        )
-        return VIEW_ADD_PHOTO
-
-    elif action == 'edit':
-        return await start_edit_request(update, context)
+        elif action == 'edit':
+            return await start_edit_request(update, context)
 
     return None
 
@@ -1258,7 +1261,7 @@ async def new_request_start(update: Update, context: CallbackContext) -> int:
         chat_id = update.message.chat.id
         chat_info = await api_client.get_chat_info_by_telegram_id(chat_id)
 
-        if chat_info:
+        if chat_info and isinstance(chat_info, dict) and "shopID" in chat_info:
             context.user_data['request_data']['shopID'] = chat_info['shopID']
             context.user_data['request_data']['assignedContractorID'] = chat_info['contractorID']
             await update.message.reply_text(
@@ -1583,40 +1586,44 @@ async def render_editor_menu(update: Update, context: Context):
 
     text = f"🛠 <b>{'СОЗДАНИЕ' if is_new else 'РЕДАКТИРОВАНИЕ'} ЗАЯВКИ</b>\n\n"
 
-    shop_name = draft.get('shopName', '--- Не выбрано ---')
-    contr_name = draft.get('contractorName', '--- Не выбрано ---')
-    work_name = draft.get('workCategoryName', '--- Не выбрано ---')
+    # Используем html.escape вместо escape_markdown для HTML-парсмода
+    shop_name = html.escape(draft.get('shopName', '--- Не выбрано ---'))
+    contr_name = html.escape(draft.get('contractorName', '--- Не выбрано ---'))
+    work_name = html.escape(draft.get('workCategoryName', '--- Не выбрано ---'))
+
     urg_raw = draft.get('urgencyName')
-    urg_name = get_urgency_ru(urg_raw) if urg_raw else '--- Не выбрано ---'
+    urg_name = html.escape(get_urgency_ru(urg_raw) if urg_raw else '--- Не выбрано ---')
 
     if draft.get('customDays'):
         urg_name += f" ({draft['customDays']} дн.)"
 
     desc = draft.get('description', '--- Не заполнено ---')
+    if desc is None: desc = '--- Не заполнено ---'
 
     text += f"🏪 <b>Магазин:</b> {shop_name}\n"
     text += f"👷 <b>Исполнитель:</b> {contr_name}\n"
     text += f"📋 <b>Вид работ:</b> {work_name}\n"
     text += f"🔥 <b>Срочность:</b> {urg_name}\n"
-    text += f"📝 <b>Описание:</b>\n<i>{escape_markdown(desc[:100])}{'...' if len(desc) > 100 else ''}</i>\n"
+    # Экранируем описание только после обрезки
+    short_desc = html.escape(desc[:100])
+    text += f"📝 <b>Описание:</b>\n<i>{short_desc}{'...' if len(desc) > 100 else ''}</i>\n"
 
     if not is_new:
-        text += f"\n📊 <b>Статус:</b> {draft.get('status', 'In work')}"
+        text += f"\n📊 <b>Статус:</b> {html.escape(draft.get('status', 'In work'))}"
 
     keyboard = _get_editor_keyboard(draft, is_new, user_info.get('roleName'))
 
-    if update.callback_query:
-        try:
+    try:
+        if update.callback_query:
             await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
-        except BadRequest:
-            pass
-    else:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=text,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML
-        )
+        else:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard,
+                                           parse_mode=ParseMode.HTML)
+    except BadRequest as e:
+        # Теперь мы увидим ошибку в логах, если она возникнет
+        logger.error(f"Ошибка отрисовки меню редактора: {e}")
+        if update.callback_query:
+            await update.callback_query.answer("⚠️ Ошибка отображения меню", show_alert=True)
 
     return EDITOR_MAIN_MENU
 
@@ -1641,7 +1648,7 @@ async def start_create_request(update: Update, context: Context) -> int:
     if chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
         chat_info = await api_client.get_chat_info_by_telegram_id(chat.id)
 
-        if not chat_info:
+        if not chat_info or (isinstance(chat_info, dict) and "error_message" in chat_info):
             await update.message.reply_text(
                 "❌ Этот чат не зарегистрирован в системе.\n"
                 "Создание заявок разрешено только в привязанных чатах магазинов или в личке с ботом."
@@ -1918,59 +1925,72 @@ async def editor_input_text(update: Update, context: Context) -> int:
         context.user_data['editor_draft']['description'] = text
         return await render_editor_menu(update, context)
 
+
 async def _submit_editor_data(update: Update, context: Context) -> int:
     query = update.callback_query
-    if not check_rate_limit(update.effective_user.id):
-        await query.answer("⚠️ Подождите...", show_alert=False); return EDITOR_MAIN_MENU
-    draft = context.user_data['editor_draft']
-    is_new = context.user_data['editor_is_new']
+    # Важно: даем пользователю фидбек сразу
+    await query.answer("⏳ Сохранение...")
 
-    await query.edit_message_text("⏳ Сохранение данных...", reply_markup=None)
+    draft = context.user_data.get('editor_draft', {})
+    is_new = context.user_data.get('editor_is_new', True)
+
+    await query.edit_message_text("⏳ Отправка данных на сервер...", reply_markup=None)
 
     payload = {
-        "description": draft['description'],
-        "shopID": draft['shopID'],
-        "workCategoryID": draft['workCategoryID'],
-        "urgencyID": draft['urgencyID'],
-        "assignedContractorID": draft['assignedContractorID']
+        "description": draft.get('description'),
+        "shopID": draft.get('shopID'),
+        "workCategoryID": draft.get('workCategoryID'),
+        "urgencyID": draft.get('urgencyID'),
+        "assignedContractorID": draft.get('assignedContractorID')
     }
-
     if 'customDays' in draft:
         payload['customDays'] = draft['customDays']
 
     if is_new:
-        payload['createdByUserID'] = draft['createdByUserID']
+        payload['createdByUserID'] = draft.get('createdByUserID')
         response = await api_client.create_request(payload)
-        success_msg = f"✅ Заявка создана! ID: {response.get('requestID')}" if response else "❌ Ошибка создания."
     else:
         payload['status'] = draft.get('status', 'In work')
-        request_id = draft['requestID']
+        request_id = draft.get('requestID')
         response = await api_client.update_request(request_id, payload)
-        success_msg = f"✅ Заявка #{request_id} обновлена!" if response else "❌ Ошибка обновления."
 
-    if response:
+    # ИСПРАВЛЕННАЯ ПРОВЕРКА: успех может быть словарем (Create) или True (Update)
+    is_success = False
+    error_detail = "Неизвестная ошибка"
+
+    if isinstance(response, dict):
+        if "error_message" in response:
+            error_detail = response["error_message"]
+        else:
+            is_success = True
+    elif response is True:
+        is_success = True
+
+    if is_success:
+        req_id = response.get('requestID') if isinstance(response, dict) else draft.get('requestID')
+        success_text = f"✅ Заявка #{req_id} успешно {'создана' if is_new else 'обновлена'}!"
+
+        await query.edit_message_text(success_text)
+
+        # Сбрасываем кэш, чтобы список заявок обновился
         context.user_data.pop('requests_cache', None)
         context.user_data.pop('requests_cache_key', None)
 
-        await query.edit_message_text(
-            success_msg,
-            reply_markup=None
-        )
-
+        # Удаляем сообщение через 10 секунд
         async def delayed_delete():
+            await asyncio.sleep(10)
             try:
-                await asyncio.sleep(10)
                 await query.delete_message()
-            except Exception as e:
-                logger.warning(f"Не удалось удалить сообщение об успехе: {e}")
+            except:
+                pass
 
         asyncio.create_task(delayed_delete())
 
+        return ConversationHandler.END
     else:
-        await query.answer("Произошла ошибка при сохранении", show_alert=True)
+        # Если произошла ошибка, возвращаемся в меню
+        await query.answer(f"❌ Ошибка: {error_detail}", show_alert=True)
         return await render_editor_menu(update, context)
-
-    return ConversationHandler.END
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:

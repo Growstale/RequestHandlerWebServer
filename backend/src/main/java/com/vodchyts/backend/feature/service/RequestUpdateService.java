@@ -39,7 +39,7 @@ public class RequestUpdateService {
     private final ReactiveRequestCustomDayRepository customDayRepository;
     private final ReactiveShopContractorChatRepository chatRepository;
     private final TelegramNotificationService notificationService;
-
+    private final WebNotificationService webNotificationService;
     private final TaskScheduler taskScheduler;
     private ScheduledFuture<?> overdueCheckTask;
     private ScheduledFuture<?> dailyReminderTask;
@@ -52,13 +52,14 @@ public class RequestUpdateService {
                                 ReactiveUrgencyCategoryRepository urgencyCategoryRepository,
                                 ReactiveRequestCustomDayRepository customDayRepository,
                                 ReactiveShopContractorChatRepository chatRepository,
-                                TelegramNotificationService notificationService) {
+                                TelegramNotificationService notificationService, WebNotificationService webNotificationService) {
         this.template = template;
         this.requestRepository = requestRepository;
         this.urgencyCategoryRepository = urgencyCategoryRepository;
         this.customDayRepository = customDayRepository;
         this.chatRepository = chatRepository;
         this.notificationService = notificationService;
+        this.webNotificationService = webNotificationService;
 
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(2);
@@ -235,30 +236,27 @@ public class RequestUpdateService {
 
     private Mono<Void> sendOverdueAlert(Request request, long daysOverdue) {
         String icon = daysOverdue == 1 ? "⚠️" : "🔥";
-        String desc = request.getDescription();
-        String rawDescription = "";
-
-        if (desc != null) {
-            if (desc.length() > 50) {
-                rawDescription = desc.substring(0, 50) + "...";
-            } else {
-                rawDescription = desc;
-            }
-        }
+        String rawDescription = request.getDescription() != null ?
+                (request.getDescription().length() > 50 ? request.getDescription().substring(0, 50) + "..." : request.getDescription())
+                : "";
 
         String safeDescription = notificationService.escapeMarkdown(rawDescription);
+        String message = String.format("%s *ЗАЯВКА \\#%d ПРОСРОЧЕНА*\n\nСрок истек: *%d дн\\. назад*\nОписание: %s",
+                icon, request.getRequestID(), daysOverdue, safeDescription);
 
-        String message = String.format(
-                "%s *ЗАЯВКА \\#%d ПРОСРОЧЕНА*\n\n" +
-                        "Срок истек: *%d дн\\. назад*\n" +
-                        "Описание: %s",
-                icon, request.getRequestID(), daysOverdue,
-                safeDescription
+        Mono<Void> tgNotification = chatRepository.findTelegramIdByRequestId(request.getRequestID())
+                .flatMap(chatId -> notificationService.sendNotification(chatId, message))
+                .onErrorResume(e -> Mono.empty())
+                .then();
+
+        Mono<Void> webNotification = webNotificationService.send(
+                request.getRequestID(),
+                "⚠️ ПРОСРОЧКА #" + request.getRequestID(),
+                "Заявка просрочена на " + daysOverdue + " дн.! Описание: " + request.getDescription(),
+                request.getAssignedContractorID()
         );
 
-        return chatRepository.findTelegramIdByRequestId(request.getRequestID())
-                .flatMap(chatId -> notificationService.sendNotification(chatId, message))
-                .then();
+        return Mono.when(tgNotification, webNotification);
     }
 
     private boolean isWeekend() {

@@ -9,6 +9,7 @@ import {
     MessageSquare, Mail, Bell, Wrench, FileText, Shield
 } from 'lucide-react';
 import { getRoleDisplayName } from '@/lib/displayNames';
+import NotificationBell from './NotificationBell';
 
 const allLinks = [
   { href: '/dashboard', label: 'Дашборд', icon: LayoutDashboard, roles: ['RetailAdmin'] },
@@ -79,6 +80,11 @@ export default function Sidebar({ open, onClose }) {
         <div className="mt-auto border-t p-3 flex flex-col gap-2 shrink-0 bg-white">
           {user ? (
             <div className="flex flex-col items-start gap-1">
+              
+              <div className="px-2 mb-2">
+                  <NotificationBell />
+              </div>
+
               <span className="px-2 text-sm font-medium text-gray-600 truncate w-full" title={user.username}>
                   {user.username}
               </span>

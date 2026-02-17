@@ -4,7 +4,6 @@ services:
   db:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: sql_server
-    env_file: .env
     ports:
       - "1433:1433"
     volumes:
@@ -19,8 +18,9 @@ services:
       retries: 10
       start_period: 60s
     environment:
-      - TZ=Europe/Minsk
       - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD}
+      - MSSQL_PID=Express
 
   db-init:
     image: mcr.microsoft.com/mssql-tools

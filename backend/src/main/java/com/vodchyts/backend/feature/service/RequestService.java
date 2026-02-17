@@ -46,8 +46,9 @@ public class RequestService {
     private final ReactiveShopContractorChatRepository chatRepository;
     private final ReactiveWorkCategoryRepository workCategoryRepository;
     private final ReactiveUrgencyCategoryRepository urgencyCategoryRepository;
+    private final WebNotificationService webNotificationService;
 
-    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository) {
+    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository, WebNotificationService webNotificationService) {
         this.template = template;
         this.databaseClient = databaseClient;
         this.requestRepository = requestRepository;
@@ -61,6 +62,7 @@ public class RequestService {
         this.chatRepository = chatRepository;
         this.workCategoryRepository = workCategoryRepository;
         this.urgencyCategoryRepository = urgencyCategoryRepository;
+        this.webNotificationService = webNotificationService;
     }
 
 
@@ -353,19 +355,22 @@ public class RequestService {
                         return Mono.just(savedReq);
                     }
 
-                    StringBuilder msgBuilder = new StringBuilder();
-                    msgBuilder.append("✏️ *ЗАЯВКА \\#").append(requestId).append(" ОБНОВЛЕНА*\n\n");
+                    String msg = "✏️ *ЗАЯВКА \\#" + requestId + " ОБНОВЛЕНА*\n\n" + String.join("\n", changes);
 
-                    for (String change : changes) {
-                        msgBuilder.append(change).append("\n");
-                    }
-
-                    String msg = msgBuilder.toString();
-
-                    return chatRepository.findTelegramIdByRequestId(requestId)
+                    // Отправка в ТГ
+                    Mono<Void> tg = chatRepository.findTelegramIdByRequestId(requestId)
                             .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
-                            .onErrorResume(e -> Mono.empty())
-                            .thenReturn(savedReq);
+                            .onErrorResume(e -> Mono.empty()).then();
+
+                    // Добавляем отправку в ВЕБ
+                    Mono<Void> web = webNotificationService.send(
+                            requestId,
+                            "Обновление заявки #" + requestId,
+                            "Администратор изменил параметры заявки.",
+                            savedReq.getAssignedContractorID()
+                    );
+
+                    return Mono.when(tg, web).thenReturn(savedReq);
                 })
                 .flatMap(request -> enrichRequest(request.getRequestID()));
     }
@@ -570,6 +575,7 @@ public class RequestService {
                                 .flatMap(savedComment -> {
                                     String author = notificationService.escapeMarkdown(user.getLogin());
                                     String safeText = notificationService.escapeMarkdown(dto.commentText());
+                                    Mono<Void> tgMono;
 
                                     if (dto.parentCommentID() != null) {
                                         return commentRepository.findById(dto.parentCommentID())
@@ -589,23 +595,29 @@ public class RequestService {
                                                     );
 
                                                     return chatRepository.findTelegramIdByRequestId(requestId)
-                                                            .flatMap(chatId ->
-                                                                    notificationService.sendCommentNotification(chatId, msg, requestId, null)
-                                                            )
+                                                            .flatMap(chatId -> notificationService.sendCommentNotification(chatId, msg, requestId, savedComment.getCommentID()))
+                                                            .flatMap(unused -> webNotificationService.send(
+                                                                    requestId,
+                                                                    "Новый комментарий #" + requestId,
+                                                                    "От: " + user.getLogin() + ". Текст: " + dto.commentText(),
+                                                                    request.getAssignedContractorID()
+                                                            ))
                                                             .thenReturn(savedComment);
                                                 });
                                     } else {
-                                        String msg = String.format(
-                                                "💬 *Новый комментарий к заявке \\#%d*\n👤 *От:* %s\n\n%s",
-                                                requestId, author, safeText
-                                        );
-
-                                        return chatRepository.findTelegramIdByRequestId(requestId)
-                                                .flatMap(chatId ->
-                                                        notificationService.sendCommentNotification(chatId, msg, requestId, savedComment.getCommentID())
-                                                )
-                                                .thenReturn(savedComment);
+                                        String msg = String.format("💬 *Новый комментарий к заявке \\#%d*\n👤 *От:* %s\n\n%s", requestId, author, safeText);
+                                        tgMono = chatRepository.findTelegramIdByRequestId(requestId)
+                                                .flatMap(chatId -> notificationService.sendCommentNotification(chatId, msg, requestId, savedComment.getCommentID()));
                                     }
+                                    Mono<Void> webMono = webNotificationService.send(
+                                            requestId,
+                                            "Новый комментарий #" + requestId,
+                                            "Автор: " + user.getLogin() + ". Текст: " + dto.commentText(),
+                                            request.getAssignedContractorID()
+                                    );
+
+                                    return Mono.when(tgMono.onErrorResume(e -> Mono.empty()), webMono)
+                                            .thenReturn(savedComment);
                                 });
                     });
                 })
@@ -640,35 +652,21 @@ public class RequestService {
                             return Mono.error(new OperationNotAllowedException("Нельзя добавить фото в закрытую заявку"));
 
                         return filePartFlux.flatMap(filePart -> {
-
-                            // ЭТАП 1: Быстрая проверка MIME-типа из заголовков (без чтения контента)
                             String contentType = filePart.headers().getContentType() != null
                                     ? filePart.headers().getContentType().toString()
                                     : "";
 
                             if (!ALLOWED_MIMES.contains(contentType)) {
                                 return Mono.error(new OperationNotAllowedException(
-                                        "Файл " + filePart.filename() + " имеет недопустимый тип данных (разрешены только JPG/PNG)"));
+                                        "Файл " + filePart.filename() + " имеет недопустимый тип данных"));
                             }
 
                             return DataBufferUtils.join(filePart.content())
                                     .flatMap(dataBuffer -> {
                                         int byteCount = dataBuffer.readableByteCount();
-
-                                        if (byteCount > MAX_SINGLE_FILE_SIZE) {
-                                            DataBufferUtils.release(dataBuffer);
-                                            return Mono.error(new OperationNotAllowedException(
-                                                    "Файл " + filePart.filename() + " слишком большой (максимум 5 МБ)"));
-                                        }
-
                                         byte[] bytes = new byte[byteCount];
                                         dataBuffer.read(bytes);
                                         DataBufferUtils.release(dataBuffer);
-
-                                        if (!isValidImageSignature(bytes)) {
-                                            return Mono.error(new OperationNotAllowedException(
-                                                    "Файл " + filePart.filename() + " поврежден или не является настоящим изображением"));
-                                        }
 
                                         RequestPhoto photo = new RequestPhoto();
                                         photo.setRequestID(requestId);
@@ -676,7 +674,8 @@ public class RequestService {
 
                                         return photoRepository.save(photo)
                                                 .flatMap(savedPhoto -> {
-                                                    return chatRepository.findTelegramIdByRequestId(requestId)
+                                                    // 1. Подготовка уведомления для Telegram
+                                                    Mono<Void> tgMono = chatRepository.findTelegramIdByRequestId(requestId)
                                                             .flatMap(chatId -> {
                                                                 String author = notificationService.escapeMarkdown(user.getLogin());
                                                                 String caption = String.format(
@@ -685,10 +684,19 @@ public class RequestService {
                                                                 );
                                                                 return notificationService.sendPhoto(chatId, caption, bytes);
                                                             })
-                                                            .onErrorResume(e -> {
-                                                                System.err.println("Ошибка отправки фото в Telegram: " + e.getMessage());
-                                                                return Mono.empty();
-                                                            });
+                                                            .onErrorResume(e -> Mono.empty())
+                                                            .then();
+
+                                                    // 2. ДОБАВЛЕНО: Уведомление для Веб-клиента
+                                                    Mono<Void> webMono = webNotificationService.send(
+                                                            requestId,
+                                                            "Новое фото #" + requestId,
+                                                            "Пользователь " + user.getLogin() + " добавил фотографию.",
+                                                            request.getAssignedContractorID()
+                                                    );
+
+                                                    // Запускаем оба уведомления параллельно
+                                                    return Mono.when(tgMono, webMono);
                                                 });
                                     });
                         }).then();
@@ -731,6 +739,14 @@ public class RequestService {
 
                         return requestRepository.save(request);
                     });
+                })
+                .flatMap(savedRequest -> {
+                    return webNotificationService.send(
+                            savedRequest.getRequestID(),
+                            "✅ Заявка выполнена #" + savedRequest.getRequestID(),
+                            "Исполнитель отметил заявку как выполненную.",
+                            null
+                    ).thenReturn(savedRequest);
                 })
                 .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()));
     }
@@ -799,10 +815,20 @@ public class RequestService {
                                 String finalMessage = msgBuilder.toString();
 
                                 return requestRepository.save(request)
-                                        .flatMap(savedReq -> chatRepository.findTelegramIdByRequestId(requestId)
-                                                .flatMap(chatId -> notificationService.sendNotification(chatId, finalMessage))
-                                                .onErrorResume(e -> Mono.empty())
-                                                .thenReturn(savedReq));
+                                        .flatMap(savedReq -> {
+                                            Mono<Void> tg = chatRepository.findTelegramIdByRequestId(requestId)
+                                                    .flatMap(chatId -> notificationService.sendNotification(chatId, finalMessage))
+                                                    .onErrorResume(e -> Mono.empty());
+
+                                            Mono<Void> web = webNotificationService.send(
+                                                    requestId,
+                                                    "🔄 Восстановление заявки #" + requestId,
+                                                    "Заявка была возвращена из архива в работу.",
+                                                    savedReq.getAssignedContractorID()
+                                            );
+
+                                            return Mono.when(tg, web).thenReturn(savedReq);
+                                        });
                             });
                 })
                 .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()));
@@ -871,12 +897,19 @@ public class RequestService {
                 safeDescription
         );
 
-        return chatRepository.findTelegramIdByRequestId(response.requestID())
+        Mono<Void> tgNotification = chatRepository.findTelegramIdByRequestId(response.requestID())
                 .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
-                .onErrorResume(e -> {
-                    System.err.println("Failed to send creation notification: " + e.getMessage());
-                    return Mono.empty();
-                })
+                .onErrorResume(e -> Mono.empty())
+                .then();
+
+        Mono<Void> webNotification = webNotificationService.send(
+                response.requestID(),
+                "Новая заявка #" + response.requestID(),
+                "Магазин: " + response.shopName() + ". " + response.description(),
+                response.assignedContractorID()
+        );
+
+        return Mono.when(tgNotification, webNotification)
                 .thenReturn(response);
     }
 
