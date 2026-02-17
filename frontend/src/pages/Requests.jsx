@@ -54,6 +54,8 @@ export default function Requests({ archived = false }) {
 
     const [searchParams, setSearchParams] = useSearchParams();
 
+    const [backToDetails, setBackToDetails] = useState(false);
+
     const searchParamsString = searchParams.toString();
 
     const areFiltersActive = filterKeys.some(key => searchParams.has(key));
@@ -325,6 +327,26 @@ export default function Requests({ archived = false }) {
         }
     };
 
+    useEffect(() => {
+        const openId = searchParams.get('openId');
+        if (openId) {
+            const req = requests.find(r => r.requestID === parseInt(openId));
+            
+            if (req) {
+                setCurrentRequest(req);
+                setIsDetailsOpen(true);
+                setSearchParams(prev => {
+                    prev.delete('openId');
+                    return prev;
+                }, { replace: true });
+            } else if (!loading) {
+                // Если заявки нет на текущей странице, можно либо загрузить её отдельно,
+                // либо просто сбросить фильтры. Для простоты пока просто ищем в текущем списке.
+            }
+        }
+    }, [searchParams, requests, loading]);
+
+
     const handleDeleteConfirm = async () => {
         if (!currentRequest) return;
         try {
@@ -348,23 +370,35 @@ export default function Requests({ archived = false }) {
     const openComments = (req) => { setCurrentRequest(req); setIsCommentsOpen(true); };
     const openPhotos = (req) => { setCurrentRequest(req); setIsPhotosOpen(true); };
 
+    const openCommentsFromDetails = (req) => {
+        setBackToDetails(true);
+        setIsDetailsOpen(false);
+        setCurrentRequest(req);
+        setIsCommentsOpen(true);
+    };
+
+    const openPhotosFromDetails = (req) => {
+        setBackToDetails(true);
+        setIsDetailsOpen(false);
+        setCurrentRequest(req);
+        setIsPhotosOpen(true);
+    };
+
     const handleCommentsModalClose = () => {
         setIsCommentsOpen(false);
-        
-        if (viewMode === 'gantt' && currentRequest) {
+        if (backToDetails) {
             setIsDetailsOpen(true);
+            setBackToDetails(false);
         }
-        
         reloadRequests(true);
     };
 
     const handlePhotosModalClose = () => {
         setIsPhotosOpen(false);
-        
-        if (viewMode === 'gantt' && currentRequest) {
+        if (backToDetails) {
             setIsDetailsOpen(true);
+            setBackToDetails(false);
         }
-
         reloadRequests(true);
     };
     
@@ -744,18 +778,12 @@ export default function Requests({ archived = false }) {
                 onClose={() => setIsDetailsOpen(false)} 
                 request={currentRequest} 
                 footerContent={
-                    viewMode === 'gantt' && currentRequest ? (
+                    currentRequest ? (
                         <div className="flex justify-end gap-2 w-full">
-                            <Button variant="outline" onClick={() => {
-                                setIsDetailsOpen(false);
-                                openComments(currentRequest);
-                            }}>
+                            <Button variant="outline" onClick={() => openCommentsFromDetails(currentRequest)}>
                                 <MessageSquare className="mr-2 h-4 w-4" /> Комментарии ({currentRequest.commentCount})
                             </Button>
-                            <Button variant="outline" onClick={() => {
-                                setIsDetailsOpen(false);
-                                openPhotos(currentRequest);
-                            }}>
+                            <Button variant="outline" onClick={() => openPhotosFromDetails(currentRequest)}>
                                 <Camera className="mr-2 h-4 w-4" /> Фото ({currentRequest.photoCount})
                             </Button>
                         </div>
