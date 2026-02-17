@@ -26,7 +26,10 @@ export default function NotificationBell() {
     const handleAction = async (id, requestId) => {
         await api.delete(`/api/web-notifications/${id}`);
         setNotifications(prev => prev.filter(n => n.notificationID !== id));
-        if (requestId) navigate(`/requests?searchTerm=${requestId}`);
+        
+        if (requestId) {
+            navigate(`/requests?openId=${requestId}`);
+        }
         setOpen(false);
     };
 
