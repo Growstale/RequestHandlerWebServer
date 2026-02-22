@@ -18,16 +18,17 @@ public class WebNotificationService {
     private final ReactiveWebNotificationRepository repository;
     private final ReactiveUserRepository userRepository;
     private final ReactiveRoleRepository roleRepository;
+    private final UpdateBroadcaster updateBroadcaster;
 
     public WebNotificationService(ReactiveWebNotificationRepository repository,
                                   ReactiveUserRepository userRepository,
-                                  ReactiveRoleRepository roleRepository) {
+                                  ReactiveRoleRepository roleRepository, UpdateBroadcaster updateBroadcaster) {
         this.repository = repository;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.updateBroadcaster = updateBroadcaster;
     }
 
-    // Главный метод отправки
     public Mono<Void> send(Integer targetRequestID, String title, String message, Integer onlyForContractorID) {
         return roleRepository.findByRoleName("RetailAdmin")
                 .flatMapMany(adminRole -> userRepository.findAllByRoleID(adminRole.getRoleID()))
@@ -46,7 +47,10 @@ public class WebNotificationService {
                                 wn.setMessage(message);
                                 wn.setCreatedAt(LocalDateTime.now());
                                 wn.setIsRead(false);
-                                return repository.save(wn);
+                                return repository.save(wn)
+                                        .doOnSuccess(saved -> {
+                                            updateBroadcaster.publish("WEB_NOTIFICATION_USER_" + uid);
+                                        });
                             }).then();
                 });
     }

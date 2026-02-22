@@ -33,7 +33,7 @@ public class UserService {
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь не найден")))
                 .flatMap(user ->
                         roleRepository.findById(user.getRoleID())
-                                .map(role -> new UserInfoResponse(user.getLogin(), role.getRoleName()))
+                                .map(role -> new UserInfoResponse(user.getUserID(), user.getLogin(), role.getRoleName()))
                 );
     }
 

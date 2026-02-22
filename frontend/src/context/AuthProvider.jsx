@@ -38,6 +38,7 @@ export function AuthProvider({ children }) {
         attachAccessToken(token)
         const whoamiResp = await api.get('/api/user/whoami')
         setUser({
+          id: whoamiResp.data.userID,
           username: whoamiResp.data.login,
           role: whoamiResp.data.role
         })
@@ -61,6 +62,7 @@ export function AuthProvider({ children }) {
     try {
       const whoamiResp = await api.get('/api/user/whoami')
       setUser({
+        id: whoamiResp.data.userID,
         username: whoamiResp.data.login,
         role: whoamiResp.data.role
       })

@@ -195,4 +195,13 @@ public class BotController {
         return adminService.getAllUsers("Contractor", null, 0, 1000)
                 .flatMapMany(pagedResponse -> Flux.fromIterable(pagedResponse.content()));
     }
+
+    @GetMapping("/requests/photos/{photoId}")
+    public Mono<ResponseEntity<byte[]>> getPhotoForBot(@PathVariable Integer photoId) {
+        return requestService.getPhotoById(photoId)
+                .map(imageData -> ResponseEntity.ok()
+                        .contentType(MediaType.IMAGE_JPEG)
+                        .body(imageData))
+                .defaultIfEmpty(ResponseEntity.notFound().build());
+    }
 }

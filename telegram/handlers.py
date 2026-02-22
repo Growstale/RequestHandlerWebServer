@@ -701,35 +701,36 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
     await safe_answer_query(query)
     data = query.data
 
-    # Обработка возврата к заявке
+    # 1. Сначала обрабатываем простые строковые команды
+    if data == "act_back_list":
+        class FakeUpdate:
+            def __init__(self, q):
+                self.callback_query = q
+                self.effective_chat = q.message.chat
+                self.effective_user = q.from_user
+        return await render_main_view_menu(FakeUpdate(query), context, is_callback=True)
+
     if "back_to_request" in data:
         req_id = int(data.split('_')[-1])
         return await show_request_details_in_message(query, context, req_id)
 
-    # Логика удаления и ответов
+    # 2. Обработка удаления и ответов
     if data.startswith('start_reply_cmt_'): return await start_reply_comment_handler(update, context)
     if data.startswith('start_del_cmt_'): return await start_delete_comment_handler(update, context)
     if data.startswith('start_del_img_'): return await start_delete_photo_handler(update, context)
 
-    # ПРАВИЛЬНЫЙ ПАРСИНГ:
-    # act_add_photo_123 -> action: add_photo, req_id: 123
+    # 3. Обработка параметризованных действий act_...
     if data.startswith('act_'):
         parts = data.split('_')
-        # Если формат act_add_photo_123 (4 части)
-        if len(parts) >= 4:
-            action = f"{parts[1]}_{parts[2]}"  # 'add_photo'
-            req_id = int(parts[3])
-        # Если формат act_comments_123 (3 части)
-        elif len(parts) == 3:
-            action = parts[1]  # 'comments'
-            req_id = int(parts[2])
+        # Безопасный парсинг req_id (последний элемент, если он число)
+        if parts[-1].isdigit():
+            req_id = int(parts[-1])
         else:
             return None
 
-        # ДЕЙСТВИЕ: ДОБАВИТЬ ФОТО
-        if action == 'add_photo':
+        # Определение действия по количеству частей или по ключевым словам
+        if "add_photo" in data:
             context.user_data['current_request_id'] = req_id
-            # Удаляем старое сообщение с кнопками или редактируем его, чтобы не мешало
             sent_msg = await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="📤 <b>Отправьте одно или несколько фото</b> для заявки.\n\n"
@@ -739,41 +740,28 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
             context.user_data['photo_prompt_message_id'] = sent_msg.message_id
             return VIEW_ADD_PHOTO
 
-        # ДЕЙСТВИЕ: ДОБАВИТЬ КОММЕНТАРИЙ
-        elif action == 'add_comment':
-            # Логика ответа на комментарий (если есть 5-й элемент - parent_id)
+        elif "add_comment" in data:
+            # Формат: act_add_comment_REQID или act_add_comment_REQID_PARENTID
             parent_id = int(parts[4]) if len(parts) > 4 else None
             context.user_data['current_request_id'] = req_id
             context.user_data['parent_comment_id'] = parent_id
-
             text = "💬 Введите текст вашего ОТВЕТА:" if parent_id else "💬 Введите текст КОММЕНТАРИЯ:"
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=text,
-                                           reply_markup=ForceReply(selective=True))
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=ForceReply(selective=True))
             return VIEW_ADD_COMMENT
 
-        # Остальные действия
-        elif action == 'back':
-            class FakeUpdate:
-                def __init__(self, q):
-                    self.callback_query = q
-                    self.effective_chat = q.message.chat
-                    self.effective_user = q.from_user
-
-            return await render_main_view_menu(FakeUpdate(query), context, is_callback=True)
-
-        elif action == 'complete':
+        elif parts[1] == 'complete':
             await complete_request_action(query, context, req_id)
             return VIEW_DETAILS
 
-        elif action == 'comments':
+        elif parts[1] == 'comments':
             await show_comments(query, context, req_id)
             return VIEW_DETAILS
 
-        elif action == 'photos':
+        elif parts[1] == 'photos':
             await show_photos(query, context, req_id)
             return VIEW_DETAILS
 
-        elif action == 'edit':
+        elif parts[1] == 'edit':
             return await start_edit_request(update, context)
 
     return None

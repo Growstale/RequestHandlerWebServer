@@ -144,7 +144,7 @@ async def upload_photos(request_id: int, telegram_id: int, photo_files: list):
 
 
 async def get_photo(photo_id: int):
-    api_url = f"{BACKEND_URL}/api/requests/photos/{photo_id}"
+    api_url = f"{BACKEND_URL}/api/bot/requests/photos/{photo_id}"
     headers = {"X-API-KEY": API_KEY}
 
     async with httpx.AsyncClient(timeout=10.0) as client:
