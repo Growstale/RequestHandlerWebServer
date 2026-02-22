@@ -25,11 +25,13 @@ public class WorkCategoryService {
     private final ReactiveWorkCategoryRepository workCategoryRepository;
     private final DatabaseClient databaseClient;
     private final ReactiveRequestRepository requestRepository;
+    private final UpdateBroadcaster updateBroadcaster;
 
-    public WorkCategoryService(ReactiveWorkCategoryRepository workCategoryRepository, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository) {
+    public WorkCategoryService(ReactiveWorkCategoryRepository workCategoryRepository, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, UpdateBroadcaster updateBroadcaster) {
         this.workCategoryRepository = workCategoryRepository;
         this.databaseClient = databaseClient;
         this.requestRepository = requestRepository;
+        this.updateBroadcaster = updateBroadcaster;
     }
 
     public static final BiFunction<Row, RowMetadata, WorkCategoryResponse> WC_MAPPING_FUNCTION = (row, rowMetaData) -> new WorkCategoryResponse(
@@ -98,7 +100,8 @@ public class WorkCategoryService {
                     WorkCategory category = new WorkCategory();
                     category.setWorkCategoryName(request.workCategoryName());
                     return workCategoryRepository.save(category);
-                });
+                })
+                .doOnSuccess(v -> updateBroadcaster.publish("CATEGORIES_UPDATED"));
     }
 
     public Mono<WorkCategoryResponse> updateWorkCategory(Integer categoryId, UpdateWorkCategoryRequest request) {
@@ -117,7 +120,8 @@ public class WorkCategoryService {
                     category.setWorkCategoryName(request.workCategoryName());
                     return workCategoryRepository.save(category);
                 })
-                .map(this::mapWorkCategoryToResponse);
+                .map(this::mapWorkCategoryToResponse)
+                .doOnSuccess(v -> updateBroadcaster.publish("CATEGORIES_UPDATED"));
     }
 
     public Mono<Void> deleteWorkCategory(Integer categoryId) {
@@ -128,7 +132,8 @@ public class WorkCategoryService {
                                 "Нельзя удалить категорию, так как она используется в " + count + " заявках."
                         ));
                     }
-                    return workCategoryRepository.deleteById(categoryId);
+                    return workCategoryRepository.deleteById(categoryId)
+                            .doOnSuccess(v -> updateBroadcaster.publish("CATEGORIES_UPDATED"));
                 });
     }
 

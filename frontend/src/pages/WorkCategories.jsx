@@ -97,6 +97,20 @@ export default function WorkCategories() {
     }
   }
 
+  useEffect(() => {
+      const url = `/api/updates/stream?token=${accessToken}`;
+
+      const eventSource = new EventSource(url, {
+          withCredentials: true
+      });
+      eventSource.onmessage = (event) => {
+          if (event.data === "CATEGORIES_UPDATED") {
+              reloadCategories();
+          }
+      };
+      return () => eventSource.close();
+  }, [reloadCategories]);
+
   const handleDeleteConfirm = async () => {
     if (!currentCategory) return
     try {

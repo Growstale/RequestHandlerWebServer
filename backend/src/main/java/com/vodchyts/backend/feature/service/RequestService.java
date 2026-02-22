@@ -47,8 +47,9 @@ public class RequestService {
     private final ReactiveWorkCategoryRepository workCategoryRepository;
     private final ReactiveUrgencyCategoryRepository urgencyCategoryRepository;
     private final WebNotificationService webNotificationService;
+    private final UpdateBroadcaster updateBroadcaster;
 
-    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository, WebNotificationService webNotificationService) {
+    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository, WebNotificationService webNotificationService, UpdateBroadcaster updateBroadcaster) {
         this.template = template;
         this.databaseClient = databaseClient;
         this.requestRepository = requestRepository;
@@ -63,6 +64,7 @@ public class RequestService {
         this.workCategoryRepository = workCategoryRepository;
         this.urgencyCategoryRepository = urgencyCategoryRepository;
         this.webNotificationService = webNotificationService;
+        this.updateBroadcaster = updateBroadcaster;
     }
 
 
@@ -342,7 +344,8 @@ public class RequestService {
                                 });
                     }
                     return Mono.just(savedRequest);
-                });
+                })
+                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 
     public Mono<RequestResponse> updateAndEnrichRequest(Integer requestId, UpdateRequestRequest dto) {
@@ -493,12 +496,14 @@ public class RequestService {
                             }));
 
                     return customDaysLogic.then(updatedRequestMono)
-                            .map(savedReq -> Tuples.of(savedReq, changes));
+                            .map(savedReq -> Tuples.of(savedReq, changes))
+                            .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
                 });
     }
 
     public Mono<Void> deleteRequest(Integer requestId) {
-        return requestRepository.deleteById(requestId);
+        return requestRepository.deleteById(requestId)
+                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 
     public Flux<Integer> getPhotoIdsForRequest(Integer requestId) {
@@ -629,7 +634,8 @@ public class RequestService {
                         savedComment.getCreatedAt(),
                         savedComment.getParentCommentID(),
                         new ArrayList<>()
-                )));
+                )))
+                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 
 
@@ -699,7 +705,8 @@ public class RequestService {
                                                     return Mono.when(tgMono, webMono);
                                                 });
                                     });
-                        }).then();
+                        }).then()
+                                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
                     });
                 });
     }
@@ -748,7 +755,8 @@ public class RequestService {
                             null
                     ).thenReturn(savedRequest);
                 })
-                .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()));
+                .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()))
+                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 
     private Mono<Boolean> canUserModify(Request request, User user) {
@@ -831,7 +839,8 @@ public class RequestService {
                                         });
                             });
                 })
-                .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()));
+                .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()))
+                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 
     public Mono<Void> deletePhoto(Integer photoId) {
@@ -844,7 +853,8 @@ public class RequestService {
                             }
                             return photoRepository.deleteById(photoId);
                         })
-                );
+                )
+                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 
     public Mono<RequestResponse> createAndEnrichRequestFromBot(CreateRequestFromBotRequest dto) {
@@ -871,7 +881,8 @@ public class RequestService {
                 .flatMap(comment ->
                         commentRepository.deleteByParentCommentID(commentId)
                                 .then(commentRepository.deleteById(commentId))
-                );
+                )
+                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 
     private Mono<RequestResponse> sendCreationNotification(RequestResponse response) {

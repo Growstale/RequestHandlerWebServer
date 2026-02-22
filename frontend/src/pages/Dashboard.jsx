@@ -162,7 +162,7 @@ export default function Dashboard() {
                         <CardDescription>Количество созданных заявок за последние 7 дней</CardDescription>
                     </CardHeader>
                     <CardContent className="pl-2">
-                        <div className="h-[300px]">
+                        <div className="h-[300px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={stats.requestsLast7Days}>
                                     <defs>
@@ -230,7 +230,7 @@ export default function Dashboard() {
                         <CardDescription>Какие виды работ требуются чаще всего</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-[300px]">
+                        <div className="h-[300px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart layout="vertical" data={stats.requestsByWorkCategory} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />

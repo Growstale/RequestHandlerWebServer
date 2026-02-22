@@ -32,12 +32,14 @@ public class ShopService {
     private final ReactiveUserRepository userRepository;
     private final ReactiveRoleRepository roleRepository;
     private final DatabaseClient databaseClient;
+    private final UpdateBroadcaster updateBroadcaster;
 
-    public ShopService(ReactiveShopRepository shopRepository, ReactiveUserRepository userRepository, ReactiveRoleRepository roleRepository, DatabaseClient databaseClient) {
+    public ShopService(ReactiveShopRepository shopRepository, ReactiveUserRepository userRepository, ReactiveRoleRepository roleRepository, DatabaseClient databaseClient, UpdateBroadcaster updateBroadcaster) {
         this.shopRepository = shopRepository;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.databaseClient = databaseClient;
+        this.updateBroadcaster = updateBroadcaster;
     }
 
     public static final BiFunction<Row, RowMetadata, ShopResponse> SHOP_MAPPING_FUNCTION = (row, rowMetaData) -> new ShopResponse(
@@ -112,7 +114,8 @@ public class ShopService {
                                 shop.setEmail(request.email());
                                 shop.setUserID(request.userID());
                                 return shopRepository.save(shop);
-                            }));
+                            }))
+                            .doOnSuccess(v -> updateBroadcaster.publish("SHOPS_UPDATED"));
                 });
     }
 
@@ -137,11 +140,13 @@ public class ShopService {
                     shop.setUserID(request.userID());
                     return shopRepository.save(shop);
                 })
-                .flatMap(this::mapShopToResponse);
+                .flatMap(this::mapShopToResponse)
+                .doOnSuccess(v -> updateBroadcaster.publish("SHOPS_UPDATED"));
     }
 
     public Mono<Void> deleteShop(Integer shopId) {
-        return shopRepository.deleteById(shopId);
+        return shopRepository.deleteById(shopId).
+                doOnSuccess(v -> updateBroadcaster.publish("SHOPS_UPDATED"));
     }
 
     public Mono<ShopResponse> mapShopToResponse(Shop shop) {

@@ -43,7 +43,7 @@ public class RequestUpdateService {
     private final TaskScheduler taskScheduler;
     private ScheduledFuture<?> overdueCheckTask;
     private ScheduledFuture<?> dailyReminderTask;
-
+    private final UpdateBroadcaster updateBroadcaster;
     private long currentCheckInterval = 30000;
     private String currentReminderCron = "0 0 10 * * MON-FRI";
 
@@ -52,7 +52,7 @@ public class RequestUpdateService {
                                 ReactiveUrgencyCategoryRepository urgencyCategoryRepository,
                                 ReactiveRequestCustomDayRepository customDayRepository,
                                 ReactiveShopContractorChatRepository chatRepository,
-                                TelegramNotificationService notificationService, WebNotificationService webNotificationService) {
+                                TelegramNotificationService notificationService, WebNotificationService webNotificationService, UpdateBroadcaster updateBroadcaster) {
         this.template = template;
         this.requestRepository = requestRepository;
         this.urgencyCategoryRepository = urgencyCategoryRepository;
@@ -60,6 +60,7 @@ public class RequestUpdateService {
         this.chatRepository = chatRepository;
         this.notificationService = notificationService;
         this.webNotificationService = webNotificationService;
+        this.updateBroadcaster = updateBroadcaster;
 
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(2);
@@ -128,6 +129,7 @@ public class RequestUpdateService {
                 .fetch()
                 .rowsUpdated()
                 .flatMap(rows -> {
+                    updateBroadcaster.publish("REQUESTS_UPDATED");
                     return updateOverdueStatus(true);
                 })
                 .then();
@@ -181,6 +183,7 @@ public class RequestUpdateService {
 
                             return requestRepository.save(request)
                                     .flatMap(savedReq -> {
+                                        updateBroadcaster.publish("REQUESTS_UPDATED");
                                         if ("In work".equalsIgnoreCase(savedReq.getStatus()) &&
                                                 isTransitionToOverdue &&
                                                 sendNotification &&

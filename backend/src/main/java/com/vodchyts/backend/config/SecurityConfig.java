@@ -54,6 +54,7 @@ public class SecurityConfig {
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .pathMatchers("/api/auth/**").permitAll()
+                        .pathMatchers("/api/updates/**").authenticated()
                         .pathMatchers("/api/admin/**").hasRole("RetailAdmin")
                         .pathMatchers("/api/bot/**").hasRole("BOT")
                         .anyExchange().authenticated()

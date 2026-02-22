@@ -66,6 +66,19 @@ export default function Shops() {
   }, []); 
 
   useEffect(() => {
+      const url = `/api/updates/stream?token=${accessToken}`;
+      const eventSource = new EventSource(url, {
+          withCredentials: true
+      });
+      eventSource.onmessage = (event) => {
+          if (event.data === "SHOPS_UPDATED") {
+              reloadShops();
+          }
+      };
+      return () => eventSource.close();
+  }, [reloadShops]);
+
+  useEffect(() => {
     reloadShops();
   }, [reloadShops]) 
 
