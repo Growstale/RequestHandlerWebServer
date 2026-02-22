@@ -657,58 +657,64 @@ public class RequestService {
                         if ("Closed".equalsIgnoreCase(request.getStatus()))
                             return Mono.error(new OperationNotAllowedException("Нельзя добавить фото в закрытую заявку"));
 
+                        // Обрабатываем поток файлов
                         return filePartFlux.flatMap(filePart -> {
-                            String contentType = filePart.headers().getContentType() != null
-                                    ? filePart.headers().getContentType().toString()
-                                    : "";
+                                    String contentType = filePart.headers().getContentType() != null
+                                            ? filePart.headers().getContentType().toString()
+                                            : "";
 
-                            if (!ALLOWED_MIMES.contains(contentType)) {
-                                return Mono.error(new OperationNotAllowedException(
-                                        "Файл " + filePart.filename() + " имеет недопустимый тип данных"));
-                            }
+                                    if (!ALLOWED_MIMES.contains(contentType)) {
+                                        return Mono.error(new OperationNotAllowedException(
+                                                "Файл " + filePart.filename() + " имеет недопустимый тип данных"));
+                                    }
 
-                            return DataBufferUtils.join(filePart.content())
-                                    .flatMap(dataBuffer -> {
-                                        int byteCount = dataBuffer.readableByteCount();
-                                        byte[] bytes = new byte[byteCount];
-                                        dataBuffer.read(bytes);
-                                        DataBufferUtils.release(dataBuffer);
+                                    return DataBufferUtils.join(filePart.content())
+                                            .flatMap(dataBuffer -> {
+                                                byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                                                dataBuffer.read(bytes);
+                                                DataBufferUtils.release(dataBuffer);
 
-                                        RequestPhoto photo = new RequestPhoto();
-                                        photo.setRequestID(requestId);
-                                        photo.setImageData(bytes);
+                                                RequestPhoto photo = new RequestPhoto();
+                                                photo.setRequestID(requestId);
+                                                photo.setImageData(bytes);
 
-                                        return photoRepository.save(photo)
-                                                .flatMap(savedPhoto -> {
-                                                    // 1. Подготовка уведомления для Telegram
-                                                    Mono<Void> tgMono = chatRepository.findTelegramIdByRequestId(requestId)
-                                                            .flatMap(chatId -> {
-                                                                String author = notificationService.escapeMarkdown(user.getLogin());
-                                                                String caption = String.format(
-                                                                        "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
-                                                                        requestId, author
-                                                                );
-                                                                return notificationService.sendPhoto(chatId, caption, bytes);
-                                                            })
-                                                            .onErrorResume(e -> Mono.empty())
-                                                            .then();
+                                                return photoRepository.save(photo)
+                                                        .flatMap(savedPhoto -> {
+                                                            // Telegram уведомление оставляем для каждого фото (или можно тоже оптимизировать)
+                                                            return chatRepository.findTelegramIdByRequestId(requestId)
+                                                                    .flatMap(chatId -> {
+                                                                        String author = notificationService.escapeMarkdown(user.getLogin());
+                                                                        String caption = String.format(
+                                                                                "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
+                                                                                requestId, author
+                                                                        );
+                                                                        return notificationService.sendPhoto(chatId, caption, bytes);
+                                                                    })
+                                                                    .onErrorResume(e -> Mono.empty())
+                                                                    .thenReturn(savedPhoto); // Возвращаем объект фото для подсчета
+                                                        });
+                                            });
+                                })
+                                .collectList() // Собираем все успешно загруженные фото в список
+                                .flatMap(savedPhotos -> {
+                                    if (savedPhotos.isEmpty()) return Mono.empty();
 
-                                                    // 2. ДОБАВЛЕНО: Уведомление для Веб-клиента
-                                                    Mono<Void> webMono = webNotificationService.send(
-                                                            requestId,
-                                                            "Новое фото #" + requestId,
-                                                            "Пользователь " + user.getLogin() + " добавил фотографию.",
-                                                            request.getAssignedContractorID()
-                                                    );
+                                    // ОТПРАВЛЯЕМ ОДНО ВЕБ-УВЕДОМЛЕНИЕ НА ВСЮ ПАЧКУ
+                                    String message = savedPhotos.size() == 1
+                                            ? "Пользователь " + user.getLogin() + " добавил фотографию."
+                                            : "Пользователь " + user.getLogin() + " добавил фотографии (" + savedPhotos.size() + " шт.).";
 
-                                                    // Запускаем оба уведомления параллельно
-                                                    return Mono.when(tgMono, webMono);
-                                                });
-                                    });
-                        }).then()
-                                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
+                                    return webNotificationService.send(
+                                            requestId,
+                                            "Новое фото #" + requestId,
+                                            message,
+                                            request.getAssignedContractorID()
+                                    );
+                                });
                     });
-                });
+                })
+                .then()
+                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 
     public Mono<RequestResponse> completeRequest(Integer requestId, Integer contractorId) {

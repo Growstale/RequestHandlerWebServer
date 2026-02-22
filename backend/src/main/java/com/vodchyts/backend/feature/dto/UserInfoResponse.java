@@ -1,3 +1,3 @@
 package com.vodchyts.backend.feature.dto;
 
-public record UserInfoResponse(String login, String role) {}
+public record UserInfoResponse(Integer userID, String login, String role) {}
