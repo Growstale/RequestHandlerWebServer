@@ -115,6 +115,30 @@ export default function Users() {
     });
   };
   
+  useEffect(() => {
+      const url = `/api/updates/stream?token=${accessToken}`;
+
+      const eventSource = new EventSource(url, {
+          withCredentials: true
+      });
+
+      eventSource.onmessage = (event) => {
+          if (event.data === "USERS_UPDATED") {
+              console.log("Событие: Список пользователей изменен. Обновляю...");
+              reloadUsers();
+          }
+      };
+
+      eventSource.onerror = (err) => {
+          console.error("Потеряно соединение с SSE (Users):", err);
+          eventSource.close();
+      };
+
+      return () => {
+          eventSource.close();
+      };
+  }, [reloadUsers]);
+
   const handleFormSubmit = async (formData) => {
     setFormApiError(null)
     try {

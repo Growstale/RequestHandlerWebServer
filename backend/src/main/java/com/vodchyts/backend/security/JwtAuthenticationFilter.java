@@ -31,25 +31,28 @@ public class JwtAuthenticationFilter implements WebFilter {
             return chain.filter(exchange);
         }
 
-        var authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+        // 1. Пытаемся взять из заголовка (как раньше)
+        String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+        String token = null;
+
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            var token = authHeader.substring(7);
-            if (jwtUtils.validateToken(token)) {
-                var username = jwtUtils.getUsernameFromToken(token);
-                var role = jwtUtils.getRoleFromToken(token);
+            token = authHeader.substring(7);
+        }
+        // 2. ЕСЛИ заголовка нет, пытаемся взять из Query-параметра (для SSE)
+        else {
+            token = request.getQueryParams().getFirst("token");
+        }
 
-                var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
-                var auth = new UsernamePasswordAuthenticationToken(username, null, authorities);
-                var context = new SecurityContextImpl(auth);
+        if (token != null && jwtUtils.validateToken(token)) {
+            var username = jwtUtils.getUsernameFromToken(token);
+            var role = jwtUtils.getRoleFromToken(token);
 
-                return chain.filter(exchange)
-                        .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(context)));
-            }
-            else  {
-                var response = exchange.getResponse();
-                response.setStatusCode(HttpStatus.UNAUTHORIZED);
-                return response.setComplete();
-            }
+            var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
+            var auth = new UsernamePasswordAuthenticationToken(username, null, authorities);
+            var context = new SecurityContextImpl(auth);
+
+            return chain.filter(exchange)
+                    .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(context)));
         }
 
         return chain.filter(exchange);

@@ -40,13 +40,14 @@ public class AdminService {
     private final PasswordEncoder passwordEncoder;
     private final PasswordValidator passwordValidator;
     private final DatabaseClient databaseClient;
+    private final UpdateBroadcaster updateBroadcaster;
 
     public AdminService(ReactiveUserRepository userRepository,
                         ReactiveRoleRepository roleRepository,
                         ReactiveRequestRepository requestRepository, ReactiveShopRepository shopRepository,
                         PasswordEncoder passwordEncoder,
                         PasswordValidator passwordValidator,
-                        DatabaseClient databaseClient) {
+                        DatabaseClient databaseClient, UpdateBroadcaster updateBroadcaster) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.requestRepository = requestRepository;
@@ -54,6 +55,7 @@ public class AdminService {
         this.passwordEncoder = passwordEncoder;
         this.passwordValidator = passwordValidator;
         this.databaseClient = databaseClient;
+        this.updateBroadcaster = updateBroadcaster;
     }
 
     public Mono<User> createUser(CreateUserRequest request) {
@@ -78,7 +80,8 @@ public class AdminService {
                                 }
                                 return userRepository.save(user);
                             });
-                });
+                })
+                .doOnSuccess(v -> updateBroadcaster.publish("USERS_UPDATED"));
     }
 
     public static final BiFunction<Row, RowMetadata, UserResponse> USER_MAPPING_FUNCTION = (row, rowMetaData) -> new UserResponse(
@@ -173,7 +176,8 @@ public class AdminService {
                                     }
                                     return userRepository.delete(userToDelete);
                                 })
-                );
+                )
+                .doOnSuccess(v -> updateBroadcaster.publish("USERS_UPDATED"));
     }
 
     public Mono<UserResponse> updateUser(Integer userId, UpdateUserRequest request) {
@@ -238,7 +242,8 @@ public class AdminService {
                     return userMono;
                 })
                 .flatMap(userRepository::save)
-                .flatMap(this::mapUserToUserResponse);
+                .flatMap(this::mapUserToUserResponse)
+                .doOnSuccess(v -> updateBroadcaster.publish("USERS_UPDATED"));
     }
 
     public Mono<UserResponse> mapUserToUserResponse(User user) {

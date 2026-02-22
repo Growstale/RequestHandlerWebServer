@@ -13,10 +13,12 @@ public class UrgencyCategoryService {
 
     private final ReactiveUrgencyCategoryRepository urgencyCategoryRepository;
     private final RequestUpdateService requestUpdateService;
+    private final UpdateBroadcaster updateBroadcaster;
 
-    public UrgencyCategoryService(ReactiveUrgencyCategoryRepository urgencyCategoryRepository, RequestUpdateService requestUpdateService) {
+    public UrgencyCategoryService(ReactiveUrgencyCategoryRepository urgencyCategoryRepository, RequestUpdateService requestUpdateService, UpdateBroadcaster updateBroadcaster) {
         this.urgencyCategoryRepository = urgencyCategoryRepository;
         this.requestUpdateService = requestUpdateService;
+        this.updateBroadcaster = updateBroadcaster;
     }
 
     public Flux<UrgencyCategoryResponse> getAllUrgencyCategories() {
@@ -44,7 +46,8 @@ public class UrgencyCategoryService {
                         updatedCategory.getUrgencyID(),
                         updatedCategory.getUrgencyName(),
                         updatedCategory.getDefaultDays()
-                ));
+                ))
+                .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 
 }

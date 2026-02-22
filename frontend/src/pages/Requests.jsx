@@ -27,7 +27,7 @@ import GanttChartView from './GanttChartView';
 const filterKeys = ['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue', 'startDate', 'endDate'];
 
 export default function Requests({ archived = false }) {
-    const { user } = useAuth();
+    const { user, accessToken } = useAuth();
     const isAdmin = user?.role === 'RetailAdmin';
     const isContractor = user?.role === 'Contractor';
     const isStoreManager = user?.role === 'StoreManager';
@@ -305,6 +305,28 @@ export default function Requests({ archived = false }) {
     useEffect(() => {
         reloadRequests();
     }, [reloadRequests]);
+
+    useEffect(() => {
+        if (!accessToken) return;
+
+        const url = `/api/updates/stream?token=${accessToken}`;
+        const eventSource = new EventSource(url);
+
+        eventSource.onmessage = (event) => {
+            if (event.data === "REQUESTS_UPDATED") {
+                reloadRequests(true);
+            }
+        };
+
+        eventSource.onerror = (err) => {
+            console.warn("SSE connection lost. Reconnecting...");
+        };
+
+        return () => {
+            eventSource.close();
+        };
+    }, [reloadRequests, accessToken]);
+
 
 
     const handleFormSubmit = async (formData) => {
