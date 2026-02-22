@@ -244,9 +244,8 @@ async def main():
     application.add_handler(create_conv)
     application.add_handler(view_conv)
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("refresh", refresh_command))
     application.add_handler(CommandHandler("chatid", chat_id_command))
-    application.add_handler(MessageHandler(filters.Regex("^🆔 ID Чата$"), chat_id_command))
-    application.add_handler(MessageHandler(filters.Regex("^🔄 Обновить$"), refresh_command))
     application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
 
     await application.initialize()

@@ -1983,8 +1983,7 @@ async def _submit_editor_data(update: Update, context: Context) -> int:
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton("📋 Мои заявки"), KeyboardButton("➕ Новая заявка")],
-        [KeyboardButton("🆔 ID Чата"), KeyboardButton("🔄 Обновить")]
+        [KeyboardButton("📋 Мои заявки"), KeyboardButton("➕ Новая заявка")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
