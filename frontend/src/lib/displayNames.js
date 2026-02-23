@@ -13,6 +13,7 @@ export const urgencyDisplayNames = {
   Urgent: 'Срочная',
   Planned: 'Плановая',
   Customizable: 'Настраиваемая',
+  Notes: 'Заметки',
 }
 
 export const getUrgencyDisplayName = (urgencyName) => {

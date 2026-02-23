@@ -28,12 +28,11 @@ export default function UrgencyCategoryForm({ currentCategory, onSubmit, onCance
             id="defaultDays" 
             name="defaultDays" 
             type="number"
-            min="1"
-            max="365"
             value={days} 
             onChange={(e) => setDays(e.target.value)} 
             className="col-span-3" 
             required 
+            disabled={currentCategory?.urgencyName === 'Notes'}
           />
         </div>
 

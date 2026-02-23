@@ -121,30 +121,48 @@ def format_request_details(req: dict) -> str:
     escaped_created_at = escape_markdown(created_at)
 
     deadline_info = ""
-    if req['daysRemaining'] is not None:
+    if req.get('urgencyName') == 'Notes':
+        deadline_info = "—"
+    elif req['daysRemaining'] is not None:
         days_remaining_str = escape_markdown(str(req['daysRemaining']))
         deadline_info = f"{days_remaining_str} дн\\."
     else:
         deadline_info = "—"
 
-    if req['isOverdue']:
+    if req.get('isOverdue') and req.get('urgencyName') != 'Notes':
         deadline_info = f"Просрочено\\! \\({deadline_info}\\)"
 
+    urgency_russian = get_urgency_ru(req.get('urgencyName', ''))
+
     executor = escape_markdown(req['assignedContractorName'] or 'Не назначен')
-    days_for_task_str = escape_markdown(str(req['daysForTask']))
+    urgency_val = escape_markdown(urgency_russian)
+    if req.get('urgencyName') != 'Notes':
+        days_for_task_str = escape_markdown(str(req['daysForTask']))
+        urgency_display = f"{urgency_val} \\({days_for_task_str} дн\\.\\)"
+    else:
+        urgency_display = urgency_val
 
     text = (
         f"📝 *Заявка \\#{req['requestID']}*\n\n"
         f"*Магазин:* {escape_markdown(req['shopName'])}\n"
         f"*Исполнитель:* {executor}\n"
         f"*Вид работ:* {escape_markdown(req['workCategoryName'])}\n"
-        f"*Срочность:* {escape_markdown(get_urgency_ru(req['urgencyName']))} \\({days_for_task_str} дн\\.\\)\n"
-        f"*Статус:* {escape_markdown(req['status'])}\n"
+        f"*Срочность:* {urgency_display}\n"
+        f"*Статус:* {escape_markdown(get_status_ru(req['status']))}\n"
         f"*Создана:* {escaped_created_at}\n"
         f"*Срок:* {deadline_info}\n\n"
         f"*Описание:*\n```\n{escape_markdown(req['description'])}\n```"
     )
     return text
+
+
+def get_status_ru(status):
+    statuses = {
+        "In work": "В работе",
+        "Done": "Выполнена",
+        "Closed": "Закрыта"
+    }
+    return statuses.get(status, status)
 
 
 def _get_sort_list(filters: Dict[str, Any]) -> List[str]:
@@ -1517,7 +1535,8 @@ URGENCY_TRANSLATIONS = {
     "Emergency": "Аварийная",
     "Urgent": "Срочная",
     "Planned": "Плановая",
-    "Customizable": "Настраиваемая"
+    "Customizable": "Настраиваемая",
+    "Notes": "Заметки"
 }
 
 

@@ -18,6 +18,8 @@ import UserForm from './UserForm'
 import Pagination from '@/components/Pagination'
 import { cn } from '@/lib/utils'
 import { getRoleDisplayName } from '@/lib/displayNames'
+import { useAuth } from '@/context/AuthProvider';
+import api from '@/api/axios';
 
 export default function Users() {
   const [allUsers, setAllUsers] = useState([])
@@ -37,6 +39,7 @@ export default function Users() {
   const [formApiError, setFormApiError] = useState(null)
 
   const [deleteError, setDeleteError] = useState(null);
+  const { accessToken } = useAuth();
 
   const reloadUsers = useCallback(async () => {
     setLoading(true);
@@ -115,29 +118,55 @@ export default function Users() {
     });
   };
   
-  useEffect(() => {
-      const url = `/api/updates/stream?token=${accessToken}`;
+useEffect(() => {
+      let reconnectTimeout = null;
+      let eventSource = null;
 
-      const eventSource = new EventSource(url, {
-          withCredentials: true
-      });
+      const connectSSE = () => {
+          if (!accessToken) return;
 
-      eventSource.onmessage = (event) => {
-          if (event.data === "USERS_UPDATED") {
-              console.log("Событие: Список пользователей изменен. Обновляю...");
-              reloadUsers();
+          if (eventSource) {
+              eventSource.close();
           }
+
+          const url = `/api/updates/stream?token=${accessToken}`;
+          eventSource = new EventSource(url, { withCredentials: true });
+
+          eventSource.onopen = () => console.log("SSE подключено (Users)");
+
+          eventSource.onmessage = (event) => {
+              if (event.data === "USERS_UPDATED") {
+                  console.log("Событие: Список пользователей изменен. Обновляю...");
+                  reloadUsers();
+              }
+          };
+
+          eventSource.onerror = (err) => {
+              if (eventSource.readyState === EventSource.CLOSED) {
+                  console.warn("SSE соединение закрыто. Пробуем переподключиться...");
+                  eventSource.close();
+                  
+                  clearTimeout(reconnectTimeout);
+                  reconnectTimeout = setTimeout(async () => {
+                      try {
+                          await api.get('/api/user/whoami'); 
+                      } catch (e) {
+                          console.error("Не удалось восстановить сессию для SSE", e);
+                      }
+                  }, 3000);
+              }
+          };
       };
 
-      eventSource.onerror = (err) => {
-          console.error("Потеряно соединение с SSE (Users):", err);
-          eventSource.close();
-      };
+      connectSSE();
 
       return () => {
-          eventSource.close();
+          if (eventSource) {
+              eventSource.close();
+          }
+          clearTimeout(reconnectTimeout);
       };
-  }, [reloadUsers]);
+  }, [reloadUsers, accessToken]);
 
   const handleFormSubmit = async (formData) => {
     setFormApiError(null)

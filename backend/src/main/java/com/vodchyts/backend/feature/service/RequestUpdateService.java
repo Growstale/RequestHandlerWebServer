@@ -167,6 +167,14 @@ public class RequestUpdateService {
                         UrgencyCategory urgency = urgencyMap.get(request.getUrgencyID());
                         if (urgency == null) return Mono.empty();
 
+                        if ("Notes".equalsIgnoreCase(urgency.getUrgencyName())) {
+                            if (Boolean.TRUE.equals(request.getIsOverdue())) {
+                                request.setIsOverdue(false);
+                                return requestRepository.save(request);
+                            }
+                            return Mono.empty();
+                        }
+
                         Integer daysForTask = "Customizable".equalsIgnoreCase(urgency.getUrgencyName())
                                 ? customDaysMap.getOrDefault(request.getRequestID(), new RequestCustomDay()).getDays()
                                 : urgency.getDefaultDays();

@@ -23,6 +23,7 @@ import { getUrgencyDisplayName, getStatusDisplayName } from '@/lib/displayNames'
 import { logger } from '@/lib/logger';
 import { useAuth } from '@/context/AuthProvider'; 
 import GanttChartView from './GanttChartView';
+import api from '@/api/axios';
 
 const filterKeys = ['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue', 'startDate', 'endDate'];
 
@@ -306,28 +307,55 @@ export default function Requests({ archived = false }) {
         reloadRequests();
     }, [reloadRequests]);
 
-    useEffect(() => {
-        if (!accessToken) return;
+useEffect(() => {
+        let reconnectTimeout = null;
+        let eventSource = null;
 
-        const url = `/api/updates/stream?token=${accessToken}`;
-        const eventSource = new EventSource(url);
+        const connectSSE = () => {
+            if (!accessToken) return;
 
-        eventSource.onmessage = (event) => {
-            if (event.data === "REQUESTS_UPDATED") {
-                reloadRequests(true);
+            if (eventSource) {
+                eventSource.close();
             }
+
+            const url = `/api/updates/stream?token=${accessToken}`;
+            eventSource = new EventSource(url);
+
+            eventSource.onopen = () => console.log("SSE подключено (Requests)");
+
+            eventSource.onmessage = (event) => {
+                if (event.data === "REQUESTS_UPDATED") {
+                    reloadRequests(true);
+                }
+            };
+
+            eventSource.onerror = (err) => {
+                if (eventSource.readyState === EventSource.CLOSED) {
+                    console.warn("SSE соединение закрыто. Пробуем переподключиться...");
+                    eventSource.close();
+                    
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = setTimeout(async () => {
+                        try {
+                            // Пингуем API для обновления токена
+                            await api.get('/api/user/whoami'); 
+                        } catch (e) {
+                            console.error("Не удалось восстановить сессию для SSE", e);
+                        }
+                    }, 3000);
+                }
+            };
         };
 
-        eventSource.onerror = (err) => {
-            console.warn("SSE connection lost. Reconnecting...");
-        };
+        connectSSE();
 
         return () => {
-            eventSource.close();
+            if (eventSource) {
+                eventSource.close();
+            }
+            clearTimeout(reconnectTimeout);
         };
     }, [reloadRequests, accessToken]);
-
-
 
     const handleFormSubmit = async (formData) => {
         setFormApiError(null);
@@ -658,7 +686,7 @@ export default function Requests({ archived = false }) {
                                     <TableCell>{req.assignedContractorName || '—'}</TableCell>
                                     <TableCell>{getStatusDisplayName(req.status)}</TableCell>
                                     <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 })}>
-                                        {req.daysRemaining !== null ? req.daysRemaining : '—'}
+                                        {req.urgencyName === 'Notes' ? '—' : (req.daysRemaining !== null ? req.daysRemaining : '—')}
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex gap-1">
