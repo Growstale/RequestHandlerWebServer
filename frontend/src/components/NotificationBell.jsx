@@ -11,12 +11,10 @@ export default function NotificationBell() {
     const { user, accessToken } = useAuth();
     const navigate = useNavigate();
     
-    // Используем useRef для хранения EventSource, чтобы иметь к нему доступ вне useEffect
     const sseRef = useRef(null);
     const bellRef = useRef(null);
 
     const fetchNotifications = useCallback(async () => {
-        // Если нет токена, даже не пытаемся запрашивать список
         if (!accessToken) return;
         try {
             const res = await api.get('/api/web-notifications');
@@ -26,11 +24,13 @@ export default function NotificationBell() {
         }
     }, [accessToken]);
 
-    useEffect(() => {
-        if (accessToken && user?.id) {
-            fetchNotifications();
 
-            // Закрываем предыдущее соединение, если оно было
+    useEffect(() => {
+        let reconnectTimeout = null;
+
+        const connectSSE = () => {
+            if (!accessToken || !user?.id) return;
+
             if (sseRef.current) {
                 sseRef.current.close();
             }
@@ -48,16 +48,36 @@ export default function NotificationBell() {
             };
 
             eventSource.onerror = (err) => {
-                if (eventSource.readyState !== EventSource.CONNECTING) {
-                    console.error("SSE Error:", err);
+                if (eventSource.readyState === EventSource.CLOSED) {
+                    console.warn("SSE соединение закрыто. Возможно истек токен. Пробуем переподключиться...");
+                    eventSource.close();
+                    sseRef.current = null;
+                    
+                    // Дергаем любой защищенный эндпоинт через axios.
+                    // Если accessToken истек, отработает axios interceptor,
+                    // он сходит за refresh-токеном, обновит accessToken в AuthContext,
+                    // что вызовет ререндер компонента и перезапуск этого useEffect с НОВЫМ токеном!
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = setTimeout(async () => {
+                        try {
+                            await api.get('/api/user/whoami'); 
+                        } catch (e) {
+                            console.error("Не удалось восстановить сессию для SSE", e);
+                        }
+                    }, 3000); // Ждем 3 секунды перед попыткой
                 }
             };
+        };
 
-            return () => {
-                eventSource.close();
+        connectSSE();
+
+        return () => {
+            if (sseRef.current) {
+                sseRef.current.close();
                 sseRef.current = null;
-            };
-        }
+            }
+            clearTimeout(reconnectTimeout);
+        };
     }, [accessToken, user?.id, fetchNotifications]);
 
     useEffect(() => {

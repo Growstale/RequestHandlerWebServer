@@ -304,6 +304,15 @@ public class RequestService {
 
     private RequestResponse withCalculatedDaysRemaining(RequestResponse response) {
         Integer daysRemaining = null;
+
+        if (!"Notes".equalsIgnoreCase(response.urgencyName()) &&
+                response.daysForTask() != null &&
+                !"Closed".equals(response.status())) {
+
+            LocalDateTime deadline = response.createdAt().plusDays(response.daysForTask());
+            daysRemaining = (int) Duration.between(LocalDateTime.now(), deadline).toDays();
+        }
+
         if (response.daysForTask() != null && !"Closed".equals(response.status())) {
             LocalDateTime deadline = response.createdAt().plusDays(response.daysForTask());
             daysRemaining = (int) Duration.between(LocalDateTime.now(), deadline).toDays();

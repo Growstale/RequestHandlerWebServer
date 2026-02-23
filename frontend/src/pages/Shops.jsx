@@ -15,6 +15,8 @@ import { ArrowUpDown, PlusCircle, Trash2, Edit, XCircle, AlertCircle } from 'luc
 import ShopForm from './ShopForm'
 import Pagination from '@/components/Pagination'
 import { cn } from '@/lib/utils'
+import api from '@/api/axios';
+import { useAuth } from '@/context/AuthProvider';
 
 export default function Shops() {
   const [shops, setShops] = useState([])
@@ -33,6 +35,8 @@ export default function Shops() {
   const [formApiError, setFormApiError] = useState(null)
 
   const [deleteError, setDeleteError] = useState(null);
+
+  const { accessToken } = useAuth();
 
   const reloadShops = useCallback(async () => {
     setLoading(true);
@@ -65,18 +69,54 @@ export default function Shops() {
     fetchStoreManagers();
   }, []); 
 
-  useEffect(() => {
-      const url = `/api/updates/stream?token=${accessToken}`;
-      const eventSource = new EventSource(url, {
-          withCredentials: true
-      });
-      eventSource.onmessage = (event) => {
-          if (event.data === "SHOPS_UPDATED") {
-              reloadShops();
+useEffect(() => {
+      let reconnectTimeout = null;
+      let eventSource = null;
+
+      const connectSSE = () => {
+          if (!accessToken) return;
+
+          if (eventSource) {
+              eventSource.close();
           }
+
+          const url = `/api/updates/stream?token=${accessToken}`;
+          eventSource = new EventSource(url, { withCredentials: true });
+
+          eventSource.onopen = () => console.log("SSE подключено (Shops)");
+
+          eventSource.onmessage = (event) => {
+              if (event.data === "SHOPS_UPDATED") {
+                  reloadShops();
+              }
+          };
+
+          eventSource.onerror = (err) => {
+              if (eventSource.readyState === EventSource.CLOSED) {
+                  console.warn("SSE соединение закрыто. Пробуем переподключиться...");
+                  eventSource.close();
+                  
+                  clearTimeout(reconnectTimeout);
+                  reconnectTimeout = setTimeout(async () => {
+                      try {
+                          await api.get('/api/user/whoami'); 
+                      } catch (e) {
+                          console.error("Не удалось восстановить сессию для SSE", e);
+                      }
+                  }, 3000);
+              }
+          };
       };
-      return () => eventSource.close();
-  }, [reloadShops]);
+
+      connectSSE();
+
+      return () => {
+          if (eventSource) {
+              eventSource.close();
+          }
+          clearTimeout(reconnectTimeout);
+      };
+  }, [reloadShops, accessToken]);
 
   useEffect(() => {
     reloadShops();

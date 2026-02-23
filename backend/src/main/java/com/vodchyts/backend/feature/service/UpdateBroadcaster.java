@@ -6,7 +6,7 @@ import reactor.core.publisher.Sinks;
 
 @Service
 public class UpdateBroadcaster {
-    private final Sinks.Many<String> sink = Sinks.many().multicast().onBackpressureBuffer();
+    private final Sinks.Many<String> sink = Sinks.many().multicast().directBestEffort();
 
     public void publish(String eventType) {
         sink.tryEmitNext(eventType);

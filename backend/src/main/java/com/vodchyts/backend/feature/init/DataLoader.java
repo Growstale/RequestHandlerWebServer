@@ -49,7 +49,8 @@ public class DataLoader implements CommandLineRunner {
                 createUrgencyCategoryIfNotExists("Emergency", 2),
                 createUrgencyCategoryIfNotExists("Urgent", 3),
                 createUrgencyCategoryIfNotExists("Planned", 14),
-                createUrgencyCategoryIfNotExists("Customizable", 40)
+                createUrgencyCategoryIfNotExists("Customizable", 40),
+                createUrgencyCategoryIfNotExists("Notes", 0)
         );
 
         initialDataLoading
