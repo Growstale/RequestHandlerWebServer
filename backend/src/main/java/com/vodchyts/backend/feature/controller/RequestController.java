@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.controller;
 
 import com.vodchyts.backend.feature.dto.*;
+import com.vodchyts.backend.feature.service.AuditHelper;
 import com.vodchyts.backend.feature.service.RequestService;
 import com.vodchyts.backend.feature.service.UserService;
 import jakarta.validation.Valid;
@@ -24,10 +25,12 @@ public class RequestController {
 
     private final RequestService requestService;
     private final UserService userService;
+    private final AuditHelper auditHelper;
 
-    public RequestController(RequestService requestService, UserService userService) {
+    public RequestController(RequestService requestService, UserService userService, AuditHelper auditHelper) {
         this.requestService = requestService;
         this.userService = userService;
+        this.auditHelper = auditHelper;
     }
 
     @GetMapping
@@ -55,23 +58,49 @@ public class RequestController {
     @PostMapping
     @PreAuthorize("hasRole('RetailAdmin')")
     @ResponseStatus(HttpStatus.CREATED)
-    public Mono<RequestResponse> createRequest(@Valid @RequestBody Mono<CreateRequestRequest> requestDto, @AuthenticationPrincipal String username) {
+    public Mono<RequestResponse> createRequest(@Valid @RequestBody Mono<CreateRequestRequest> requestDto, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
         return userService.findByLogin(username)
-                .flatMap(user -> requestDto.flatMap(dto -> requestService.createAndEnrichRequest(dto, user.getUserID())));
+                .flatMap(user -> requestDto.flatMap(dto -> requestService.createAndEnrichRequest(dto, user.getUserID())
+                        .flatMap(request -> {
+                            // Аудит создания
+                            auditHelper.auditCreate("Requests", request.requestID(), request, exchange).subscribe();
+                            return Mono.just(request);
+                        })));
     }
 
 
     @PutMapping("/{requestId}")
     @PreAuthorize("hasRole('RetailAdmin')")
-    public Mono<RequestResponse> updateRequest(@PathVariable Integer requestId, @Valid @RequestBody Mono<UpdateRequestRequest> requestDto) {
-        return requestDto.flatMap(dto -> requestService.updateAndEnrichRequest(requestId, dto));
+    public Mono<RequestResponse> updateRequest(@PathVariable Integer requestId, @Valid @RequestBody Mono<UpdateRequestRequest> requestDto, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
+        // Получаем старую версию для аудита
+        Mono<RequestResponse> oldRequestMono = requestService.getRequestById(requestId)
+                .onErrorReturn(null);
+        
+        return oldRequestMono.flatMap(oldRequest -> 
+            requestDto.flatMap(dto -> requestService.updateAndEnrichRequest(requestId, dto)
+                    .flatMap(updatedRequest -> {
+                        // Аудит обновления
+                        auditHelper.auditUpdate("Requests", requestId, oldRequest, updatedRequest, exchange).subscribe();
+                        return Mono.just(updatedRequest);
+                    }))
+        );
     }
 
     @DeleteMapping("/{requestId}")
     @PreAuthorize("hasRole('RetailAdmin')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public Mono<Void> deleteRequest(@PathVariable Integer requestId) {
-        return requestService.deleteRequest(requestId);
+    public Mono<Void> deleteRequest(@PathVariable Integer requestId, ServerWebExchange exchange) {
+        // Получаем удаляемую запись для аудита
+        Mono<RequestResponse> requestToDeleteMono = requestService.getRequestById(requestId)
+                .onErrorReturn(null);
+        
+        return requestToDeleteMono.flatMap(requestToDelete -> 
+            requestService.deleteRequest(requestId)
+                    .then(Mono.fromRunnable(() -> {
+                        // Аудит удаления
+                        auditHelper.auditDelete("Requests", requestId, requestToDelete, exchange).subscribe();
+                    }))
+        );
     }
 
     @GetMapping("/{requestId}/comments")

@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.controller;
 
 import com.vodchyts.backend.feature.dto.*;
+import com.vodchyts.backend.feature.service.AuditHelper;
 import com.vodchyts.backend.feature.service.WorkCategoryService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -16,9 +17,11 @@ import java.util.List;
 public class WorkCategoryController {
 
     private final WorkCategoryService workCategoryService;
+    private final AuditHelper auditHelper;
 
-    public WorkCategoryController(WorkCategoryService workCategoryService) {
+    public WorkCategoryController(WorkCategoryService workCategoryService, AuditHelper auditHelper) {
         this.workCategoryService = workCategoryService;
+        this.auditHelper = auditHelper;
     }
 
     @GetMapping
@@ -33,18 +36,51 @@ public class WorkCategoryController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public Mono<WorkCategoryResponse> createWorkCategory(@Valid @RequestBody Mono<CreateWorkCategoryRequest> request) {
+    public Mono<WorkCategoryResponse> createWorkCategory(@Valid @RequestBody Mono<CreateWorkCategoryRequest> request, ServerWebExchange exchange) {
         return request.flatMap(workCategoryService::createWorkCategory)
-                .map(workCategoryService::mapWorkCategoryToResponse);
+                .flatMap(category -> {
+                    WorkCategoryResponse response = workCategoryService.mapWorkCategoryToResponse(category);
+                    // Аудит создания
+                    auditHelper.auditCreate("WorkCategories", category.getWorkCategoryID(), response, exchange).subscribe();
+                    return Mono.just(response);
+                });
     }
 
     @PutMapping("/{categoryId}")
-    public Mono<WorkCategoryResponse> updateWorkCategory(@PathVariable Integer categoryId, @Valid @RequestBody Mono<UpdateWorkCategoryRequest> request) {
-        return request.flatMap(req -> workCategoryService.updateWorkCategory(categoryId, req));
+    public Mono<WorkCategoryResponse> updateWorkCategory(@PathVariable Integer categoryId, @Valid @RequestBody Mono<UpdateWorkCategoryRequest> request, ServerWebExchange exchange) {
+        return workCategoryService.getAllWorkCategories(null, 0, 1000)
+                .flatMap(paged -> {
+                    // Находим старую версию для аудита
+                    WorkCategoryResponse oldCategory = paged.content().stream()
+                            .filter(c -> c.workCategoryID().equals(categoryId))
+                            .findFirst()
+                            .orElse(null);
+                    
+                    return request.flatMap(req -> workCategoryService.updateWorkCategory(categoryId, req)
+                            .flatMap(updatedCategory -> {
+                                // Аудит обновления
+                                auditHelper.auditUpdate("WorkCategories", categoryId, oldCategory, updatedCategory, exchange).subscribe();
+                                return Mono.just(updatedCategory);
+                            }));
+                });
     }
 
     @DeleteMapping("/{categoryId}")
-    public Mono<ResponseEntity<Void>> deleteWorkCategory(@PathVariable Integer categoryId) {
-        return workCategoryService.deleteWorkCategory(categoryId).thenReturn(ResponseEntity.noContent().build());
+    public Mono<ResponseEntity<Void>> deleteWorkCategory(@PathVariable Integer categoryId, ServerWebExchange exchange) {
+        return workCategoryService.getAllWorkCategories(null, 0, 1000)
+                .flatMap(paged -> {
+                    // Находим удаляемую запись для аудита
+                    WorkCategoryResponse categoryToDelete = paged.content().stream()
+                            .filter(c -> c.workCategoryID().equals(categoryId))
+                            .findFirst()
+                            .orElse(null);
+                    
+                    return workCategoryService.deleteWorkCategory(categoryId)
+                            .then(Mono.fromRunnable(() -> {
+                                // Аудит удаления
+                                auditHelper.auditDelete("WorkCategories", categoryId, categoryToDelete, exchange).subscribe();
+                            }))
+                            .thenReturn(ResponseEntity.noContent().build());
+                });
     }
 }
