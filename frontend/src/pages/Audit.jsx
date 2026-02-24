@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { auditApi } from '@/api/auditApi';
 import { logger } from '@/lib/logger';
-import { Filter, Plus, Edit, Trash2 } from 'lucide-react';
+import { Filter, Plus, Edit, Trash2, Eye, X } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 
 export default function Audit() {
@@ -26,6 +27,14 @@ export default function Audit() {
     const [endDate, setEndDate] = useState('');
 
     const [stats, setStats] = useState(null);
+    const [selectedLog, setSelectedLog] = useState(null);
+    const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
+    const tableNames = [
+        'Shops', 'Users', 'Requests', 'WorkCategories', 
+        'UrgencyCategories', 'Notifications', 'MessageTemplates', 
+        'ShopContractorChats'
+    ];
 
     useEffect(() => {
         fetchAuditLogs();
@@ -109,6 +118,44 @@ export default function Audit() {
         }
     };
 
+    const formatJson = (obj) => {
+        if (!obj) return '';
+        try {
+            return JSON.stringify(obj, null, 2);
+        } catch {
+            return String(obj);
+        }
+    };
+
+    const getFieldDiff = (oldValue, newValue) => {
+        if (!oldValue || !newValue) return [];
+        const old = typeof oldValue === 'string' ? JSON.parse(oldValue) : oldValue;
+        const newVal = typeof newValue === 'string' ? JSON.parse(newValue) : newValue;
+        
+        const diffs = [];
+        const allKeys = new Set([...Object.keys(old || {}), ...Object.keys(newVal || {})]);
+        
+        allKeys.forEach(key => {
+            const oldVal = old?.[key];
+            const newValItem = newVal?.[key];
+            
+            if (oldVal !== newValItem) {
+                diffs.push({
+                    field: key,
+                    old: oldVal,
+                    new: newValItem
+                });
+            }
+        });
+        
+        return diffs;
+    };
+
+    const openDetails = (log) => {
+        setSelectedLog(log);
+        setIsDetailsOpen(true);
+    };
+
     const clearFilters = () => {
         setTableName('');
         setAction('ALL');
@@ -171,11 +218,17 @@ export default function Audit() {
                             </SelectContent>
                         </Select>
 
-                        <Input
-                            placeholder="Таблица"
-                            value={tableName}
-                            onChange={(e) => setTableName(e.target.value)}
-                        />
+                        <Select value={tableName} onValueChange={setTableName}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Таблица" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="">Все таблицы</SelectItem>
+                                {tableNames.map(name => (
+                                    <SelectItem key={name} value={name}>{name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
 
                         <Input
                             placeholder="ID пользователя"
@@ -259,15 +312,17 @@ export default function Audit() {
                                                     </TableCell>
                                                     <TableCell className="text-sm max-w-md">
                                                         {changes ? (
-                                                            <details className="cursor-pointer">
-                                                                <summary className="text-blue-600 hover:underline">
-                                                                    Показать изменения
-                                                                </summary>
-                                                                <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
-                                                                    <div><strong>Старое:</strong> {JSON.stringify(changes.oldValue, null, 2)}</div>
-                                                                    <div className="mt-2"><strong>Новое:</strong> {JSON.stringify(changes.newValue, null, 2)}</div>
-                                                                </div>
-                                                            </details>
+                                                            <div className="flex items-center gap-2">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => openDetails(log)}
+                                                                    className="h-8"
+                                                                >
+                                                                    <Eye className="h-4 w-4 mr-1" />
+                                                                    Детали
+                                                                </Button>
+                                                            </div>
                                                         ) : (
                                                             '-'
                                                         )}
@@ -291,6 +346,82 @@ export default function Audit() {
                     )}
                 </CardContent>
             </Card>
+
+            {/* Модальное окно с деталями изменений */}
+            <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Детали изменений</DialogTitle>
+                    </DialogHeader>
+                    {selectedLog && (
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <h4 className="font-semibold mb-2">Общая информация</h4>
+                                    <div className="space-y-1 text-sm">
+                                        <div><strong>Действие:</strong> {selectedLog.action}</div>
+                                        <div><strong>Таблица:</strong> {selectedLog.tableName}</div>
+                                        <div><strong>ID записи:</strong> {selectedLog.recordID}</div>
+                                        <div><strong>Пользователь:</strong> {selectedLog.userLogin || selectedLog.userID || '-'}</div>
+                                        <div><strong>Дата:</strong> {formatDate(selectedLog.logDate)}</div>
+                                        <div><strong>IP:</strong> {selectedLog.ipAddress || '-'}</div>
+                                        <div><strong>Endpoint:</strong> {selectedLog.requestMethod} {selectedLog.endpoint}</div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold mb-2">Техническая информация</h4>
+                                    <div className="space-y-1 text-sm">
+                                        <div><strong>User-Agent:</strong></div>
+                                        <div className="text-xs text-gray-600 break-words">{selectedLog.userAgent || '-'}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {parseChanges(selectedLog.changes) && (
+                                <div>
+                                    <h4 className="font-semibold mb-2">Изменения данных</h4>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <div className="bg-red-50 p-3 rounded border border-red-200">
+                                                <div className="font-semibold text-red-700 mb-2">Старое значение:</div>
+                                                <pre className="text-xs overflow-auto max-h-96 bg-white p-2 rounded">
+                                                    {formatJson(parseChanges(selectedLog.changes)?.oldValue)}
+                                                </pre>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="bg-green-50 p-3 rounded border border-green-200">
+                                                <div className="font-semibold text-green-700 mb-2">Новое значение:</div>
+                                                <pre className="text-xs overflow-auto max-h-96 bg-white p-2 rounded">
+                                                    {formatJson(parseChanges(selectedLog.changes)?.newValue)}
+                                                </pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    {selectedLog.action === 'UPDATE' && (
+                                        <div className="mt-4">
+                                            <h4 className="font-semibold mb-2">Измененные поля:</h4>
+                                            <div className="space-y-2">
+                                                {getFieldDiff(
+                                                    parseChanges(selectedLog.changes)?.oldValue,
+                                                    parseChanges(selectedLog.changes)?.newValue
+                                                ).map((diff, idx) => (
+                                                    <div key={idx} className="bg-gray-50 p-2 rounded text-sm">
+                                                        <div className="font-medium">{diff.field}:</div>
+                                                        <div className="text-red-600 line-through">{String(diff.old ?? 'null')}</div>
+                                                        <div className="text-green-600">→ {String(diff.new ?? 'null')}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
