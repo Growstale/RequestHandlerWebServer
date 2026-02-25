@@ -2,6 +2,7 @@ package com.vodchyts.backend.feature.controller;
 
 import com.vodchyts.backend.feature.dto.CreateMessageTemplateRequest;
 import com.vodchyts.backend.feature.dto.MessageTemplateResponse;
+import com.vodchyts.backend.feature.service.AuditHelper;
 import com.vodchyts.backend.feature.service.MessagingService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -9,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import java.util.Arrays;
@@ -19,9 +21,11 @@ import java.util.stream.Collectors;
 @PreAuthorize("hasRole('RetailAdmin')")
 public class MessageTemplateController {
     private final MessagingService messagingService;
+    private final AuditHelper auditHelper;
 
-    public MessageTemplateController(MessagingService messagingService) {
+    public MessageTemplateController(MessagingService messagingService, AuditHelper auditHelper) {
         this.messagingService = messagingService;
+        this.auditHelper = auditHelper;
     }
 
     @GetMapping
@@ -35,7 +39,8 @@ public class MessageTemplateController {
             @RequestPart("title") String title,
             @RequestPart(name = "message", required = false) String message,
             @RequestPart(name = "recipientChatIds", required = false) String recipientChatIdsStr,
-            @RequestPart(name = "image", required = false) Mono<FilePart> imageFile) {
+            @RequestPart(name = "image", required = false) Mono<FilePart> imageFile,
+            ServerWebExchange exchange) {
 
         List<Integer> recipientChatIds = (recipientChatIdsStr == null || recipientChatIdsStr.isEmpty()) ? List.of() :
                 Arrays.stream(recipientChatIdsStr.split(","))
@@ -43,7 +48,12 @@ public class MessageTemplateController {
                         .collect(Collectors.toList());
 
         CreateMessageTemplateRequest request = new CreateMessageTemplateRequest(title, message, recipientChatIds);
-        return messagingService.createTemplate(request, imageFile);
+        return messagingService.createTemplate(request, imageFile)
+                .flatMap(template -> {
+                    // Аудит создания
+                    auditHelper.auditCreate("MessageTemplates", template.messageID(), template, exchange).subscribe();
+                    return Mono.just(template);
+                });
     }
 
     @PutMapping(value = "/{templateId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -52,7 +62,8 @@ public class MessageTemplateController {
             @RequestPart("title") String title,
             @RequestPart(name = "message", required = false) String message,
             @RequestPart(name = "recipientChatIds", required = false) String recipientChatIdsStr,
-            @RequestPart(name = "image", required = false) Mono<FilePart> imageFile) {
+            @RequestPart(name = "image", required = false) Mono<FilePart> imageFile,
+            ServerWebExchange exchange) {
 
         List<Integer> recipientChatIds = (recipientChatIdsStr == null || recipientChatIdsStr.isEmpty()) ? List.of() :
                 Arrays.stream(recipientChatIdsStr.split(","))
@@ -60,13 +71,42 @@ public class MessageTemplateController {
                         .collect(Collectors.toList());
 
         CreateMessageTemplateRequest request = new CreateMessageTemplateRequest(title, message, recipientChatIds);
-        return messagingService.updateTemplate(templateId, request, imageFile);
+        return messagingService.getAllTemplates()
+                .collectList()
+                .flatMap(templates -> {
+                    // Находим старую версию для аудита
+                    MessageTemplateResponse oldTemplate = templates.stream()
+                            .filter(t -> t.messageID().equals(templateId))
+                            .findFirst()
+                            .orElse(null);
+                    
+                    return messagingService.updateTemplate(templateId, request, imageFile)
+                            .flatMap(updatedTemplate -> {
+                                // Аудит обновления
+                                auditHelper.auditUpdate("MessageTemplates", templateId, oldTemplate, updatedTemplate, exchange).subscribe();
+                                return Mono.just(updatedTemplate);
+                            });
+                });
     }
 
     @DeleteMapping("/{templateId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public Mono<Void> deleteTemplate(@PathVariable Integer templateId) {
-        return messagingService.deleteTemplate(templateId);
+    public Mono<Void> deleteTemplate(@PathVariable Integer templateId, ServerWebExchange exchange) {
+        return messagingService.getAllTemplates()
+                .collectList()
+                .flatMap(templates -> {
+                    // Находим удаляемую запись для аудита
+                    MessageTemplateResponse templateToDelete = templates.stream()
+                            .filter(t -> t.messageID().equals(templateId))
+                            .findFirst()
+                            .orElse(null);
+                    
+                    return messagingService.deleteTemplate(templateId)
+                            .then(Mono.fromRunnable(() -> {
+                                // Аудит удаления
+                                auditHelper.auditDelete("MessageTemplates", templateId, templateToDelete, exchange).subscribe();
+                            }));
+                });
     }
 
     @GetMapping("/{templateId}/image")
