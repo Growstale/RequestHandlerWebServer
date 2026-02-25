@@ -19,7 +19,8 @@ public interface ReactiveAuditLogRepository extends ReactiveCrudRepository<Audit
     Flux<AuditLog> findAllByOrderByLogDateDesc(Pageable pageable);
     Mono<Long> countByLogDateBefore(LocalDateTime date);
     Flux<AuditLog> findByUserIDAndLogDateBetweenOrderByLogDateDesc(Integer userID, LocalDateTime startDate, LocalDateTime endDate, Pageable pageable);
-    
+    Mono<Long> countByActionAndLogDateBetween(String action, LocalDateTime startDate, LocalDateTime endDate);
+
     @Query("DELETE FROM AuditLog WHERE LogDate < :beforeDate")
     Mono<Integer> deleteByLogDateBefore(LocalDateTime beforeDate);
 }

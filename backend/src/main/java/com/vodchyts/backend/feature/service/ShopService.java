@@ -150,20 +150,22 @@ public class ShopService {
     }
 
     public Mono<ShopResponse> mapShopToResponse(Shop shop) {
-        Mono<String> userLoginMono = (shop.getUserID() != null)
-                ? userRepository.findById(shop.getUserID())
+        if (shop.getUserID() == null) {
+            return Mono.just(new ShopResponse(
+                    shop.getShopID(), shop.getShopName(), shop.getAddress(),
+                    shop.getEmail(), null, null
+            ));
+        }
+        return userRepository.findById(shop.getUserID())
                 .map(User::getLogin)
-                .defaultIfEmpty("N/A")
-                : Mono.just("N/A");
-
-        return userLoginMono.map(userLogin -> new ShopResponse(
-                shop.getShopID(),
-                shop.getShopName(),
-                shop.getAddress(),
-                shop.getEmail(),
-                shop.getUserID(),
-                userLogin
-        ));
+                .map(login -> new ShopResponse(
+                        shop.getShopID(), shop.getShopName(), shop.getAddress(),
+                        shop.getEmail(), shop.getUserID(), login
+                ))
+                .defaultIfEmpty(new ShopResponse(
+                        shop.getShopID(), shop.getShopName(), shop.getAddress(),
+                        shop.getEmail(), shop.getUserID(), null
+                ));
     }
 
     private Mono<Void> validateUserIsStoreManager(Integer userId) {

@@ -112,23 +112,19 @@ public class AuditController {
         LocalDateTime start = startDate != null ? startDate : LocalDateTime.now().minusDays(7);
         LocalDateTime end = endDate != null ? endDate : LocalDateTime.now();
 
-        Mono<Long> createCount = auditRepository.findByActionOrderByLogDateDesc("CREATE", PageRequest.of(0, 1))
-                .count();
-        Mono<Long> updateCount = auditRepository.findByActionOrderByLogDateDesc("UPDATE", PageRequest.of(0, 1))
-                .count();
-        Mono<Long> deleteCount = auditRepository.findByActionOrderByLogDateDesc("DELETE", PageRequest.of(0, 1))
-                .count();
+        // Теперь мы считаем реальное количество в БД за выбранный период
+        Mono<Long> createCount = auditRepository.countByActionAndLogDateBetween("CREATE", start, end);
+        Mono<Long> updateCount = auditRepository.countByActionAndLogDateBetween("UPDATE", start, end);
+        Mono<Long> deleteCount = auditRepository.countByActionAndLogDateBetween("DELETE", start, end);
 
         return Mono.zip(createCount, updateCount, deleteCount)
-                .map(tuple -> {
-                    return ResponseEntity.ok(Map.of(
-                            "creates", tuple.getT1(),
-                            "updates", tuple.getT2(),
-                            "deletes", tuple.getT3(),
-                            "startDate", start,
-                            "endDate", end
-                    ));
-                });
+                .map(tuple -> ResponseEntity.ok(Map.of(
+                        "creates", tuple.getT1(),
+                        "updates", tuple.getT2(),
+                        "deletes", tuple.getT3(),
+                        "startDate", start,
+                        "endDate", end
+                )));
     }
 }
 

@@ -18,9 +18,9 @@ public class AuditService {
     private final ReactiveAuditLogRepository auditRepository;
     private final ObjectMapper objectMapper;
 
-    public AuditService(ReactiveAuditLogRepository auditRepository) {
+    public AuditService(ReactiveAuditLogRepository auditRepository, ObjectMapper objectMapper) {
         this.auditRepository = auditRepository;
-        this.objectMapper = new ObjectMapper();
+        this.objectMapper = objectMapper;
     }
 
     public Mono<Void> audit(String action, String tableName, Integer recordID, 

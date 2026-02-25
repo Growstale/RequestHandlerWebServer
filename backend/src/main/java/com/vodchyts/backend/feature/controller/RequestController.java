@@ -72,17 +72,18 @@ public class RequestController {
     @PutMapping("/{requestId}")
     @PreAuthorize("hasRole('RetailAdmin')")
     public Mono<RequestResponse> updateRequest(@PathVariable Integer requestId, @Valid @RequestBody Mono<UpdateRequestRequest> requestDto, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
-        // Получаем старую версию для аудита
-        Mono<RequestResponse> oldRequestMono = requestService.getRequestById(requestId)
-                .onErrorReturn(null);
-        
-        return oldRequestMono.flatMap(oldRequest -> 
-            requestDto.flatMap(dto -> requestService.updateAndEnrichRequest(requestId, dto)
-                    .flatMap(updatedRequest -> {
-                        // Аудит обновления
-                        auditHelper.auditUpdate("Requests", requestId, oldRequest, updatedRequest, exchange).subscribe();
-                        return Mono.just(updatedRequest);
-                    }))
+        return requestDto.flatMap(dto ->
+                requestService.getRequestById(requestId)
+                        .map(java.util.Optional::of)
+                        .defaultIfEmpty(java.util.Optional.empty())
+                        .onErrorReturn(java.util.Optional.empty())
+                        .flatMap(oldRequestOpt ->
+                                requestService.updateAndEnrichRequest(requestId, dto)
+                                        .doOnSuccess(updatedRequest -> {
+                                            // Аудит обновления
+                                            auditHelper.auditUpdate("Requests", requestId, oldRequestOpt.orElse(null), updatedRequest, exchange).subscribe();
+                                        })
+                        )
         );
     }
 
@@ -90,18 +91,19 @@ public class RequestController {
     @PreAuthorize("hasRole('RetailAdmin')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> deleteRequest(@PathVariable Integer requestId, ServerWebExchange exchange) {
-        // Получаем удаляемую запись для аудита
-        Mono<RequestResponse> requestToDeleteMono = requestService.getRequestById(requestId)
-                .onErrorReturn(null);
-        
-        return requestToDeleteMono.flatMap(requestToDelete -> 
-            requestService.deleteRequest(requestId)
-                    .then(Mono.fromRunnable(() -> {
-                        // Аудит удаления
-                        auditHelper.auditDelete("Requests", requestId, requestToDelete, exchange).subscribe();
-                    }))
-        );
+        return requestService.getRequestById(requestId)
+                .map(java.util.Optional::of)
+                .defaultIfEmpty(java.util.Optional.empty())
+                .onErrorReturn(java.util.Optional.empty())
+                .flatMap(requestToDeleteOpt ->
+                        requestService.deleteRequest(requestId)
+                                .doOnSuccess(v -> {
+                                    // Аудит удаления
+                                    auditHelper.auditDelete("Requests", requestId, requestToDeleteOpt.orElse(null), exchange).subscribe();
+                                })
+                );
     }
+
 
     @GetMapping("/{requestId}/comments")
     public Flux<CommentResponse> getComments(@PathVariable Integer requestId) {
@@ -111,12 +113,17 @@ public class RequestController {
     @PostMapping("/{requestId}/comments")
     @PreAuthorize("hasAnyRole('RetailAdmin', 'Contractor')")
     @ResponseStatus(HttpStatus.CREATED)
-    public Mono<CommentResponse> addComment(@PathVariable Integer requestId, @Valid @RequestBody Mono<CreateCommentRequest> commentDto, @AuthenticationPrincipal String username) {
+    public Mono<CommentResponse> addComment(@PathVariable Integer requestId, @Valid @RequestBody Mono<CreateCommentRequest> commentDto, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
         return userService.findByLogin(username)
-                .flatMap(user -> commentDto.flatMap(dto -> {
-                    return requestService.addCommentToRequest(requestId, dto, user.getUserID());
-                }));
+                .flatMap(user -> commentDto.flatMap(dto ->
+                        requestService.addCommentToRequest(requestId, dto, user.getUserID())
+                                .doOnSuccess(comment -> {
+                                    auditHelper.auditCreate("RequestComments", comment.commentID(), comment, exchange).subscribe();
+                                })
+                ));
     }
+
+
     @GetMapping("/{requestId}/photos")
     public Flux<ResponseEntity<byte[]>> getPhotos(@PathVariable Integer requestId) {
         return requestService.getPhotosForRequest(requestId)
@@ -128,17 +135,28 @@ public class RequestController {
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<Void> uploadPhotos(@PathVariable Integer requestId,
                                    @RequestPart("files") Flux<FilePart> filePartFlux,
-                                   @AuthenticationPrincipal String username) {
+                                   @AuthenticationPrincipal String username,
+                                   ServerWebExchange exchange) {
         return userService.findByLogin(username)
-                .flatMap(user -> requestService.addPhotosToRequest(requestId, filePartFlux, user.getUserID()));
+                .flatMap(user -> requestService.addPhotosToRequest(requestId, filePartFlux, user.getUserID())
+                        .doOnSuccess(v -> {
+                            auditHelper.auditCreate("RequestPhotos", requestId, "Загружены новые фотографии к заявке", exchange).subscribe();
+                        })
+                );
     }
-
 
     @PutMapping("/{requestId}/complete")
     @PreAuthorize("hasRole('Contractor')")
-    public Mono<RequestResponse> completeRequest(@PathVariable Integer requestId, @AuthenticationPrincipal String username) {
+    public Mono<RequestResponse> completeRequest(@PathVariable Integer requestId, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
         return userService.findByLogin(username)
-                .flatMap(user -> requestService.completeRequest(requestId, user.getUserID()));
+                .flatMap(user -> requestService.getRequestById(requestId)
+                        .map(java.util.Optional::of).defaultIfEmpty(java.util.Optional.empty()).onErrorReturn(java.util.Optional.empty())
+                        .flatMap(oldReqOpt -> requestService.completeRequest(requestId, user.getUserID())
+                                .doOnSuccess(updatedReq -> {
+                                    auditHelper.auditUpdate("Requests", requestId, oldReqOpt.orElse(null), updatedReq, exchange).subscribe();
+                                })
+                        )
+                );
     }
 
 
@@ -157,20 +175,32 @@ public class RequestController {
     @DeleteMapping("/photos/{photoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasRole('RetailAdmin')")
-    public Mono<Void> deletePhoto(@PathVariable Integer photoId) {
-        return requestService.deletePhoto(photoId);
+    public Mono<Void> deletePhoto(@PathVariable Integer photoId, ServerWebExchange exchange) {
+        return requestService.deletePhoto(photoId)
+                .doOnSuccess(v -> {
+                    auditHelper.auditDelete("RequestPhotos", photoId, "Фотография удалена", exchange).subscribe();
+                });
     }
 
     @PutMapping("/{requestId}/restore")
     @PreAuthorize("hasRole('RetailAdmin')")
-    public Mono<RequestResponse> restoreRequest(@PathVariable Integer requestId, @RequestBody(required = false) Mono<Void> body) {
-        return requestService.restoreRequest(requestId);
+    public Mono<RequestResponse> restoreRequest(@PathVariable Integer requestId, @RequestBody(required = false) Mono<Void> body, ServerWebExchange exchange) {
+        return requestService.getRequestById(requestId)
+                .map(java.util.Optional::of).defaultIfEmpty(java.util.Optional.empty()).onErrorReturn(java.util.Optional.empty())
+                .flatMap(oldReqOpt -> requestService.restoreRequest(requestId)
+                        .doOnSuccess(updatedReq -> {
+                            auditHelper.auditUpdate("Requests", requestId, oldReqOpt.orElse(null), updatedReq, exchange).subscribe();
+                        })
+                );
     }
 
     @DeleteMapping("/comments/{commentId}")
     @PreAuthorize("hasRole('RetailAdmin')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public Mono<Void> deleteComment(@PathVariable Integer commentId) {
-        return requestService.deleteComment(commentId);
+    public Mono<Void> deleteComment(@PathVariable Integer commentId, ServerWebExchange exchange) {
+        return requestService.deleteComment(commentId)
+                .doOnSuccess(v -> {
+                    auditHelper.auditDelete("RequestComments", commentId, "Комментарий удален", exchange).subscribe();
+                });
     }
 }

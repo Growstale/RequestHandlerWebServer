@@ -42,7 +42,7 @@ public class ShopContractorChatController {
         return request.flatMap(chatService::createChat)
                 .flatMap(chat -> {
                     // Аудит создания
-                    auditHelper.auditCreate("ShopContractorChats", chat.getChatID(), chat, exchange).subscribe();
+                    auditHelper.auditCreate("ShopContractorChats", chat.getShopContractorChatID(), chat, exchange).subscribe();
                     return Mono.just(chat);
                 });
     }
@@ -53,7 +53,7 @@ public class ShopContractorChatController {
                 .flatMap(paged -> {
                     // Находим старую версию для аудита
                     ShopContractorChatResponse oldChat = paged.content().stream()
-                            .filter(c -> c.chatID().equals(chatId))
+                            .filter(c -> c.shopContractorChatID().equals(chatId))
                             .findFirst()
                             .orElse(null);
                     
@@ -73,7 +73,7 @@ public class ShopContractorChatController {
                 .flatMap(paged -> {
                     // Находим удаляемую запись для аудита
                     ShopContractorChatResponse chatToDelete = paged.content().stream()
-                            .filter(c -> c.chatID().equals(chatId))
+                            .filter(c -> c.shopContractorChatID().equals(chatId))
                             .findFirst()
                             .orElse(null);
                     
