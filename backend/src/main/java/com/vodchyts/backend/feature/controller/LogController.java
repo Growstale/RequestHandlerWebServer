@@ -128,5 +128,12 @@ public class LogController {
                     ));
                 });
     }
+
+    @DeleteMapping("/clear")
+    @PreAuthorize("hasRole('RetailAdmin')")
+    public Mono<ResponseEntity<Void>> clearAllLogs() {
+        return logRepository.deleteAll()
+                .then(Mono.just(ResponseEntity.noContent().build()));
+    }
 }
 

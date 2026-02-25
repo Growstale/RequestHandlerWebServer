@@ -2,20 +2,17 @@ package com.vodchyts.backend.security;
 
 import com.vodchyts.backend.feature.service.LoggingService;
 import com.vodchyts.backend.feature.service.UserService;
-import com.vodchyts.backend.security.JwtUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @Component
@@ -50,7 +47,6 @@ public class LoggingWebFilter implements WebFilter {
 
         String authHeader = request.getHeaders().getFirst("Authorization");
 
-        // Используем Optional, чтобы Mono никогда не был пустым и zip не прерывался
         Mono<java.util.Optional<String>> userLoginMono = Mono.just(java.util.Optional.empty());
         Mono<java.util.Optional<Integer>> userIDMono = Mono.just(java.util.Optional.empty());
 
@@ -73,26 +69,21 @@ public class LoggingWebFilter implements WebFilter {
 
         return Mono.zip(userIDMono, userLoginMono)
                 .flatMap(tuple -> {
-                    // Извлекаем значения из Optional
                     Integer userID = tuple.getT1().orElse(null);
                     String userLogin = tuple.getT2().orElse(null);
 
                     return chain.filter(exchange)
                             .doOnSuccess(aVoid -> {
                                 ServerHttpResponse response = exchange.getResponse();
-                                int statusCode = response.getStatusCode() != null ?
-                                        response.getStatusCode().value() : 200;
+                                int statusCode = response.getStatusCode() != null ? response.getStatusCode().value() : 200;
                                 long duration = System.currentTimeMillis() - startTime;
                                 String message = String.format("%s %s - %d - %dms", method, path, statusCode, duration);
 
-                                if (!"GET".equalsIgnoreCase(method) || statusCode >= 400) {
-                                    if (statusCode >= 500) {
-                                        loggingService.logError("HTTP_REQUEST", message, null, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
-                                    } else if (statusCode >= 400) {
-                                        loggingService.logWarn("HTTP_REQUEST", message, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
-                                    } else {
-                                        loggingService.logInfo("HTTP_REQUEST", message, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
-                                    }
+                                // Убрано INFO. Пишем только если статус >= 400 (предупреждения и ошибки)
+                                if (statusCode >= 500) {
+                                    loggingService.logError("HTTP_REQUEST", message, null, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
+                                } else if (statusCode >= 400) {
+                                    loggingService.logWarn("HTTP_REQUEST", message, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
                                 }
                             })
                             .doOnError(error -> {
@@ -102,6 +93,7 @@ public class LoggingWebFilter implements WebFilter {
                             });
                 });
     }
+
     private String getClientIP(ServerHttpRequest request) {
         String xForwardedFor = request.getHeaders().getFirst("X-Forwarded-For");
         if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
@@ -117,4 +109,3 @@ public class LoggingWebFilter implements WebFilter {
         return "unknown";
     }
 }
-

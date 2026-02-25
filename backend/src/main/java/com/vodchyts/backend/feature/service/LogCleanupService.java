@@ -16,11 +16,12 @@ public class LogCleanupService {
     private final LoggingService loggingService;
     private final AuditService auditService;
 
-    @Value("${logging.retention.days:90}")
-    private int logRetentionDays = 90;
+    // Меняем значения по умолчанию: логи - 15 дней, аудит - 30 дней
+    @Value("${logging.retention.days:15}")
+    private int logRetentionDays;
 
-    @Value("${audit.retention.days:365}")
-    private int auditRetentionDays = 365;
+    @Value("${audit.retention.days:30}")
+    private int auditRetentionDays;
 
     public LogCleanupService(LoggingService loggingService, AuditService auditService) {
         this.loggingService = loggingService;
@@ -30,23 +31,22 @@ public class LogCleanupService {
     @Scheduled(cron = "0 0 2 * * *") // Каждый день в 2:00 ночи
     public void cleanupOldLogs() {
         log.info("Запуск задачи по очистке старых логов...");
-        
+
         LocalDateTime logCutoffDate = LocalDateTime.now().minusDays(logRetentionDays);
         LocalDateTime auditCutoffDate = LocalDateTime.now().minusDays(auditRetentionDays);
 
         loggingService.deleteOldLogs(logCutoffDate)
                 .subscribe(
-                        count -> log.info("Очистка логов приложения завершена. Удалено {} записей старше {} дней.", 
+                        count -> log.info("Очистка логов приложения завершена. Удалено {} записей старше {} дней.",
                                 count, logRetentionDays),
                         error -> log.error("Ошибка во время очистки логов приложения.", error)
                 );
 
         auditService.deleteOldAuditLogs(auditCutoffDate)
                 .subscribe(
-                        count -> log.info("Очистка записей аудита завершена. Удалено {} записей старше {} дней.", 
+                        count -> log.info("Очистка записей аудита завершена. Удалено {} записей старше {} дней.",
                                 count, auditRetentionDays),
                         error -> log.error("Ошибка во время очистки записей аудита.", error)
                 );
     }
 }
-
