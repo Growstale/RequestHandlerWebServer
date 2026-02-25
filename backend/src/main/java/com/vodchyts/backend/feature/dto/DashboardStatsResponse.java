@@ -7,19 +7,20 @@ public record DashboardStatsResponse(
         long activeRequests,
         long completedRequests,
         long overdueRequests,
-        // Новые KPI
-        Double averageCompletionTimeDays, // Среднее время выполнения в днях
-        Double slaCompliancePercent,      // Процент соблюдения сроков
+        Double averageCompletionTimeDays,
+        Double slaCompliancePercent,
 
         List<ChartData> requestsByStatus,
         List<ChartData> requestsByUrgency,
         List<ChartData> requestsByWorkCategory,
         List<DateChartData> requestsLast7Days,
         List<TopContractorData> topContractors,
+        List<ChartData> contractorWorkload,
+        List<ChartData> topProblemShops,
 
-        // Новые списки для графиков
-        List<ChartData> contractorWorkload, // Текущая загрузка (активные заявки)
-        List<ChartData> topProblemShops     // Магазины с макс. кол-вом заявок
+        // Новые списки для антирейтингов
+        List<ChartData> worstContractors,
+        List<ChartData> worstShops
 ) {
     public record ChartData(String name, long value) {}
     public record DateChartData(String date, long count) {}
