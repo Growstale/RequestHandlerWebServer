@@ -61,7 +61,7 @@ public class NotificationController {
                 .flatMap(paged -> {
                     // Находим старую версию для аудита
                     NotificationResponse oldNotification = paged.content().stream()
-                            .filter(n -> n.notificationID().equals(notificationId))
+                            .filter(n -> n.getNotificationID().equals(notificationId))
                             .findFirst()
                             .orElse(null);
                     
@@ -81,7 +81,7 @@ public class NotificationController {
                 .flatMap(paged -> {
                     // Находим удаляемую запись для аудита
                     NotificationResponse notificationToDelete = paged.content().stream()
-                            .filter(n -> n.notificationID().equals(notificationId))
+                            .filter(n -> n.getNotificationID().equals(notificationId))
                             .findFirst()
                             .orElse(null);
                     

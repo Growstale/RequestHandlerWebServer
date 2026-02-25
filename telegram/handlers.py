@@ -444,14 +444,29 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
             message_id = context.user_data['main_message_id']
 
         if message_id:
-            await context.bot.edit_message_text(
-                text=message_text,
-                chat_id=update.effective_chat.id,
-                message_id=message_id,
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
-            context.user_data['main_message_id'] = message_id
+            try:
+                await context.bot.edit_message_text(
+                    text=message_text,
+                    chat_id=update.effective_chat.id,
+                    message_id=message_id,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+                context.user_data['main_message_id'] = message_id
+            except BadRequest as e:
+                if "Message is not modified" in str(e):
+                    pass  # Игнорируем, если текст не изменился
+                elif "Message to edit not found" in str(e):
+                    # Если сообщение удалили, отправляем новое!
+                    sent_message = await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=message_text,
+                        reply_markup=reply_markup,
+                        parse_mode=ParseMode.MARKDOWN_V2
+                    )
+                    context.user_data['main_message_id'] = sent_message.message_id
+                else:
+                    raise e  # Пробрасываем другие ошибки дальше
         else:
             sent_message = await context.bot.send_message(
                 chat_id=update.effective_chat.id,
@@ -465,7 +480,7 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
         logger.error(f"Ошибка отправки сообщения Markdown: {e}\nТекст: {message_text}")
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Произошла ошибка форматирования или отображения."
+            text="Произошла ошибка форматирования или отображения списка."
         )
     return VIEW_MAIN_MENU
 

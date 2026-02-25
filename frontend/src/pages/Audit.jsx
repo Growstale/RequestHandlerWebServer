@@ -20,7 +20,7 @@ export default function Audit() {
     const [totalElements, setTotalElements] = useState(0);
     
     // Filters
-    const [tableName, setTableName] = useState('');
+    const [tableName, setTableName] = useState('ALL');
     const [action, setAction] = useState('ALL');
     const [userID, setUserID] = useState('');
     const [startDate, setStartDate] = useState('');
@@ -47,7 +47,7 @@ export default function Audit() {
             const params = {
                 page,
                 size,
-                ...(tableName && { tableName }),
+                ...(tableName && tableName !== 'ALL' && { tableName }),
                 ...(action && action !== 'ALL' && { action }),
                 ...(userID && { userID: parseInt(userID) }),
                 ...(startDate && { startDate }),
@@ -157,7 +157,7 @@ export default function Audit() {
     };
 
     const clearFilters = () => {
-        setTableName('');
+        setTableName('ALL');
         setAction('ALL');
         setUserID('');
         setStartDate('');
@@ -223,7 +223,7 @@ export default function Audit() {
                                 <SelectValue placeholder="Таблица" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="">Все таблицы</SelectItem>
+                                <SelectItem value="ALL">Все таблицы</SelectItem>
                                 {tableNames.map(name => (
                                     <SelectItem key={name} value={name}>{name}</SelectItem>
                                 ))}

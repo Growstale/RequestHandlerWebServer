@@ -26,6 +26,8 @@ export default function NotificationBell() {
 
 
     useEffect(() => {
+        fetchNotifications();
+
         let reconnectTimeout = null;
 
         const connectSSE = () => {
