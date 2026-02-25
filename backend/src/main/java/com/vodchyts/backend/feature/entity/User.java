@@ -35,4 +35,6 @@ public class User {
     @Column("TelegramID")
     private Long telegramID;
 
+    @Column("TelegramUsername")
+    private String telegramUsername;
 }

@@ -78,6 +78,11 @@ public class AdminService {
                                 if (request.telegramID() != null && !request.telegramID().isBlank()) {
                                     user.setTelegramID(Long.parseLong(request.telegramID()));
                                 }
+                                if ("Contractor".equals(role.getRoleName()) && request.telegramUsername() != null && !request.telegramUsername().isBlank()) {
+                                    user.setTelegramUsername(request.telegramUsername().replace("@", "").trim());
+                                } else {
+                                    user.setTelegramUsername(null);
+                                }
                                 return userRepository.save(user);
                             });
                 })
@@ -90,14 +95,15 @@ public class AdminService {
             row.get("RoleName", String.class),
             row.get("FullName", String.class),
             row.get("ContactInfo", String.class),
-            row.get("TelegramID", Long.class)
+            row.get("TelegramID", Long.class),
+            row.get("TelegramUsername", String.class)
     );
 
     public Mono<PagedResponse<UserResponse>> getAllUsers(String roleName, List<String> sort, int page, int size) {
         boolean applyRoleFilter = roleName != null && !roleName.isEmpty() && !"Все".equalsIgnoreCase(roleName);
 
         StringBuilder sqlBuilder = new StringBuilder(
-                "SELECT u.UserID, u.Login, u.FullName, u.ContactInfo, u.TelegramID, r.RoleName " +
+                "SELECT u.UserID, u.Login, u.FullName, u.ContactInfo, u.TelegramID, u.TelegramUsername, r.RoleName " +
                         "FROM Users u " +
                         "LEFT JOIN Roles r ON u.RoleID = r.RoleID"
         );
@@ -194,6 +200,11 @@ public class AdminService {
                         user.setTelegramID(request.telegramID().isEmpty() ? null : Long.parseLong(request.telegramID()));
                     }
 
+                    if (request.telegramUsername() != null) {
+                        String tgUser = request.telegramUsername().replace("@", "").trim();
+                        user.setTelegramUsername(tgUser.isEmpty() ? null : tgUser);
+                    }
+
                     Mono<User> userMono = Mono.just(user);
 
                     if (request.roleName() != null && !request.roleName().isBlank()) {
@@ -236,6 +247,9 @@ public class AdminService {
                                 .switchIfEmpty(Mono.error(new RuntimeException("Роль '" + request.roleName() + "' не найдена")))
                                 .map(newRole -> {
                                     user.setRoleID(newRole.getRoleID());
+                                    if (!"Contractor".equals(newRole.getRoleName())) {
+                                        user.setTelegramUsername(null);
+                                    }
                                     return user;
                                 });
                     }
@@ -254,7 +268,8 @@ public class AdminService {
                         role.getRoleName(),
                         user.getFullName(),
                         user.getContactInfo(),
-                        user.getTelegramID()
+                        user.getTelegramID(),
+                        user.getTelegramUsername()
                 ));
     }
 }

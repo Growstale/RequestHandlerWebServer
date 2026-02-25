@@ -20,6 +20,7 @@ const getInitialFormData = (user) => {
       fullName: user.fullName || '',
       contactInfo: user.contactInfo || '',
       telegramID: user.telegramID?.toString() || '',
+      telegramUsername: '',
     };
   }
 
@@ -112,6 +113,25 @@ export default function UserForm({ currentUser, onSubmit, onCancel, apiError, ro
           <Label htmlFor="telegramID" className="text-right">Telegram ID</Label>
           <Input id="telegramID" name="telegramID" value={formData.telegramID} onChange={handleChange} className="col-span-3" />
         </div>
+
+        {formData.roleName === 'Contractor' && (
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="telegramUsername" className="text-right">TG Username</Label>
+              <div className="col-span-3 flex items-center">
+                <span className="text-muted-foreground mr-1">@</span>
+                <Input 
+                  id="telegramUsername" 
+                  name="telegramUsername" 
+                  placeholder="username (без @)" 
+                  value={formData.telegramUsername} 
+                  onChange={handleChange} 
+                />
+              </div>
+              <div className="col-span-4 text-xs text-muted-foreground text-right mt-[-10px]">
+                Заполните для упоминания подрядчика в чате.
+              </div>
+            </div>
+        )}
 
         <div className="flex justify-end gap-2 pt-4">
           <Button type="button" variant="outline" onClick={onCancel}>Отмена</Button>

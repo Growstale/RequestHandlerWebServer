@@ -3,10 +3,7 @@ package com.vodchyts.backend.feature.service;
 import com.vodchyts.backend.feature.entity.Request;
 import com.vodchyts.backend.feature.entity.RequestCustomDay;
 import com.vodchyts.backend.feature.entity.UrgencyCategory;
-import com.vodchyts.backend.feature.repository.ReactiveRequestCustomDayRepository;
-import com.vodchyts.backend.feature.repository.ReactiveRequestRepository;
-import com.vodchyts.backend.feature.repository.ReactiveShopContractorChatRepository;
-import com.vodchyts.backend.feature.repository.ReactiveUrgencyCategoryRepository;
+import com.vodchyts.backend.feature.repository.*;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,13 +43,14 @@ public class RequestUpdateService {
     private final UpdateBroadcaster updateBroadcaster;
     private long currentCheckInterval = 30000;
     private String currentReminderCron = "0 0 10 * * MON-FRI";
+    private final ReactiveUserRepository userRepository;
 
     public RequestUpdateService(R2dbcEntityTemplate template,
                                 ReactiveRequestRepository requestRepository,
                                 ReactiveUrgencyCategoryRepository urgencyCategoryRepository,
                                 ReactiveRequestCustomDayRepository customDayRepository,
                                 ReactiveShopContractorChatRepository chatRepository,
-                                TelegramNotificationService notificationService, WebNotificationService webNotificationService, UpdateBroadcaster updateBroadcaster) {
+                                TelegramNotificationService notificationService, WebNotificationService webNotificationService, UpdateBroadcaster updateBroadcaster, ReactiveUserRepository userRepository) {
         this.template = template;
         this.requestRepository = requestRepository;
         this.urgencyCategoryRepository = urgencyCategoryRepository;
@@ -61,6 +59,7 @@ public class RequestUpdateService {
         this.notificationService = notificationService;
         this.webNotificationService = webNotificationService;
         this.updateBroadcaster = updateBroadcaster;
+        this.userRepository = userRepository;
 
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(2);
@@ -252,22 +251,30 @@ public class RequestUpdateService {
                 : "";
 
         String safeDescription = notificationService.escapeMarkdown(rawDescription);
-        String message = String.format("%s *ЗАЯВКА \\#%d ПРОСРОЧЕНА*\n\nСрок истек: *%d дн\\. назад*\nОписание: %s",
-                icon, request.getRequestID(), daysOverdue, safeDescription);
 
-        Mono<Void> tgNotification = chatRepository.findTelegramIdByRequestId(request.getRequestID())
-                .flatMap(chatId -> notificationService.sendNotification(chatId, message))
-                .onErrorResume(e -> Mono.empty())
-                .then();
+        Mono<String> mentionMono = request.getAssignedContractorID() != null ?
+                userRepository.findById(request.getAssignedContractorID())
+                        .map(u -> (u.getTelegramUsername() != null && !u.getTelegramUsername().isBlank()) ? "@" + notificationService.escapeMarkdown(u.getTelegramUsername()) + " " : "")
+                        .defaultIfEmpty("") : Mono.just("");
 
-        Mono<Void> webNotification = webNotificationService.send(
-                request.getRequestID(),
-                "⚠️ ПРОСРОЧКА #" + request.getRequestID(),
-                "Заявка просрочена на " + daysOverdue + " дн.! Описание: " + request.getDescription(),
-                request.getAssignedContractorID()
-        );
+        return mentionMono.flatMap(mention -> {
+            String message = String.format("%s%s *ЗАЯВКА \\#%d ПРОСРОЧЕНА*\n\nСрок истек: *%d дн\\. назад*\nОписание: %s",
+                    mention, icon, request.getRequestID(), daysOverdue, safeDescription);
 
-        return Mono.when(tgNotification, webNotification);
+            Mono<Void> tgNotification = chatRepository.findTelegramIdByRequestId(request.getRequestID())
+                    .flatMap(chatId -> notificationService.sendNotification(chatId, message))
+                    .onErrorResume(e -> Mono.empty())
+                    .then();
+
+            Mono<Void> webNotification = webNotificationService.send(
+                    request.getRequestID(),
+                    "⚠️ ПРОСРОЧКА #" + request.getRequestID(),
+                    "Заявка просрочена на " + daysOverdue + " дн.! Описание: " + request.getDescription(),
+                    request.getAssignedContractorID()
+            );
+
+            return Mono.when(tgNotification, webNotification);
+        });
     }
 
     private boolean isWeekend() {

@@ -86,7 +86,8 @@ public class RequestService {
             row.get("DaysForTask", Integer.class),
             row.get("IsOverdue", Boolean.class),
             Optional.ofNullable(row.get("CommentCount", Long.class)).orElse(0L),
-            Optional.ofNullable(row.get("PhotoCount", Long.class)).orElse(0L)
+            Optional.ofNullable(row.get("PhotoCount", Long.class)).orElse(0L),
+            row.get("ContractorTgUsername", String.class)
     );
 
     public Mono<PagedResponse<RequestResponse>> getAllRequests(
@@ -102,7 +103,7 @@ public class RequestService {
                         .flatMap(role -> {
                             StringBuilder sqlBuilder = new StringBuilder(
                                     "SELECT r.RequestID, r.Description, r.ShopID, r.WorkCategoryID, r.UrgencyID, r.AssignedContractorID, r.Status, r.CreatedAt, r.ClosedAt, r.IsOverdue, " +
-                                            "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, u.Login as AssignedContractorName, " +
+                                            "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, u.Login as AssignedContractorName, u.TelegramUsername as ContractorTgUsername, " +
                                             "CASE WHEN uc.UrgencyName = 'Customizable' THEN rcd.Days ELSE uc.DefaultDays END as DaysForTask, " +
                                             "(SELECT COUNT(*) FROM RequestComments rc WHERE rc.RequestID = r.RequestID) as CommentCount, " +
                                             "(SELECT COUNT(*) FROM RequestPhotos rp WHERE rp.RequestID = r.RequestID) as PhotoCount " +
@@ -283,7 +284,7 @@ public class RequestService {
     private Mono<RequestResponse> enrichRequest(Integer requestId) {
         //noinspection SqlResolve
         String sql = "SELECT r.RequestID, r.Description, r.ShopID, r.WorkCategoryID, r.UrgencyID, r.AssignedContractorID, r.Status, r.CreatedAt, r.ClosedAt, r.IsOverdue, " +
-                "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, u.Login as AssignedContractorName, " +
+                "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, u.Login as AssignedContractorName, u.TelegramUsername as ContractorTgUsername, " +
                 "CASE WHEN uc.UrgencyName = 'Customizable' THEN rcd.Days ELSE uc.DefaultDays END as DaysForTask, " +
                 "(SELECT COUNT(*) FROM RequestComments rc WHERE rc.RequestID = r.RequestID) as CommentCount, " +
                 "(SELECT COUNT(*) FROM RequestPhotos rp WHERE rp.RequestID = r.RequestID) as PhotoCount " +
@@ -322,7 +323,7 @@ public class RequestService {
                 response.workCategoryName(), response.workCategoryID(), response.urgencyName(), response.urgencyID(),
                 response.assignedContractorName(), response.assignedContractorID(), response.status(),
                 response.createdAt(), response.closedAt(), daysRemaining, response.daysForTask(),
-                response.isOverdue(), response.commentCount(), response.photoCount()
+                response.isOverdue(), response.commentCount(), response.photoCount(), response.contractorTgUsername()
         );
     }
 
@@ -367,22 +368,27 @@ public class RequestService {
                         return Mono.just(savedReq);
                     }
 
-                    String msg = "✏️ *ЗАЯВКА \\#" + requestId + " ОБНОВЛЕНА*\n\n" + String.join("\n", changes);
+                    Mono<String> mentionMono = savedReq.getAssignedContractorID() != null ?
+                            userRepository.findById(savedReq.getAssignedContractorID())
+                                    .map(u -> (u.getTelegramUsername() != null && !u.getTelegramUsername().isBlank()) ? "@" + notificationService.escapeMarkdown(u.getTelegramUsername()) + "\n" : "")
+                                    .defaultIfEmpty("") : Mono.just("");
 
-                    // Отправка в ТГ
-                    Mono<Void> tg = chatRepository.findTelegramIdByRequestId(requestId)
-                            .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
-                            .onErrorResume(e -> Mono.empty()).then();
+                    return mentionMono.flatMap(mention -> {
+                        String msg = mention + "✏️ *ЗАЯВКА \\#" + requestId + " ОБНОВЛЕНА*\n\n" + String.join("\n", changes);
 
-                    // Добавляем отправку в ВЕБ
-                    Mono<Void> web = webNotificationService.send(
-                            requestId,
-                            "Обновление заявки #" + requestId,
-                            "Администратор изменил параметры заявки.",
-                            savedReq.getAssignedContractorID()
-                    );
+                        Mono<Void> tg = chatRepository.findTelegramIdByRequestId(requestId)
+                                .flatMap(chatId -> notificationService.sendNotification(chatId, msg))
+                                .onErrorResume(e -> Mono.empty()).then();
 
-                    return Mono.when(tg, web).thenReturn(savedReq);
+                        Mono<Void> web = webNotificationService.send(
+                                requestId,
+                                "Обновление заявки #" + requestId,
+                                "Администратор изменил параметры заявки.",
+                                savedReq.getAssignedContractorID()
+                        );
+
+                        return Mono.when(tg, web).thenReturn(savedReq);
+                    });
                 })
                 .flatMap(request -> enrichRequest(request.getRequestID()));
     }
@@ -589,49 +595,53 @@ public class RequestService {
                                 .flatMap(savedComment -> {
                                     String author = notificationService.escapeMarkdown(user.getLogin());
                                     String safeText = notificationService.escapeMarkdown(dto.commentText());
-                                    Mono<Void> tgMono;
 
-                                    if (dto.parentCommentID() != null) {
-                                        return commentRepository.findById(dto.parentCommentID())
-                                                .flatMap(parentComment -> {
-                                                    String parentText = parentComment.getCommentText();
-                                                    String parentSnippet = parentText.length() > 50
-                                                            ? parentText.substring(0, 47) + "..."
-                                                            : parentText;
+                                    // Получаем ник подрядчика (ЕСЛИ комментарий пишет НЕ сам подрядчик)
+                                    boolean isContractorCommenting = Objects.equals(request.getAssignedContractorID(), userId);
+                                    Mono<String> mentionMono = (!isContractorCommenting && request.getAssignedContractorID() != null) ?
+                                            userRepository.findById(request.getAssignedContractorID())
+                                                    .map(u -> (u.getTelegramUsername() != null && !u.getTelegramUsername().isBlank()) ? "@" + notificationService.escapeMarkdown(u.getTelegramUsername()) + "\n" : "")
+                                                    .defaultIfEmpty("") : Mono.just("");
 
-                                                    String safeParentSnippet = notificationService.escapeMarkdown(parentSnippet);
+                                    return mentionMono.flatMap(mention -> {
+                                        Mono<Void> tgMono;
 
-                                                    String msg = String.format(
-                                                            "↩️ *ОТВЕТ пользователю в заявке \\#%d*\n" +
-                                                                    "💬 _На комментарий: \"%s\"_\n" +
-                                                                    "👤 *От:* %s\n\n%s",
-                                                            requestId, safeParentSnippet, author, safeText
-                                                    );
+                                        if (dto.parentCommentID() != null) {
+                                            tgMono = commentRepository.findById(dto.parentCommentID())
+                                                    .flatMap(parentComment -> {
+                                                        String parentText = parentComment.getCommentText();
+                                                        String parentSnippet = parentText.length() > 50
+                                                                ? parentText.substring(0, 47) + "..."
+                                                                : parentText;
 
-                                                    return chatRepository.findTelegramIdByRequestId(requestId)
-                                                            .flatMap(chatId -> notificationService.sendCommentNotification(chatId, msg, requestId, savedComment.getCommentID()))
-                                                            .flatMap(unused -> webNotificationService.send(
-                                                                    requestId,
-                                                                    "Новый комментарий #" + requestId,
-                                                                    "От: " + user.getLogin() + ". Текст: " + dto.commentText(),
-                                                                    request.getAssignedContractorID()
-                                                            ))
-                                                            .thenReturn(savedComment);
-                                                });
-                                    } else {
-                                        String msg = String.format("💬 *Новый комментарий к заявке \\#%d*\n👤 *От:* %s\n\n%s", requestId, author, safeText);
-                                        tgMono = chatRepository.findTelegramIdByRequestId(requestId)
-                                                .flatMap(chatId -> notificationService.sendCommentNotification(chatId, msg, requestId, savedComment.getCommentID()));
-                                    }
-                                    Mono<Void> webMono = webNotificationService.send(
-                                            requestId,
-                                            "Новый комментарий #" + requestId,
-                                            "Автор: " + user.getLogin() + ". Текст: " + dto.commentText(),
-                                            request.getAssignedContractorID()
-                                    );
+                                                        String safeParentSnippet = notificationService.escapeMarkdown(parentSnippet);
 
-                                    return Mono.when(tgMono.onErrorResume(e -> Mono.empty()), webMono)
-                                            .thenReturn(savedComment);
+                                                        String msg = String.format(
+                                                                "%s↩️ *ОТВЕТ пользователю в заявке \\#%d*\n" +
+                                                                        "💬 _На комментарий: \"%s\"_\n" +
+                                                                        "👤 *От:* %s\n\n%s",
+                                                                mention, requestId, safeParentSnippet, author, safeText
+                                                        );
+
+                                                        return chatRepository.findTelegramIdByRequestId(requestId)
+                                                                .flatMap(chatId -> notificationService.sendCommentNotification(chatId, msg, requestId, savedComment.getCommentID()));
+                                                    });
+                                        } else {
+                                            String msg = String.format("%s💬 *Новый комментарий к заявке \\#%d*\n👤 *От:* %s\n\n%s", mention, requestId, author, safeText);
+                                            tgMono = chatRepository.findTelegramIdByRequestId(requestId)
+                                                    .flatMap(chatId -> notificationService.sendCommentNotification(chatId, msg, requestId, savedComment.getCommentID()));
+                                        }
+
+                                        Mono<Void> webMono = webNotificationService.send(
+                                                requestId,
+                                                "Новый комментарий #" + requestId,
+                                                "Автор: " + user.getLogin() + ". Текст: " + dto.commentText(),
+                                                request.getAssignedContractorID()
+                                        );
+
+                                        return Mono.when(tgMono.onErrorResume(e -> Mono.empty()), webMono)
+                                                .thenReturn(savedComment);
+                                    });
                                 });
                     });
                 })
@@ -646,7 +656,6 @@ public class RequestService {
                 )))
                 .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
-
 
     public Flux<byte[]> getPhotosForRequest(Integer requestId) {
         return photoRepository.findByRequestID(requestId)
@@ -666,60 +675,53 @@ public class RequestService {
                         if ("Closed".equalsIgnoreCase(request.getStatus()))
                             return Mono.error(new OperationNotAllowedException("Нельзя добавить фото в закрытую заявку"));
 
-                        // Обрабатываем поток файлов
-                        return filePartFlux.flatMap(filePart -> {
-                                    String contentType = filePart.headers().getContentType() != null
-                                            ? filePart.headers().getContentType().toString()
-                                            : "";
+                        // Получаем ник подрядчика (ЕСЛИ фото грузит НЕ сам подрядчик)
+                        boolean isContractorUploading = Objects.equals(request.getAssignedContractorID(), userId);
+                        Mono<String> mentionMono = (!isContractorUploading && request.getAssignedContractorID() != null) ?
+                                userRepository.findById(request.getAssignedContractorID())
+                                        .map(u -> (u.getTelegramUsername() != null && !u.getTelegramUsername().isBlank()) ? "@" + notificationService.escapeMarkdown(u.getTelegramUsername()) + "\n" : "")
+                                        .defaultIfEmpty("") : Mono.just("");
 
-                                    if (!ALLOWED_MIMES.contains(contentType)) {
-                                        return Mono.error(new OperationNotAllowedException(
-                                                "Файл " + filePart.filename() + " имеет недопустимый тип данных"));
-                                    }
+                        return mentionMono.flatMap(mention -> {
+                            return filePartFlux.flatMap(filePart -> {
+                                        String contentType = filePart.headers().getContentType() != null
+                                                ? filePart.headers().getContentType().toString() : "";
 
-                                    return DataBufferUtils.join(filePart.content())
-                                            .flatMap(dataBuffer -> {
-                                                byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                                                dataBuffer.read(bytes);
-                                                DataBufferUtils.release(dataBuffer);
+                                        if (!ALLOWED_MIMES.contains(contentType)) {
+                                            return Mono.error(new OperationNotAllowedException("Файл " + filePart.filename() + " имеет недопустимый тип данных"));
+                                        }
 
-                                                RequestPhoto photo = new RequestPhoto();
-                                                photo.setRequestID(requestId);
-                                                photo.setImageData(bytes);
+                                        return DataBufferUtils.join(filePart.content())
+                                                .flatMap(dataBuffer -> {
+                                                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                                                    dataBuffer.read(bytes);
+                                                    DataBufferUtils.release(dataBuffer);
 
-                                                return photoRepository.save(photo)
-                                                        .flatMap(savedPhoto -> {
-                                                            // Telegram уведомление оставляем для каждого фото (или можно тоже оптимизировать)
-                                                            return chatRepository.findTelegramIdByRequestId(requestId)
+                                                    RequestPhoto photo = new RequestPhoto();
+                                                    photo.setRequestID(requestId);
+                                                    photo.setImageData(bytes);
+
+                                                    return photoRepository.save(photo)
+                                                            .flatMap(savedPhoto -> chatRepository.findTelegramIdByRequestId(requestId)
                                                                     .flatMap(chatId -> {
                                                                         String author = notificationService.escapeMarkdown(user.getLogin());
-                                                                        String caption = String.format(
-                                                                                "📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s",
-                                                                                requestId, author
-                                                                        );
+                                                                        String caption = String.format("%s📷 *Новое фото к заявке \\#%d*\n👤 *Добавил:* %s", mention, requestId, author);
                                                                         return notificationService.sendPhoto(chatId, caption, bytes);
                                                                     })
                                                                     .onErrorResume(e -> Mono.empty())
-                                                                    .thenReturn(savedPhoto); // Возвращаем объект фото для подсчета
-                                                        });
-                                            });
-                                })
-                                .collectList() // Собираем все успешно загруженные фото в список
-                                .flatMap(savedPhotos -> {
-                                    if (savedPhotos.isEmpty()) return Mono.empty();
+                                                                    .thenReturn(savedPhoto));
+                                                });
+                                    })
+                                    .collectList()
+                                    .flatMap(savedPhotos -> {
+                                        if (savedPhotos.isEmpty()) return Mono.empty();
+                                        String message = savedPhotos.size() == 1
+                                                ? "Пользователь " + user.getLogin() + " добавил фотографию."
+                                                : "Пользователь " + user.getLogin() + " добавил фотографии (" + savedPhotos.size() + " шт.).";
 
-                                    // ОТПРАВЛЯЕМ ОДНО ВЕБ-УВЕДОМЛЕНИЕ НА ВСЮ ПАЧКУ
-                                    String message = savedPhotos.size() == 1
-                                            ? "Пользователь " + user.getLogin() + " добавил фотографию."
-                                            : "Пользователь " + user.getLogin() + " добавил фотографии (" + savedPhotos.size() + " шт.).";
-
-                                    return webNotificationService.send(
-                                            requestId,
-                                            "Новое фото #" + requestId,
-                                            message,
-                                            request.getAssignedContractorID()
-                                    );
-                                });
+                                        return webNotificationService.send(requestId, "Новое фото #" + requestId, message, request.getAssignedContractorID());
+                                    });
+                        });
                     });
                 })
                 .then()
@@ -812,46 +814,62 @@ public class RequestService {
                                         : urgency.getDefaultDays();
 
                                 boolean isOverdue = false;
-                                long daysOverdue = 0;
+                                long tempDaysOverdue = 0;
 
                                 if (daysForTask != null) {
                                     LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
                                     isOverdue = LocalDateTime.now().isAfter(deadline);
                                     if (isOverdue) {
-                                        daysOverdue = Duration.between(deadline, LocalDateTime.now()).toDays();
-                                        daysOverdue = Math.max(1, daysOverdue);
+                                        tempDaysOverdue = Duration.between(deadline, LocalDateTime.now()).toDays();
+                                        tempDaysOverdue = Math.max(1, tempDaysOverdue);
                                     }
                                 }
 
                                 request.setIsOverdue(isOverdue);
 
-                                StringBuilder msgBuilder = new StringBuilder();
-                                msgBuilder.append("🔄 *ЗАЯВКА \\#").append(requestId).append(" ВОССТАНОВЛЕНА*\n\n");
-                                msgBuilder.append("Статус: *Закрыта* ➡️ *В работе*");
+                                // СОЗДАЕМ ФИНАЛЬНУЮ КОПИЮ ДЛЯ ЛЯМБДЫ (устраняет ошибку компиляции)
+                                final long finalDaysOverdue = tempDaysOverdue;
 
-                                if (isOverdue) {
-                                    msgBuilder.append("\n\n⚠️ *Обратите внимание:* Заявка просрочена на *")
-                                            .append(daysOverdue)
-                                            .append(" дн\\.*");
-                                }
+                                // Ищем пользователя и формируем упоминание (mention)
+                                Mono<String> mentionMono = request.getAssignedContractorID() != null ?
+                                        userRepository.findById(request.getAssignedContractorID())
+                                                .map(u -> (u.getTelegramUsername() != null && !u.getTelegramUsername().isBlank())
+                                                        ? "@" + notificationService.escapeMarkdown(u.getTelegramUsername()) + "\n"
+                                                        : "")
+                                                .defaultIfEmpty("")
+                                        : Mono.just("");
 
-                                String finalMessage = msgBuilder.toString();
+                                return mentionMono.flatMap(mention -> {
+                                    StringBuilder msgBuilder = new StringBuilder();
 
-                                return requestRepository.save(request)
-                                        .flatMap(savedReq -> {
-                                            Mono<Void> tg = chatRepository.findTelegramIdByRequestId(requestId)
-                                                    .flatMap(chatId -> notificationService.sendNotification(chatId, finalMessage))
-                                                    .onErrorResume(e -> Mono.empty());
+                                    msgBuilder.append(mention); // Вставляем тег в самое начало
+                                    msgBuilder.append("🔄 *ЗАЯВКА \\#").append(requestId).append(" ВОССТАНОВЛЕНА*\n\n");
+                                    msgBuilder.append("Статус: *Закрыта* ➡️ *В работе*");
 
-                                            Mono<Void> web = webNotificationService.send(
-                                                    requestId,
-                                                    "🔄 Восстановление заявки #" + requestId,
-                                                    "Заявка была возвращена из архива в работу.",
-                                                    savedReq.getAssignedContractorID()
-                                            );
+                                    if (request.getIsOverdue()) {
+                                        msgBuilder.append("\n\n⚠️ *Обратите внимание:* Заявка просрочена на *")
+                                                .append(finalDaysOverdue) // Используем финальную переменную
+                                                .append(" дн\\.*");
+                                    }
 
-                                            return Mono.when(tg, web).thenReturn(savedReq);
-                                        });
+                                    String finalMessage = msgBuilder.toString();
+
+                                    return requestRepository.save(request)
+                                            .flatMap(savedReq -> {
+                                                Mono<Void> tg = chatRepository.findTelegramIdByRequestId(requestId)
+                                                        .flatMap(chatId -> notificationService.sendNotification(chatId, finalMessage))
+                                                        .onErrorResume(e -> Mono.empty());
+
+                                                Mono<Void> web = webNotificationService.send(
+                                                        requestId,
+                                                        "🔄 Восстановление заявки #" + requestId,
+                                                        "Заявка была возвращена из архива в работу.",
+                                                        savedReq.getAssignedContractorID()
+                                                );
+
+                                                return Mono.when(tg, web).thenReturn(savedReq);
+                                            });
+                                });
                             });
                 })
                 .flatMap(savedRequest -> enrichRequest(savedRequest.getRequestID()))
@@ -910,12 +928,17 @@ public class RequestService {
         String safeWork = notificationService.escapeMarkdown(response.workCategoryName());
         String safeUrgency = notificationService.escapeMarkdown(response.urgencyName());
 
+        String mention = (response.contractorTgUsername() != null && !response.contractorTgUsername().isBlank())
+                ? "@" + notificationService.escapeMarkdown(response.contractorTgUsername()) + "\n"
+                : "";
+
         String msg = String.format(
-                "🆕 *НОВАЯ ЗАЯВКА \\#%d*\n\n" +
+                "%s🆕 *НОВАЯ ЗАЯВКА \\#%d*\n\n" +
                         "🏪 *Магазин:* %s\n" +
                         "🛠 *Вид работ:* %s\n" +
                         "🔥 *Срочность:* %s\n" +
                         "📝 *Описание:* %s",
+                mention,
                 response.requestID(),
                 safeShop,
                 safeWork,

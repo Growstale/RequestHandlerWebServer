@@ -292,8 +292,8 @@ useEffect(() => {
                   <TableCell>{shop.userLogin || '—'}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="icon" onClick={() => openEditForm(shop)}><Edit className="h-4 w-4" /></Button>
-                      <Button variant="destructive" size="icon" onClick={() => openDeleteAlert(shop)}><Trash2 className="h-4 w-4" /></Button>
+                      <Button variant="outline" size="icon" className="px-2 hover:text-blue-700" onClick={() => openEditForm(shop)}><Edit className="h-4 w-4" /></Button>
+                      <Button variant="destructive" size="icon" className="px-2 hover:text-blue-700" onClick={() => openDeleteAlert(shop)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>

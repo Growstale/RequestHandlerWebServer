@@ -196,8 +196,8 @@ export default function ShopContractorChats() {
                   <TableCell>{chat.telegramID}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="icon" onClick={() => openEditForm(chat)}><Edit className="h-4 w-4" /></Button>
-                      <Button variant="destructive" size="icon" onClick={() => openDeleteAlert(chat)}><Trash2 className="h-4 w-4" /></Button>
+                      <Button variant="outline" size="icon" className="px-2 hover:text-blue-700" onClick={() => openEditForm(chat)}><Edit className="h-4 w-4" /></Button>
+                      <Button variant="destructive" size="icon" className="px-2 hover:text-blue-700" onClick={() => openDeleteAlert(chat)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>

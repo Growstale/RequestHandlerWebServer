@@ -297,6 +297,7 @@ useEffect(() => {
                 <SortableHeader field="roleName">Роль</SortableHeader>
                 <SortableHeader field="contactInfo">Контакт. инфо</SortableHeader>
                 <SortableHeader field="telegramID">Telegram ID</SortableHeader>
+                <SortableHeader field="telegramUsername">Ник TG</SortableHeader>
                 <TableHead>Действия</TableHead>
               </TableRow>
             </TableHeader>
@@ -309,10 +310,11 @@ useEffect(() => {
                   <TableCell>{getRoleDisplayName(user.roleName)}</TableCell>
                   <TableCell>{user.contactInfo || '—'}</TableCell>
                   <TableCell>{user.telegramID || '—'}</TableCell>
+                  <TableCell>{user.telegramUsername ? `@${user.telegramUsername}` : '—'}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="icon" onClick={() => openEditForm(user)}><Edit className="h-4 w-4" /></Button>
-                      <Button variant="destructive" size="icon" onClick={() => openDeleteAlert(user)}><Trash2 className="h-4 w-4" /></Button>
+                      <Button variant="outline" size="icon" className="px-2 hover:text-blue-700" onClick={() => openEditForm(user)}><Edit className="h-4 w-4" /></Button>
+                      <Button variant="destructive" size="icon" className="px-2 hover:text-blue-700" onClick={() => openDeleteAlert(user)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>

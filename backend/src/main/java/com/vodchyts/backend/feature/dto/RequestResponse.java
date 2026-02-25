@@ -20,5 +20,6 @@ public record RequestResponse(
         Integer daysForTask,
         Boolean isOverdue,
         long commentCount,
-        long photoCount
+        long photoCount,
+        String contractorTgUsername
 ) {}
