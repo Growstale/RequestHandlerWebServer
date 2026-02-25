@@ -88,7 +88,7 @@ const sortedCategories = useMemo(() => {
                   <TableCell className="font-medium">{getUrgencyDisplayName(category.urgencyName)}</TableCell>
                   <TableCell>{category.defaultDays}</TableCell>
                   <TableCell>
-                    <Button variant="outline" size="icon" onClick={() => openEditForm(category)}>
+                    <Button variant="outline" size="icon" className="px-2 hover:text-blue-700" onClick={() => openEditForm(category)}>
                       <Edit className="h-4 w-4" />
                     </Button>
                   </TableCell>

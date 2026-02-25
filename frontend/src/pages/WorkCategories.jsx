@@ -257,10 +257,10 @@ useEffect(() => {
                   <TableCell>{category.requestCount}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="icon" onClick={() => openEditForm(category)}><Edit className="h-4 w-4" /></Button>
+                      <Button variant="outline" size="icon" className="px-2 hover:text-blue-700" onClick={() => openEditForm(category)}><Edit className="h-4 w-4" /></Button>
                                             <Button 
                                                 variant="destructive" 
-                                                size="icon" 
+                                                size="icon" className="px-2 hover:text-blue-700"
                                                 onClick={() => openDeleteAlert(category)}
                                                 disabled={category.requestCount > 0}
                                                 title={category.requestCount > 0 ? "Нельзя удалить, т.к. категория используется" : "Удалить"}

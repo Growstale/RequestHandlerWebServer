@@ -314,10 +314,10 @@ export default function Audit() {
                                                         {changes ? (
                                                             <div className="flex items-center gap-2">
                                                                 <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
+                                                                    variant="ghost" 
+                                                                    size="sm" 
                                                                     onClick={() => openDetails(log)}
-                                                                    className="h-8"
+                                                                    className="px-2 h-8 hover:text-blue-700"
                                                                 >
                                                                     <Eye className="h-4 w-4 mr-1" />
                                                                     Детали

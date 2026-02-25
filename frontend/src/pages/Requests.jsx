@@ -691,34 +691,34 @@ useEffect(() => {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex gap-1">
-                                            <Button variant="ghost" size="icon" onClick={() => openDetails(req)} title="Просмотр деталей">
+                                            <Button variant="ghost" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDetails(req)} title="Просмотр деталей">
                                                 <Eye className="h-4 w-4"/>
                                             </Button>
-                                            <Button variant="ghost" size="icon" onClick={() => openComments(req)}>
-                                                <MessageSquare className="h-4 w-4"/>
-                                                <span className="text-xs ml-1">{req.commentCount}</span>
+                                            <Button variant="ghost" size="sm" className="px-2 hover:text-blue-700" onClick={() => openComments(req)} title="Комментарии">
+                                                <MessageSquare className="h-4 w-4 mr-1.5"/>
+                                                <span className="text-xs font-semibold">{req.commentCount}</span>
                                             </Button>
-                                            <Button variant="ghost" size="icon" onClick={() => openPhotos(req)}>
-                                                <Camera className="h-4 w-4"/>
-                                                <span className="text-xs ml-1">{req.photoCount}</span>
+                                            <Button variant="ghost" size="sm" className="px-2 hover:text-indigo-700" onClick={() => openPhotos(req)} title="Фотографии">
+                                                <Camera className="h-4 w-4 mr-1.5"/>
+                                                <span className="text-xs font-semibold">{req.photoCount}</span>
                                             </Button>
 
-                                                                            {isContractor && req.status === 'In work' && !archived && (
-                                                <Button variant="outline" size="sm" onClick={() => handleComplete(req.requestID)} title="Завершить заявку">
+                                            {isContractor && req.status === 'In work' && !archived && (
+                                                <Button variant="outline" size="sm" className="px-2 hover:text-indigo-700" onClick={() => handleComplete(req.requestID)} title="Завершить заявку">
                                                     Завершить
                                                 </Button>
                                             )}
 
                                             {isAdmin && req.status !== 'Closed' && (
-                                                <Button variant="outline" size="icon" onClick={() => openEditForm(req)} title="Редактировать"><Edit className="h-4 w-4" /></Button>
+                                                <Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openEditForm(req)} title="Редактировать"><Edit className="h-4 w-4" /></Button>
                                             )}
 
                                             {isAdmin && archived && req.status === 'Closed' && (
-                                                <Button variant="outline" size="icon" onClick={() => handleRestore(req.requestID)} title="Восстановить"><RotateCcw className="h-4 w-4" /></Button>
+                                                <Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => handleRestore(req.requestID)} title="Восстановить"><RotateCcw className="h-4 w-4" /></Button>
                                             )}
                                             
                                             {isAdmin && (
-                                                <Button variant="destructive" size="icon" onClick={() => openDeleteAlert(req)} title="Удалить"><Trash2 className="h-4 w-4" /></Button>
+                                                <Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)} title="Удалить"><Trash2 className="h-4 w-4" /></Button>
                                             )}
                                         </div>
                                     </TableCell>
@@ -790,13 +790,19 @@ useEffect(() => {
                                                         <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 })}>{req.daysRemaining !== null ? req.daysRemaining : '—'}</TableCell>
                                                         <TableCell>
                                                             <div className="flex gap-1">
-                                                                <Button variant="ghost" size="icon" onClick={() => openDetails(req)} title="Просмотр деталей"><Eye className="h-4 w-4"/></Button>
-                                                                <Button variant="ghost" size="icon" onClick={() => openComments(req)}><MessageSquare className="h-4 w-4"/><span className="text-xs ml-1">{req.commentCount}</span></Button>
-                                                                <Button variant="ghost" size="icon" onClick={() => openPhotos(req)}><Camera className="h-4 w-4"/><span className="text-xs ml-1">{req.photoCount}</span></Button>
-                                                                {isContractor && req.status === 'In work' && !archived && (<Button variant="outline" size="sm" onClick={() => handleComplete(req.requestID)}>Завершить</Button>)}
-                                                                {isAdmin && req.status !== 'Closed' && (<Button variant="outline" size="icon" onClick={() => openEditForm(req)}><Edit className="h-4 w-4" /></Button>)}
-                                                                {isAdmin && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" onClick={() => handleRestore(req.requestID)}><RotateCcw className="h-4 w-4" /></Button>)}
-                                                                {isAdmin && (<Button variant="destructive" size="icon" onClick={() => openDeleteAlert(req)}><Trash2 className="h-4 w-4" /></Button>)}
+                                                                <Button variant="ghost" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDetails(req)} title="Просмотр деталей"><Eye className="h-4 w-4"/></Button>
+                                                                <Button variant="ghost" size="sm" className="px-2 hover:text-blue-700" onClick={() => openComments(req)} title="Комментарии">
+                                                                    <MessageSquare className="h-4 w-4 mr-1.5"/>
+                                                                    <span className="text-xs font-semibold">{req.commentCount}</span>
+                                                                </Button>
+                                                                <Button variant="ghost" size="sm" className="px-2 hover:text-indigo-700" onClick={() => openPhotos(req)} title="Фотографии">
+                                                                    <Camera className="h-4 w-4 mr-1.5"/>
+                                                                    <span className="text-xs font-semibold">{req.photoCount}</span>
+                                                                </Button>                                                                
+                                                                {isContractor && req.status === 'In work' && !archived && (<Button variant="outline" size="sm" className="px-2 hover:text-indigo-700" onClick={() => handleComplete(req.requestID)}>Завершить</Button>)}
+                                                                {isAdmin && req.status !== 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openEditForm(req)}><Edit className="h-4 w-4" /></Button>)}
+                                                                {isAdmin && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => handleRestore(req.requestID)}><RotateCcw className="h-4 w-4" /></Button>)}
+                                                                {isAdmin && (<Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)}><Trash2 className="h-4 w-4" /></Button>)}
                                                             </div>
                                                         </TableCell>
                                                     </TableRow>

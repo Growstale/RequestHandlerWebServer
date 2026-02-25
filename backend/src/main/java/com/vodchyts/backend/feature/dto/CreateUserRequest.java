@@ -28,5 +28,8 @@ public record CreateUserRequest(
                 message = "Telegram ID должен состоять только из цифр"
         )
         @Size(max = 19, message = "Telegram ID слишком длинный")
-        String telegramID
+        String telegramID,
+
+        @Size(max = 100, message = "Ник Telegram слишком длинный")
+        String telegramUsername
 ) {}

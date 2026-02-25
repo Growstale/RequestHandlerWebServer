@@ -24,6 +24,7 @@ CREATE TABLE dbo.Users (
                            RoleID INT NOT NULL,
                            ContactInfo NVARCHAR(400) NULL,
                            TelegramID BIGINT NULL,
+                           TelegramUsername VARCHAR(100) NULL,
                            CONSTRAINT PK_Users PRIMARY KEY (UserID),
                            CONSTRAINT UQ_Users_Login UNIQUE (Login),
                            CONSTRAINT FK_Users_Roles FOREIGN KEY (RoleID) REFERENCES dbo.Roles(RoleID)

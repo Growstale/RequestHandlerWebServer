@@ -241,7 +241,7 @@ export default function Notifications() {
                       <div className="flex gap-2">
                         <Button 
                           variant="outline" 
-                          size="icon" 
+                          size="icon"  className="px-2 hover:text-blue-700"
                           onClick={() => openEditForm(notification)}
                           title="Редактировать"
                         >
@@ -249,7 +249,7 @@ export default function Notifications() {
                         </Button>
                         <Button 
                           variant="destructive" 
-                          size="icon" 
+                          size="icon"  className="px-2 hover:text-blue-700"
                           onClick={() => openDeleteAlert(notification)}
                           title="Удалить"
                         >
