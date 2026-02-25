@@ -4,28 +4,31 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { logApi } from '@/api/logApi';
 import { logger } from '@/lib/logger';
-import { AlertTriangle, Info, AlertCircle, Search, Filter, Download } from 'lucide-react';
+import { AlertTriangle, Info, AlertCircle, Filter, Trash2 } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 
 export default function Logs() {
-    const [logs, setLogs] = useState([]);
+    const[logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
+    const[error, setError] = useState(null);
     const [page, setPage] = useState(0);
     const [size] = useState(50);
     const [totalPages, setTotalPages] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
     
     // Filters
-    const [logLevel, setLogLevel] = useState('ALL');
+    const[logLevel, setLogLevel] = useState('ALL');
     const [loggerName, setLoggerName] = useState('');
-    const [userID, setUserID] = useState('');
+    const[userID, setUserID] = useState('');
     const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
+    const[endDate, setEndDate] = useState('');
 
     const [stats, setStats] = useState(null);
+    const [isClearAlertOpen, setIsClearAlertOpen] = useState(false);
 
     useEffect(() => {
         fetchLogs();
@@ -109,10 +112,26 @@ export default function Logs() {
         setPage(0);
     };
 
+    const handleClearAllLogs = async () => {
+        try {
+            await logApi.clearAllLogs();
+            setIsClearAlertOpen(false);
+            setPage(0);
+            fetchLogs();
+            fetchStats();
+        } catch (err) {
+            logger.error('Clear logs', err);
+            setError('Не удалось очистить логи');
+        }
+    };
+
     return (
         <div className="container mx-auto p-6 space-y-6">
             <div className="flex justify-between items-center">
                 <h1 className="text-3xl font-bold">Логи приложения</h1>
+                <Button variant="destructive" onClick={() => setIsClearAlertOpen(true)}>
+                    <Trash2 className="mr-2 h-4 w-4" /> Очистить все логи
+                </Button>
             </div>
 
             {stats && (
@@ -266,7 +285,23 @@ export default function Logs() {
                     )}
                 </CardContent>
             </Card>
+
+            <AlertDialog open={isClearAlertOpen} onOpenChange={setIsClearAlertOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Очистить логи?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Это действие безвозвратно удалит все записи из таблицы логов. Продолжить?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Отмена</AlertDialogCancel>
+                        <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={handleClearAllLogs}>
+                            Очистить
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
-

@@ -20,6 +20,9 @@ export const logApi = {
     if (params.endDate) queryParams.append('endDate', params.endDate)
     
     return api.get(`/api/admin/logs/stats?${queryParams.toString()}`)
+  },
+
+  clearAllLogs: () => {
+    return api.delete('/api/admin/logs/clear')
   }
 }
-
