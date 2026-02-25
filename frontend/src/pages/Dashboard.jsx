@@ -8,13 +8,13 @@ import {
 } from 'recharts';
 import { 
     Activity, CheckCircle2, AlertTriangle, 
-    Briefcase, Printer, Download, Clock, ShieldCheck, TrendingUp
+    Briefcase, Printer, Download, Clock, ShieldCheck 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getUrgencyDisplayName } from '@/lib/displayNames';
 import * as XLSX from 'xlsx';
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
+const COLORS =['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 const STATUS_COLORS = {
     'In work': '#3b82f6',
     'Done': '#22c55e',
@@ -23,7 +23,7 @@ const STATUS_COLORS = {
 
 export default function Dashboard() {
     const [stats, setStats] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const[loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
     useEffect(() => {
@@ -39,7 +39,7 @@ export default function Dashboard() {
             }
         };
         fetchStats();
-    }, []);
+    },[]);
 
     const handleExportExcel = () => {
         if (!stats) return;
@@ -47,23 +47,31 @@ export default function Dashboard() {
         const workbook = XLSX.utils.book_new();
 
         const summaryData = [
-            ["Показатель", "Значение"],
-            ["Всего заявок", stats.totalRequests],
-            ["В работе", stats.activeRequests],
-            ["Просрочено", stats.overdueRequests],
-            ["Выполнено", stats.completedRequests],
-            ["Среднее время выполнения (дней)", stats.averageCompletionTimeDays?.toFixed(1)],
-            ["Соблюдение SLA (%)", stats.slaCompliancePercent?.toFixed(1)]
+            ["Показатель", "Значение"],["Всего заявок", stats.totalRequests],
+            ["В работе", stats.activeRequests],["Просрочено", stats.overdueRequests],
+            ["Выполнено", stats.completedRequests],["Среднее время выполнения (дней)", stats.averageCompletionTimeDays?.toFixed(1)],["Соблюдение SLA (%)", stats.slaCompliancePercent?.toFixed(1)]
         ];
         const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
         XLSX.utils.book_append_sheet(workbook, summarySheet, "Сводка");
 
-        const contractorsData = [
-            ["Имя подрядчика", "Выполнено заявок"],
+        const contractorsData = [["Имя подрядчика", "Выполнено заявок"],
             ...stats.topContractors.map(c => [c.name, c.completedCount])
         ];
         const contractorsSheet = XLSX.utils.aoa_to_sheet(contractorsData);
         XLSX.utils.book_append_sheet(workbook, contractorsSheet, "Топ подрядчиков");
+
+        const worstContractorsData = [["Имя подрядчика", "Просроченных заявок"],
+            ...stats.worstContractors.map(c => [c.name, c.value])
+        ];
+        const worstContractorsSheet = XLSX.utils.aoa_to_sheet(worstContractorsData);
+        XLSX.utils.book_append_sheet(workbook, worstContractorsSheet, "Худшие подрядчики");
+
+        const worstShopsData = [
+            ["Магазин", "Просроченных заявок"],
+            ...stats.worstShops.map(s =>[s.name, s.value])
+        ];
+        const worstShopsSheet = XLSX.utils.aoa_to_sheet(worstShopsData);
+        XLSX.utils.book_append_sheet(workbook, worstShopsSheet, "Проблемные магазины (сроки)");
 
         const dateStr = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
         XLSX.writeFile(workbook, `Otchet_Dashboard_${dateStr}.xlsx`);
@@ -217,7 +225,62 @@ export default function Dashboard() {
                 </Card>
             </div>
 
-            {/* Ряд 2: Загрузка подрядчиков и Топ проблемных магазинов (НОВОЕ) */}
+            {/* Ряд 2: Антирейтинги (Просрочки) */}
+            <div className="grid gap-4 md:grid-cols-2">
+                <Card className="border-red-100 shadow-sm">
+                    <CardHeader className="bg-red-50/50 pb-4 border-b">
+                        <CardTitle className="text-red-600 flex items-center gap-2">
+                            <AlertTriangle className="h-5 w-5" /> Антирейтинг подрядчиков
+                        </CardTitle>
+                        <CardDescription>Топ-5 по количеству просроченных заявок</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-4">
+                        <div className="h-[250px] w-full min-h-[250px]"> 
+                            {stats.worstContractors.length === 0 ? (
+                                <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
+                            ) : (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart layout="vertical" data={stats.worstContractors} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                        <XAxis type="number" allowDecimals={false} />
+                                        <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
+                                        <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                        <Bar dataKey="value" fill="#ef4444" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="border-red-100 shadow-sm">
+                    <CardHeader className="bg-red-50/50 pb-4 border-b">
+                        <CardTitle className="text-red-600 flex items-center gap-2">
+                            <AlertTriangle className="h-5 w-5" /> Антирейтинг магазинов
+                        </CardTitle>
+                        <CardDescription>Топ-5 магазинов с частыми просрочками</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-4">
+                        <div className="h-[250px] w-full min-h-[250px]"> 
+                            {stats.worstShops.length === 0 ? (
+                                <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
+                            ) : (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart layout="vertical" data={stats.worstShops} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                        <XAxis type="number" allowDecimals={false} />
+                                        <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
+                                        <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                        <Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Ряд 3: Загрузка подрядчиков и Топ магазинов (Общее) */}
             <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                     <CardHeader>
@@ -225,14 +288,14 @@ export default function Dashboard() {
                         <CardDescription>Количество активных заявок ("В работе")</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-[300px] w-full min-h-[300px]"> 
+                        <div className="h-[250px] w-full min-h-[250px]"> 
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart layout="vertical" data={stats.contractorWorkload} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
                                     <XAxis type="number" allowDecimals={false} />
                                     <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 12}} />
                                     <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                    <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} name="В работе" barSize={20} />
+                                    <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} name="В работе" barSize={15} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -241,18 +304,18 @@ export default function Dashboard() {
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Топ проблемных магазинов</CardTitle>
-                        <CardDescription>Магазины с наибольшим количеством заявок</CardDescription>
+                        <CardTitle>Количество заявок по магазинам</CardTitle>
+                        <CardDescription>Общее количество заявок</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-[300px] w-full min-h-[300px]"> 
+                        <div className="h-[250px] w-full min-h-[250px]"> 
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={stats.topProblemShops} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                     <XAxis dataKey="name" tick={{fontSize: 11}} interval={0} angle={-15} textAnchor="end" height={60}/>
                                     <YAxis allowDecimals={false} />
                                     <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                    <Bar dataKey="value" fill="#ef4444" radius={[4, 4, 0, 0]} name="Заявки" barSize={40} />
+                                    <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Всего заявок" barSize={30} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -260,7 +323,7 @@ export default function Dashboard() {
                 </Card>
             </div>
 
-            {/* Ряд 3: Виды работ и Лидеры (Сжато) */}
+            {/* Ряд 4: Виды работ и Лидеры */}
             <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                     <CardHeader>
@@ -289,7 +352,9 @@ export default function Dashboard() {
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-4">
-                            {stats.topContractors.map((contractor, i) => (
+                            {stats.topContractors.length === 0 ? (
+                                <p className="text-center text-gray-400 py-6">Нет данных о выполненных заявках</p>
+                            ) : stats.topContractors.map((contractor, i) => (
                                 <div key={i} className="flex items-center justify-between border-b pb-2 last:border-0 last:pb-0">
                                     <div className="flex items-center gap-3">
                                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600 font-bold text-xs">
