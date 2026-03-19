@@ -17,6 +17,7 @@ import Pagination from '@/components/Pagination'
 import { cn } from '@/lib/utils'
 import api from '@/api/axios';
 import { useAuth } from '@/context/AuthProvider';
+import { useSSE } from '@/hooks/useSSE';
 
 export default function Shops() {
   const [shops, setShops] = useState([])
@@ -69,54 +70,11 @@ export default function Shops() {
     fetchStoreManagers();
   }, []); 
 
-useEffect(() => {
-      let reconnectTimeout = null;
-      let eventSource = null;
-
-      const connectSSE = () => {
-          if (!accessToken) return;
-
-          if (eventSource) {
-              eventSource.close();
-          }
-
-          const url = `/api/updates/stream?token=${accessToken}`;
-          eventSource = new EventSource(url, { withCredentials: true });
-
-          eventSource.onopen = () => console.log("SSE подключено (Shops)");
-
-          eventSource.onmessage = (event) => {
-              if (event.data === "SHOPS_UPDATED") {
-                  reloadShops();
-              }
-          };
-
-          eventSource.onerror = (err) => {
-              if (eventSource.readyState === EventSource.CLOSED) {
-                  console.warn("SSE соединение закрыто. Пробуем переподключиться...");
-                  eventSource.close();
-                  
-                  clearTimeout(reconnectTimeout);
-                  reconnectTimeout = setTimeout(async () => {
-                      try {
-                          await api.get('/api/user/whoami'); 
-                      } catch (e) {
-                          console.error("Не удалось восстановить сессию для SSE", e);
-                      }
-                  }, 3000);
-              }
-          };
-      };
-
-      connectSSE();
-
-      return () => {
-          if (eventSource) {
-              eventSource.close();
-          }
-          clearTimeout(reconnectTimeout);
-      };
-  }, [reloadShops, accessToken]);
+  useSSE(useCallback((message) => {
+      if (message === "SHOPS_UPDATED") {
+          reloadShops();
+      }
+  }, [reloadShops]));
 
   useEffect(() => {
     reloadShops();

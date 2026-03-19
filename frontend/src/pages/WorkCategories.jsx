@@ -16,6 +16,7 @@ import Pagination from '@/components/Pagination'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthProvider';
 import api from '@/api/axios';
+import { useSSE } from '@/hooks/useSSE';
 
 export default function WorkCategories() {
   const [categories, setCategories] = useState([])
@@ -101,54 +102,12 @@ export default function WorkCategories() {
     }
   }
 
-useEffect(() => {
-      let reconnectTimeout = null;
-      let eventSource = null;
+  useSSE(useCallback((message) => {
+      if (message === "CATEGORIES_UPDATED") {
+          reloadCategories();
+      }
+  }, [reloadCategories]));
 
-      const connectSSE = () => {
-          if (!accessToken) return;
-
-          if (eventSource) {
-              eventSource.close();
-          }
-
-          const url = `/api/updates/stream?token=${accessToken}`;
-          eventSource = new EventSource(url, { withCredentials: true });
-
-          eventSource.onopen = () => console.log("SSE подключено (WorkCategories)");
-
-          eventSource.onmessage = (event) => {
-              if (event.data === "CATEGORIES_UPDATED") {
-                  reloadCategories();
-              }
-          };
-
-          eventSource.onerror = (err) => {
-              if (eventSource.readyState === EventSource.CLOSED) {
-                  console.warn("SSE соединение закрыто. Пробуем переподключиться...");
-                  eventSource.close();
-                  
-                  clearTimeout(reconnectTimeout);
-                  reconnectTimeout = setTimeout(async () => {
-                      try {
-                          await api.get('/api/user/whoami'); 
-                      } catch (e) {
-                          console.error("Не удалось восстановить сессию для SSE", e);
-                      }
-                  }, 3000);
-              }
-          };
-      };
-
-      connectSSE();
-
-      return () => {
-          if (eventSource) {
-              eventSource.close();
-          }
-          clearTimeout(reconnectTimeout);
-      };
-  }, [reloadCategories, accessToken]);
 
   const handleDeleteConfirm = async () => {
     if (!currentCategory) return

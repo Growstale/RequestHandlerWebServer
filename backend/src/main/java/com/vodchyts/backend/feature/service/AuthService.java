@@ -1,5 +1,6 @@
 package com.vodchyts.backend.feature.service;
 
+import com.vodchyts.backend.exception.UnauthorizedException;
 import com.vodchyts.backend.feature.dto.LoginResponse;
 import com.vodchyts.backend.feature.dto.LoginResponseWithRefresh;
 import com.vodchyts.backend.feature.entity.RefreshToken;
@@ -51,7 +52,7 @@ public class AuthService {
                 .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь не найден")))
                 .flatMap(user -> {
                     if (!passwordEncoder.matches(password, user.getPassword())) {
-                        return Mono.error(new RuntimeException("Неверный пароль"));
+                        return Mono.error(new UnauthorizedException("Неверный логин или пароль"));
                     }
                     return roleRepository.findById(user.getRoleID())
                             .flatMap(role -> {

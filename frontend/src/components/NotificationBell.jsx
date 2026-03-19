@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Bell, Trash2 } from 'lucide-react';
 import api from '@/api/axios';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthProvider';
+import { useSSE } from '@/hooks/useSSE'; 
 
 export default function NotificationBell() {
     const [notifications, setNotifications] = useState([]);
@@ -24,67 +25,20 @@ export default function NotificationBell() {
         }
     }, [accessToken]);
 
-
-    useEffect(() => {
+        useEffect(() => {
         fetchNotifications();
+    }, [fetchNotifications]);
 
-        let reconnectTimeout = null;
+    useSSE(useCallback((message) => {
+        if (message === `WEB_NOTIFICATION_USER_${user?.id}`) {
+            fetchNotifications();
+        }
+    }, [user?.id, fetchNotifications]));
 
-        const connectSSE = () => {
-            if (!accessToken || !user?.id) return;
 
-            if (sseRef.current) {
-                sseRef.current.close();
-            }
-
-            const url = `/api/updates/stream?token=${accessToken}`;
-            const eventSource = new EventSource(url);
-            sseRef.current = eventSource;
-
-            eventSource.onopen = () => console.log("SSE подключено (Колокольчик)");
-
-            eventSource.onmessage = (event) => {
-                if (event.data === `WEB_NOTIFICATION_USER_${user.id}`) {
-                    fetchNotifications();
-                }
-            };
-
-            eventSource.onerror = (err) => {
-                if (eventSource.readyState === EventSource.CLOSED) {
-                    console.warn("SSE соединение закрыто. Возможно истек токен. Пробуем переподключиться...");
-                    eventSource.close();
-                    sseRef.current = null;
-                    
-                    // Дергаем любой защищенный эндпоинт через axios.
-                    // Если accessToken истек, отработает axios interceptor,
-                    // он сходит за refresh-токеном, обновит accessToken в AuthContext,
-                    // что вызовет ререндер компонента и перезапуск этого useEffect с НОВЫМ токеном!
-                    clearTimeout(reconnectTimeout);
-                    reconnectTimeout = setTimeout(async () => {
-                        try {
-                            await api.get('/api/user/whoami'); 
-                        } catch (e) {
-                            console.error("Не удалось восстановить сессию для SSE", e);
-                        }
-                    }, 3000); // Ждем 3 секунды перед попыткой
-                }
-            };
-        };
-
-        connectSSE();
-
-        return () => {
-            if (sseRef.current) {
-                sseRef.current.close();
-                sseRef.current = null;
-            }
-            clearTimeout(reconnectTimeout);
-        };
-    }, [accessToken, user?.id, fetchNotifications]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
-            // Если окно открыто И клик был НЕ по нашему компоненту (bellRef)
             if (open && bellRef.current && !bellRef.current.contains(event.target)) {
                 setOpen(false);
             }

@@ -44,7 +44,11 @@ api.interceptors.response.use(
   async err => {
     const originalReq = err.config
 
-    if (originalReq.url.includes('/auth/refresh')) {
+    if (
+      originalReq.url.includes('/auth/refresh') ||
+      originalReq.url.includes('/auth/login') ||
+      originalReq.url.includes('/auth/logout')
+    ) {
       return Promise.reject(err);
     }
 

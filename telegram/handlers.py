@@ -161,7 +161,7 @@ def format_request_details(req: dict) -> str:
         f"*Статус:* {escape_markdown(get_status_ru(req['status']))}\n"
         f"*Создана:* {escaped_created_at}\n"
         f"*Срок:* {deadline_info}\n\n"
-        f"*Описание:*\n```\n{escape_markdown(req['description'])}\n```"
+        f"*Описание:* {escape_markdown(req['description'])}"
     )
     return text
 
@@ -328,10 +328,16 @@ def _get_sort_direction_keyboard(field: str) -> InlineKeyboardMarkup:
 
 async def view_requests_start(update: Update, context: Context) -> int:
     if not check_rate_limit(update.effective_user.id): return ConversationHandler.END
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
     user_id = update.effective_user.id
     user_info = await api_client.get_user_by_telegram_id(user_id)
     if not user_info:
-        await update.message.reply_text("❌ Ваш Telegram ID не найден в системе.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ Ваш Telegram ID не найден в системе.")
         return ConversationHandler.END
 
     context.user_data['view_chat_id'] = update.effective_chat.id
@@ -339,8 +345,13 @@ async def view_requests_start(update: Update, context: Context) -> int:
     _invalidate_requests_cache(context)
     context.user_data['user_info'] = user_info
 
-    placeholder_message = await update.message.reply_text("🔄 Загружаю список заявок...")
+    placeholder_message = await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="🔄 Загружаю список заявок..."
+    )
     context.user_data['main_message_id'] = placeholder_message.message_id
+
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [placeholder_message.message_id], 300))
 
     return await render_main_view_menu(update, context)
 
@@ -475,6 +486,7 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
                 parse_mode=ParseMode.MARKDOWN_V2
             )
             context.user_data['main_message_id'] = sent_message.message_id
+            asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_message.message_id], 300))
 
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения Markdown: {e}\nТекст: {message_text}")
@@ -604,15 +616,24 @@ async def _edit_message_markdown(query, text, reply_markup=None):
 
 
 async def complete_request_action(query, context, request_id):
-    await query.edit_message_text(f"Завершаю заявку \\#{request_id}\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
+    await query.edit_message_text(f"⏳ Завершаю заявку \\#{request_id}\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
     response = await api_client.complete_request(query.from_user.id, request_id)
+
     if response:
         _invalidate_requests_cache(context)
-        await query.edit_message_text(f"✅ Заявка \\#{request_id} успешно завершена\\.",
-                                      parse_mode=ParseMode.MARKDOWN_V2)
+
+        await query.edit_message_text(
+            f"✅ Заявка \\#{request_id} успешно завершена\\!",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+
+        asyncio.create_task(delayed_delete_messages(context, query.message.chat_id, [query.message.message_id], 10))
+
     else:
-        await query.edit_message_text(f"❌ Не удалось завершить заявку \\#{request_id}\\.",
-                                      parse_mode=ParseMode.MARKDOWN_V2)
+        await query.edit_message_text(
+            f"❌ Не удалось завершить заявку \\#{request_id}\\. Попробуйте позже\\.",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
 
 
 async def view_sort_callback(update: Update, context: Context) -> int:
@@ -704,10 +725,12 @@ async def view_request_details(update: Update, context: Context) -> int | None:
 
     context.user_data['current_request_id'] = request_id
     context.user_data['current_request_details'] = request_details
+
     message_text = format_request_details(request_details)
 
     keyboard = []
-    role, status = user_info.get('roleName'), request_details.get('status')
+    role = user_info.get('roleName')
+    status = request_details.get('status')
 
     action_row = []
     if request_details.get('commentCount', 0) > 0:
@@ -722,16 +745,26 @@ async def view_request_details(update: Update, context: Context) -> int | None:
     if role in ['RetailAdmin', 'Contractor'] and status != 'Closed':
         second_action_row.append(InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
         second_action_row.append(InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
+
     if role == 'RetailAdmin':
         second_action_row.append(InlineKeyboardButton("✏️ Изменить", callback_data=f"act_edit_{request_id}"))
+
     if role == 'Contractor' and status == 'In work':
         second_action_row.append(InlineKeyboardButton("✅ Завершить", callback_data=f"act_complete_{request_id}"))
+
     if second_action_row: keyboard.append(second_action_row)
 
     keyboard.append([InlineKeyboardButton("◀️ Назад к списку", callback_data="act_back_list")])
 
-    await update.message.reply_text(message_text, reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode=ParseMode.MARKDOWN_V2)
+    sent_msg = await update.message.reply_text(
+        message_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+    context.user_data['main_message_id'] = sent_msg.message_id
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_msg.message_id], 300))
+
     return VIEW_DETAILS
 
 
@@ -743,56 +776,62 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
 
     await safe_answer_query(query)
     data = query.data
+    parts = data.split('_')
 
-    # 1. Сначала обрабатываем простые строковые команды
+    # 1. Простые команды
     if data == "act_back_list":
         class FakeUpdate:
             def __init__(self, q):
                 self.callback_query = q
                 self.effective_chat = q.message.chat
                 self.effective_user = q.from_user
+
         return await render_main_view_menu(FakeUpdate(query), context, is_callback=True)
 
     if "back_to_request" in data:
-        req_id = int(data.split('_')[-1])
+        req_id = int(parts[-1])
         return await show_request_details_in_message(query, context, req_id)
 
-    # 2. Обработка удаления и ответов
     if data.startswith('start_reply_cmt_'): return await start_reply_comment_handler(update, context)
     if data.startswith('start_del_cmt_'): return await start_delete_comment_handler(update, context)
     if data.startswith('start_del_img_'): return await start_delete_photo_handler(update, context)
 
-    # 3. Обработка параметризованных действий act_...
     if data.startswith('act_'):
-        parts = data.split('_')
-        # Безопасный парсинг req_id (последний элемент, если он число)
+        if "add_comment" in data:
+            req_id = int(parts[3])
+            parent_id = int(parts[4]) if len(parts) > 4 else None
+
+            context.user_data['current_request_id'] = req_id
+            context.user_data['parent_comment_id'] = parent_id
+
+            try:
+                await query.delete_message()
+            except:
+                pass
+
+            text = "💬 Введите текст вашего ответа:" if parent_id else "💬 Введите текст комментария:"
+            prompt_msg = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text,
+                reply_markup=ForceReply(selective=True)
+            )
+            context.user_data['comment_prompt_msg_id'] = prompt_msg.message_id
+            return VIEW_ADD_COMMENT
+
         if parts[-1].isdigit():
             req_id = int(parts[-1])
         else:
             return None
 
-        # Определение действия по количеству частей или по ключевым словам
         if "add_photo" in data:
             context.user_data['current_request_id'] = req_id
             sent_msg = await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="📤 <b>Отправьте одно или несколько фото</b> для заявки.\n\n"
-                     "<i>Вы можете отправить их группой (альбомом). Как только загрузка закончится, меню обновится.</i>",
+                text="📤 <b>Отправьте фото</b> для заявки:",
                 parse_mode=ParseMode.HTML
             )
             context.user_data['photo_prompt_message_id'] = sent_msg.message_id
             return VIEW_ADD_PHOTO
-
-        elif "add_comment" in data:
-            parent_id = int(parts[4]) if len(parts) > 4 else None
-            context.user_data['current_request_id'] = req_id
-            context.user_data['parent_comment_id'] = parent_id
-            text = "💬 Введите текст вашего ОТВЕТА:" if parent_id else "💬 Введите текст КОММЕНТАРИЯ:"
-
-            prompt_msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text,
-                                                        reply_markup=ForceReply(selective=True))
-            context.user_data['comment_prompt_msg_id'] = prompt_msg.message_id
-            return VIEW_ADD_COMMENT
 
         elif parts[1] == 'complete':
             await complete_request_action(query, context, req_id)
@@ -891,14 +930,19 @@ async def start_delete_comment_handler(update: Update, context: Context) -> int:
 
     keyboard = []
     for c in comments:
-        snippet = c['commentText'][:20] + "..." if len(c['commentText']) > 20 else c['commentText']
-        btn_text = f"{c['userLogin']}: {snippet}"
-        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"conf_del_cmt_{c['commentID']}_{request_id}")])
+        c_text = c['commentText'][:20] + "..." if len(c['commentText']) > 20 else c['commentText']
+        keyboard.append([InlineKeyboardButton(f"🗑 {c['userLogin']}: {c_text}",
+                                              callback_data=f"conf_del_cmt_{c['commentID']}_{request_id}")])
+
+        for r in c.get('replies', []):
+            r_text = r['commentText'][:20] + "..." if len(r['commentText']) > 20 else r['commentText']
+            keyboard.append([InlineKeyboardButton(f"   ↳ 🗑 {r['userLogin']}: {r_text}",
+                                                  callback_data=f"conf_del_cmt_{r['commentID']}_{request_id}")])
 
     keyboard.append([InlineKeyboardButton("🔙 Отмена", callback_data=f"act_comments_{request_id}")])
 
     await query.edit_message_text(
-        "Выберите комментарий для удаления:",
+        "Выберите комментарий или ОТВЕТ для удаления:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return DELETE_COMMENT_SELECT
@@ -1128,7 +1172,7 @@ async def add_comment_handler(update: Update, context: Context) -> int:
     if response:
         success_msg = await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=f"✅ Комментарий к заявке #{request_id} добавлен. (удалится через 30 сек)"
+            text=f"✅ Комментарий к заявке #{request_id} добавлен."
         )
         msgs_to_delete.append(success_msg.message_id)
     else:
@@ -1139,7 +1183,7 @@ async def add_comment_handler(update: Update, context: Context) -> int:
         msgs_to_delete.append(err_msg.message_id)
 
     # Запускаем таймер на удаление
-    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, msgs_to_delete, 30))
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, msgs_to_delete, 5))
 
     _invalidate_requests_cache(context)
     await restore_request_menu(context, update.effective_chat.id, user_id, request_id)
@@ -1263,12 +1307,13 @@ async def restore_request_menu(context, chat_id, user_id, request_id):
 
         second_action_row = []
         if role in ['RetailAdmin', 'Contractor'] and status != 'Closed':
-            second_action_row.append(InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
-            second_action_row.append(InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
+            second_action_row.append(
+                InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
+            second_action_row.append(
+                InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
         if role == 'Contractor' and status == 'In work':
             second_action_row.append(InlineKeyboardButton("✅ Завершить", callback_data=f"act_complete_{request_id}"))
         if second_action_row: keyboard.append(second_action_row)
-
         keyboard.append([InlineKeyboardButton("◀️ Назад к списку", callback_data="act_back_list")])
 
         sent_menu = await context.bot.send_message(
@@ -1279,9 +1324,10 @@ async def restore_request_menu(context, chat_id, user_id, request_id):
         )
         context.user_data['main_message_id'] = sent_menu.message_id
 
+        asyncio.create_task(delayed_delete_messages(context, chat_id, [sent_menu.message_id], 300))
+
     except Exception as e:
         logger.error(f"Error restoring menu: {e}")
-        await context.bot.send_message(chat_id=chat_id, text="⚠️ Произошла ошибка при отображении меню.")
 
 
 async def delayed_delete(context, chat_id, message_id, delay=5):
@@ -1551,11 +1597,11 @@ async def submit_request(update: Update, context: CallbackContext) -> int:
 
 
 async def start_command(update: Update, context: CallbackContext):
-    user = update.effective_user
+    if not check_rate_limit(update.effective_user.id): return
     await update.message.reply_html(
-        f"Привет, {user.mention_html()}!\n\n"
-        "Используйте команду /newrequest для создания новой заявки (только для администраторов).\n"
-        "Используйте /health для проверки связи с сервером."
+        "<b>Добро пожаловать в систему управления заявками MART INN.</b>\n\n"
+        "Воспользуйтесь меню внизу для управления вашими задачами.",
+        reply_markup=get_main_menu_keyboard()
     )
 
 
@@ -2015,7 +2061,7 @@ async def _submit_editor_data(update: Update, context: Context) -> int:
 
     if is_success:
         req_id = response.get('requestID') if isinstance(response, dict) else draft.get('requestID')
-        success_text = f"✅ Заявка #{req_id} успешно {'создана' if is_new else 'обновлена'}! (сообщение удалится через 5 сек)"
+        success_text = f"✅ Заявка #{req_id} успешно {'создана' if is_new else 'обновлена'}!"
 
         # Удаляем меню редактора
         try:
@@ -2037,9 +2083,6 @@ async def _submit_editor_data(update: Update, context: Context) -> int:
         # Удаляем ID старого сообщения, чтобы бот прислал меню отдельным сообщением
         context.user_data.pop('main_message_id', None)
 
-        # Вызываем список заявок
-        await render_main_view_menu(update, context, is_callback=False)
-
         # Удаляем сообщение об успехе через 5 секунд
         asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [success_msg.message_id], 5))
 
@@ -2060,7 +2103,6 @@ async def start_command(update: Update, context: CallbackContext):
     if not check_rate_limit(update.effective_user.id): return
     user = update.effective_user
     await update.message.reply_html(
-        f"Привет, {user.mention_html()}!\n\n"
         "Воспользуйтесь меню внизу для управления заявками.",
         reply_markup=get_main_menu_keyboard()
     )

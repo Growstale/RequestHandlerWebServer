@@ -1,6 +1,6 @@
 import api from './axios'
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 1000;
 
 export const getRequests = (params = {}) => {
   const queryParams = new URLSearchParams();

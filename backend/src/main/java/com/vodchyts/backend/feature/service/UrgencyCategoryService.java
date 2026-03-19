@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.service;
 
 import com.vodchyts.backend.exception.OperationNotAllowedException;
+import com.vodchyts.backend.exception.ResourceNotFoundException;
 import com.vodchyts.backend.feature.dto.UpdateUrgencyCategoryRequest;
 import com.vodchyts.backend.feature.dto.UrgencyCategoryResponse;
 import com.vodchyts.backend.feature.repository.ReactiveUrgencyCategoryRepository;
@@ -33,7 +34,7 @@ public class UrgencyCategoryService {
 
     public Mono<UrgencyCategoryResponse> updateUrgencyCategory(Integer urgencyId, UpdateUrgencyCategoryRequest request) {
         return urgencyCategoryRepository.findById(urgencyId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Категория срочности не найдена")))
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Категория срочности не найдена")))
                 .flatMap(category -> {
                     if ("Notes".equalsIgnoreCase(category.getUrgencyName())) {
                         return Mono.error(new OperationNotAllowedException("Нельзя менять срок для категории 'Заметки'"));

@@ -29,14 +29,23 @@ public class WebNotificationService {
         this.updateBroadcaster = updateBroadcaster;
     }
 
-    public Mono<Void> send(Integer targetRequestID, String title, String message, Integer onlyForContractorID) {
+    public Mono<Void> send(Integer targetRequestID, String title, String message, Integer assignedContractorID, Integer excludeUserID) {
         return roleRepository.findByRoleName("RetailAdmin")
                 .flatMapMany(adminRole -> userRepository.findAllByRoleID(adminRole.getRoleID()))
                 .map(User::getUserID)
                 .collectList()
                 .flatMap(adminIds -> {
                     Set<Integer> recipients = new HashSet<>(adminIds);
-                    if (onlyForContractorID != null) recipients.add(onlyForContractorID);
+
+                    // Добавляем подрядчика, если он назначен
+                    if (assignedContractorID != null) {
+                        recipients.add(assignedContractorID);
+                    }
+
+                    // ИСКЛЮЧАЕМ инициатора действия, чтобы он не получал уведомление о своих же действиях
+                    if (excludeUserID != null) {
+                        recipients.remove(excludeUserID);
+                    }
 
                     return Flux.fromIterable(recipients)
                             .flatMap(uid -> {

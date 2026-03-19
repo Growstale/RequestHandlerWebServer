@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.service;
 
 import com.vodchyts.backend.exception.OperationNotAllowedException;
+import com.vodchyts.backend.exception.ResourceNotFoundException;
 import com.vodchyts.backend.feature.dto.CreateMessageTemplateRequest;
 import com.vodchyts.backend.feature.dto.MessageTemplateResponse;
 import com.vodchyts.backend.feature.dto.SendMessageRequest;
@@ -109,7 +110,7 @@ public class MessagingService {
 
     public Mono<MessageTemplateResponse> updateTemplate(Integer templateId, CreateMessageTemplateRequest request, Mono<FilePart> imageFile) {
         Mono<MessageTemplate> foundTemplate = templateRepository.findById(templateId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Шаблон не найден")));
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Шаблон не найден")));
 
         Mono<MessageTemplate> transaction = foundTemplate
                 .flatMap(template ->
@@ -167,7 +168,7 @@ public class MessagingService {
 
     public Mono<Void> deleteTemplateImage(Integer templateId) {
         return templateRepository.findById(templateId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Шаблон не найден")))
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Шаблон не найден")))
                 .flatMap(template -> {
                     template.setImageData(null);
                     return templateRepository.save(template);

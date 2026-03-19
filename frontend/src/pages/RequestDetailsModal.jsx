@@ -15,7 +15,7 @@ const formatDate = (dateString) => {
 };
 
 const renderDeadlineInfo = (request) => {
-    if (request.status === 'Closed' || request.daysRemaining === null) {
+    if (request.urgencyName === 'Notes' || request.status === 'Closed' || request.daysRemaining === null) {
         return '—';
     }
     if (request.daysRemaining >= 0) {

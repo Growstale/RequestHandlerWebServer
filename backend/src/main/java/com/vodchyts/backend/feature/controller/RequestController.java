@@ -72,18 +72,19 @@ public class RequestController {
     @PutMapping("/{requestId}")
     @PreAuthorize("hasRole('RetailAdmin')")
     public Mono<RequestResponse> updateRequest(@PathVariable Integer requestId, @Valid @RequestBody Mono<UpdateRequestRequest> requestDto, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
-        return requestDto.flatMap(dto ->
-                requestService.getRequestById(requestId)
-                        .map(java.util.Optional::of)
-                        .defaultIfEmpty(java.util.Optional.empty())
-                        .onErrorReturn(java.util.Optional.empty())
-                        .flatMap(oldRequestOpt ->
-                                requestService.updateAndEnrichRequest(requestId, dto)
-                                        .doOnSuccess(updatedRequest -> {
-                                            // Аудит обновления
-                                            auditHelper.auditUpdate("Requests", requestId, oldRequestOpt.orElse(null), updatedRequest, exchange).subscribe();
-                                        })
-                        )
+        return userService.findByLogin(username).flatMap(user ->
+                requestDto.flatMap(dto ->
+                        requestService.getRequestById(requestId)
+                                .map(java.util.Optional::of)
+                                .defaultIfEmpty(java.util.Optional.empty())
+                                .onErrorReturn(java.util.Optional.empty())
+                                .flatMap(oldRequestOpt ->
+                                        requestService.updateAndEnrichRequest(requestId, dto, user.getUserID())
+                                                .doOnSuccess(updatedRequest -> {
+                                                    auditHelper.auditUpdate("Requests", requestId, oldRequestOpt.orElse(null), updatedRequest, exchange).subscribe();
+                                                })
+                                )
+                )
         );
     }
 
@@ -184,14 +185,16 @@ public class RequestController {
 
     @PutMapping("/{requestId}/restore")
     @PreAuthorize("hasRole('RetailAdmin')")
-    public Mono<RequestResponse> restoreRequest(@PathVariable Integer requestId, @RequestBody(required = false) Mono<Void> body, ServerWebExchange exchange) {
-        return requestService.getRequestById(requestId)
-                .map(java.util.Optional::of).defaultIfEmpty(java.util.Optional.empty()).onErrorReturn(java.util.Optional.empty())
-                .flatMap(oldReqOpt -> requestService.restoreRequest(requestId)
-                        .doOnSuccess(updatedReq -> {
-                            auditHelper.auditUpdate("Requests", requestId, oldReqOpt.orElse(null), updatedReq, exchange).subscribe();
-                        })
-                );
+    public Mono<RequestResponse> restoreRequest(@PathVariable Integer requestId, @RequestBody(required = false) Mono<Void> body, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
+        return userService.findByLogin(username).flatMap(user ->
+                requestService.getRequestById(requestId)
+                        .map(java.util.Optional::of).defaultIfEmpty(java.util.Optional.empty()).onErrorReturn(java.util.Optional.empty())
+                        .flatMap(oldReqOpt -> requestService.restoreRequest(requestId, user.getUserID())
+                                .doOnSuccess(updatedReq -> {
+                                    auditHelper.auditUpdate("Requests", requestId, oldReqOpt.orElse(null), updatedReq, exchange).subscribe();
+                                })
+                        )
+        );
     }
 
     @DeleteMapping("/comments/{commentId}")

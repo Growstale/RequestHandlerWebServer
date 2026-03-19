@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.service;
 
 import com.vodchyts.backend.exception.OperationNotAllowedException;
+import com.vodchyts.backend.exception.ResourceNotFoundException;
 import com.vodchyts.backend.exception.WorkCategoryAlreadyExistsException;
 import com.vodchyts.backend.feature.dto.*;
 import com.vodchyts.backend.feature.entity.WorkCategory;
@@ -115,7 +116,7 @@ public class WorkCategoryService {
 
         return uniquenessCheck
                 .then(workCategoryRepository.findById(categoryId))
-                .switchIfEmpty(Mono.error(new RuntimeException("Категория не найдена")))
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Категория не найдена")))
                 .flatMap(category -> {
                     category.setWorkCategoryName(request.workCategoryName());
                     return workCategoryRepository.save(category);

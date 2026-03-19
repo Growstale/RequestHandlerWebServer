@@ -2,6 +2,7 @@ package com.vodchyts.backend.feature.service;
 
 import com.vodchyts.backend.common.validator.PasswordValidator;
 import com.vodchyts.backend.exception.OperationNotAllowedException;
+import com.vodchyts.backend.exception.ResourceNotFoundException;
 import com.vodchyts.backend.exception.UserAlreadyExistsException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.CreateUserRequest;
@@ -67,7 +68,7 @@ public class AdminService {
                         return Mono.error(new UserAlreadyExistsException("Пользователь с логином '" + request.login() + "' уже существует"));
                     }
                     return roleRepository.findByRoleName(request.roleName())
-                            .switchIfEmpty(Mono.error(new RuntimeException("Роль '" + request.roleName() + "' не найдена")))
+                            .switchIfEmpty(Mono.error(new ResourceNotFoundException("Роль '" + request.roleName() + "' не найдена")))
                             .flatMap(role -> {
                                 User user = new User();
                                 user.setLogin(request.login());
@@ -244,7 +245,7 @@ public class AdminService {
                                     return Mono.just(currentRole);
                                 })
                                 .then(roleRepository.findByRoleName(request.roleName()))
-                                .switchIfEmpty(Mono.error(new RuntimeException("Роль '" + request.roleName() + "' не найдена")))
+                                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Роль '" + request.roleName() + "' не найдена")))
                                 .map(newRole -> {
                                     user.setRoleID(newRole.getRoleID());
                                     if (!"Contractor".equals(newRole.getRoleName())) {

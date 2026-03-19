@@ -168,7 +168,7 @@ export default function Dashboard() {
                     </CardHeader>
                     <CardContent className="pl-2">
                         <div className="h-[300px] w-full min-h-[300px]"> 
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                                 <AreaChart data={stats.requestsLast7Days}>
                                     <defs>
                                         <linearGradient id="colorCnt" x1="0" y1="0" x2="0" y2="1">
@@ -194,7 +194,7 @@ export default function Dashboard() {
                     </CardHeader>
                     <CardContent>
                         <div className="h-[300px] flex items-center justify-center">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                                 <PieChart>
                                     <Pie
                                         data={urgencyData}
@@ -239,7 +239,7 @@ export default function Dashboard() {
                             {stats.worstContractors.length === 0 ? (
                                 <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
                             ) : (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                                     <BarChart layout="vertical" data={stats.worstContractors} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
                                         <XAxis type="number" allowDecimals={false} />
@@ -265,7 +265,7 @@ export default function Dashboard() {
                             {stats.worstShops.length === 0 ? (
                                 <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
                             ) : (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                                     <BarChart layout="vertical" data={stats.worstShops} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
                                         <XAxis type="number" allowDecimals={false} />
@@ -289,7 +289,7 @@ export default function Dashboard() {
                     </CardHeader>
                     <CardContent>
                         <div className="h-[250px] w-full min-h-[250px]"> 
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                                 <BarChart layout="vertical" data={stats.contractorWorkload} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
                                     <XAxis type="number" allowDecimals={false} />
@@ -309,7 +309,7 @@ export default function Dashboard() {
                     </CardHeader>
                     <CardContent>
                         <div className="h-[250px] w-full min-h-[250px]"> 
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                                 <BarChart data={stats.topProblemShops} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                     <XAxis dataKey="name" tick={{fontSize: 11}} interval={0} angle={-15} textAnchor="end" height={60}/>
@@ -332,7 +332,7 @@ export default function Dashboard() {
                     </CardHeader>
                     <CardContent>
                         <div className="h-[250px] w-full"> 
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                                 <BarChart layout="vertical" data={stats.requestsByWorkCategory} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
                                     <XAxis type="number" allowDecimals={false} />

@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.service;
 
 import com.vodchyts.backend.exception.NotificationAlreadyExistsException;
+import com.vodchyts.backend.exception.ResourceNotFoundException;
 import com.vodchyts.backend.feature.dto.CreateNotificationRequest;
 import com.vodchyts.backend.feature.dto.NotificationResponse;
 import com.vodchyts.backend.feature.dto.PagedResponse;
@@ -65,7 +66,7 @@ public class NotificationService {
 
     public Mono<Notification> updateNotification(Integer notificationId, UpdateNotificationRequest request) {
         return notificationRepository.findById(notificationId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Уведомление не найдено")))
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Уведомление не найдено")))
                 .flatMap(notification -> {
                     Mono<Void> uniquenessCheck = Mono.empty();
                     if (request.getTitle() != null && !request.getTitle().equals(notification.getTitle())) {
@@ -138,7 +139,7 @@ public class NotificationService {
 
     public Mono<NotificationResponse> getNotificationById(Integer notificationId) {
         return notificationRepository.findById(notificationId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Уведомление не найдено")))
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Уведомление не найдено")))
                 .flatMap(this::mapNotificationToResponse);
     }
 

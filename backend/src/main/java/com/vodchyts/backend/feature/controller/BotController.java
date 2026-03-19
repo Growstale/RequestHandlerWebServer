@@ -155,7 +155,7 @@ public class BotController {
 
     @PutMapping("/requests/{requestId}")
     public Mono<RequestResponse> updateRequestFromBot(@PathVariable Integer requestId, @Valid @RequestBody Mono<UpdateRequestRequest> requestDto) {
-        return requestDto.flatMap(dto -> requestService.updateAndEnrichRequest(requestId, dto));
+        return requestDto.flatMap(dto -> requestService.updateAndEnrichRequest(requestId, dto, null));
     }
 
     @DeleteMapping("/requests/comments/{commentId}")

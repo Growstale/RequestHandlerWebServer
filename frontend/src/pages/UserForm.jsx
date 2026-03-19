@@ -20,7 +20,7 @@ const getInitialFormData = (user) => {
       fullName: user.fullName || '',
       contactInfo: user.contactInfo || '',
       telegramID: user.telegramID?.toString() || '',
-      telegramUsername: '',
+      telegramUsername: user.telegramUsername || '', 
     };
   }
 

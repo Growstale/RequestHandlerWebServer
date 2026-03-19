@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.service;
 
 import com.vodchyts.backend.exception.OperationNotAllowedException;
+import com.vodchyts.backend.exception.ResourceNotFoundException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.*;
 import com.vodchyts.backend.feature.entity.ShopContractorChat;
@@ -149,7 +150,7 @@ public class ShopContractorChatService {
 
     public Mono<ShopContractorChat> updateChat(Integer chatId, UpdateShopContractorChatRequest request) {
         return chatRepository.findById(chatId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Чат не найден")))
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Чат не найден")))
                 .flatMap(existingChat -> {
                     Mono<Void> botCheck = Mono.empty();
                     if (!existingChat.getTelegramID().equals(request.telegramID())) {

@@ -4,7 +4,7 @@ import { getMessageTemplates, createMessageTemplate, updateMessageTemplate, dele
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,37 @@ export default function Messaging() {
     const [isTemplateSelectorOpen, setIsTemplateSelectorOpen] = useState(false);
     const [currentTemplate, setCurrentTemplate] = useState(null);
     const [formApiError, setFormApiError] = useState(null);
+    const [pastedFile, setPastedFile] = useState(null);
+    const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
+
+    const handlePaste = useCallback((e) => {
+        if (activeTab !== 'send') return;
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf("image") !== -1) {
+                const file = items[i].getAsFile();
+                if (file) {
+                    setPastedFile(file);
+                    setIsPasteModalOpen(true);
+                }
+            }
+        }
+    }, [activeTab]);
+
+    const confirmPaste = () => {
+        if (pastedFile) {
+            setImageFile(pastedFile);
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            setPreviewUrl(URL.createObjectURL(pastedFile));
+            setPastedFile(null);
+        }
+        setIsPasteModalOpen(false);
+    };
+
+    useEffect(() => {
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [handlePaste]);
 
     const loadInitialData = async () => {
         setLoading(true);
@@ -280,6 +311,34 @@ export default function Messaging() {
                     />
                 </div>
             )}
+
+            <Dialog open={isPasteModalOpen} onOpenChange={setIsPasteModalOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Обнаружено изображение</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        {pastedFile && (
+                            <div className="rounded-lg overflow-hidden border bg-gray-50 flex justify-center">
+                                <img 
+                                    src={URL.createObjectURL(pastedFile)} 
+                                    className="max-h-64 object-contain" 
+                                    alt="Pasted content"
+                                    onLoad={(e) => URL.revokeObjectURL(e.target.src)}
+                                />
+                            </div>
+                        )}
+                        <p className="text-sm text-muted-foreground mt-4 text-center">
+                            Вы вставили скриншот. Хотите прикрепить его к рассылке?
+                        </p>
+                    </div>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setIsPasteModalOpen(false)}>Отмена</Button>
+                        <Button onClick={confirmPaste}>Прикрепить фото</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
 
             {activeTab === 'templates' && (
                 <div>

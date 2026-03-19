@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.service;
 
 import com.vodchyts.backend.exception.OperationNotAllowedException;
+import com.vodchyts.backend.exception.ResourceNotFoundException;
 import com.vodchyts.backend.exception.ShopAlreadyExistsException;
 import com.vodchyts.backend.exception.UserNotFoundException;
 import com.vodchyts.backend.feature.dto.CreateShopRequest;
@@ -130,7 +131,7 @@ public class ShopService {
 
         return uniquenessCheck
                 .then(shopRepository.findById(shopId))
-                .switchIfEmpty(Mono.error(new RuntimeException("Магазин не найден")))
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Магазин не найден")))
                 .flatMap(shop -> validateUserIsStoreManager(request.userID())
                         .thenReturn(shop))
                 .flatMap(shop -> {

@@ -246,11 +246,10 @@ public class RequestUpdateService {
 
     private Mono<Void> sendOverdueAlert(Request request, long daysOverdue) {
         String icon = daysOverdue == 1 ? "⚠️" : "🔥";
-        String rawDescription = request.getDescription() != null ?
-                (request.getDescription().length() > 50 ? request.getDescription().substring(0, 50) + "..." : request.getDescription())
-                : "";
+        String rawDesc = request.getDescription() != null ? request.getDescription() : "";
 
-        String safeDescription = notificationService.escapeMarkdown(rawDescription);
+        String shortDesc = rawDesc.length() > 100 ? rawDesc.substring(0, 97) + "..." : rawDesc;
+        String safeShortDesc = notificationService.escapeMarkdown(shortDesc);
 
         Mono<String> mentionMono = request.getAssignedContractorID() != null ?
                 userRepository.findById(request.getAssignedContractorID())
@@ -258,8 +257,8 @@ public class RequestUpdateService {
                         .defaultIfEmpty("") : Mono.just("");
 
         return mentionMono.flatMap(mention -> {
-            String message = String.format("%s%s *ЗАЯВКА \\#%d ПРОСРОЧЕНА*\n\nСрок истек: *%d дн\\. назад*\nОписание: %s",
-                    mention, icon, request.getRequestID(), daysOverdue, safeDescription);
+            String message = String.format("%s%s *ЗАЯВКА \\#%d ПРОСРОЧЕНА*\n_\"%s\"_\n\nСрок истек: *%d дн\\. назад*",
+                    mention, icon, request.getRequestID(), safeShortDesc, daysOverdue);
 
             Mono<Void> tgNotification = chatRepository.findTelegramIdByRequestId(request.getRequestID())
                     .flatMap(chatId -> notificationService.sendNotification(chatId, message))
@@ -270,7 +269,8 @@ public class RequestUpdateService {
                     request.getRequestID(),
                     "⚠️ ПРОСРОЧКА #" + request.getRequestID(),
                     "Заявка просрочена на " + daysOverdue + " дн.! Описание: " + request.getDescription(),
-                    request.getAssignedContractorID()
+                    request.getAssignedContractorID(),
+                    null // <-- Инициатора нет, это системное уведомление
             );
 
             return Mono.when(tgNotification, webNotification);

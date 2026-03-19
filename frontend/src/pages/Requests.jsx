@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense, lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getRequests, deleteRequest, createRequest, updateRequest, restoreRequest, completeRequest } from '@/api/requestApi';
 import { getShops } from '@/api/shopApi';
@@ -22,20 +22,21 @@ import { cn } from '@/lib/utils';
 import { getUrgencyDisplayName, getStatusDisplayName } from '@/lib/displayNames'; 
 import { logger } from '@/lib/logger';
 import { useAuth } from '@/context/AuthProvider'; 
-import GanttChartView from './GanttChartView';
 import api from '@/api/axios';
+import { useSSE } from '@/hooks/useSSE';
 
-const filterKeys = ['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue', 'startDate', 'endDate'];
+const GanttChartView = lazy(() => import('./GanttChartView'));
+
+const filterKeys =['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue', 'startDate', 'endDate'];
 
 export default function Requests({ archived = false }) {
     const { user, accessToken } = useAuth();
     const isAdmin = user?.role === 'RetailAdmin';
     const isContractor = user?.role === 'Contractor';
     const isStoreManager = user?.role === 'StoreManager';
-    const [viewMode, setViewMode] = useState('table'); 
+    const [viewMode, setViewMode] = useState('byShop'); 
 
     const [requests, setRequests] = useState([]);
-    const [groupedRequests, setGroupedRequests] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [paginationData, setPaginationData] = useState({ totalPages: 0, totalItems: 0 });
@@ -62,19 +63,74 @@ export default function Requests({ archived = false }) {
     const areFiltersActive = filterKeys.some(key => searchParams.has(key));
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    useEffect(() => {
-        if (viewMode === 'byShop' && requests.length > 0) {
-            const grouped = requests.reduce((acc, req) => {
-                const shopName = req.shopName || 'Без магазина';
-                if (!acc[shopName]) {
-                    acc[shopName] = [];
-                }
-                acc[shopName].push(req);
-                return acc;
-            }, {});
-            setGroupedRequests(grouped);
+    const [isCompleteAlertOpen, setIsCompleteAlertOpen] = useState(false);
+    const [isRestoreAlertOpen, setIsRestoreAlertOpen] = useState(false);
+    const [targetRequestId, setTargetRequestId] = useState(null);
+
+    const reloadRequests = useCallback(async (silent = false) => {
+        if (!silent) {
+            setLoading(true);
+            setError(null);
         }
+        const currentParams = new URLSearchParams(searchParamsString);
+        try {
+            const useDateFilters = viewMode === 'gantt';
+            const params = {
+                page: parseInt(currentParams.get('page') || '0', 10),
+                archived,
+                searchTerm: currentParams.get('searchTerm') || null,
+                shopId: currentParams.get('shopId') || null,
+                workCategoryId: currentParams.get('workCategoryId') || null,
+                urgencyId: currentParams.get('urgencyId') || null,
+                contractorId: currentParams.get('contractorId') || null,
+                status: currentParams.get('status') || null,
+                overdue: currentParams.get('overdue') === 'true',
+                startDate: useDateFilters ? (currentParams.get('startDate') || null) : null,
+                endDate: useDateFilters ? (currentParams.get('endDate') || null) : null,
+                sortConfig: (currentParams.getAll('sort').length > 0 ? currentParams.getAll('sort') : ['requestID,asc']).map(s => ({
+                    field: s.split(',')[0],
+                    direction: s.split(',')[1] || 'asc'
+                }))
+            };
+            const response = await getRequests(params);
+            setRequests(response.data.content);
+            setPaginationData({ totalPages: response.data.totalPages, totalItems: response.data.totalItems });
+
+            setCurrentRequest(prevReq => {
+                if (prevReq) {
+                    const updatedReq = response.data.content.find(r => r.requestID === prevReq.requestID);
+                    return updatedReq || prevReq;
+                }
+                return prevReq;
+            });
+        } catch (err) {
+            if (!silent) setError(err.response?.data || `Не удалось загрузить ${archived ? 'архив' : 'заявки'}`);
+        } finally {
+            if (!silent) setLoading(false);
+        }
+    }, [archived, searchParamsString, viewMode]);
+
+    const reloadRef = useRef(reloadRequests);
+
+    const groupedRequests = useMemo(() => {
+        if (viewMode !== 'byShop') return {};
+        return requests.reduce((acc, req) => {
+            const shopName = req.shopName || 'Без магазина';
+            if (!acc[shopName]) acc[shopName] = [];
+            acc[shopName].push(req);
+            return acc;
+        }, {});
     }, [viewMode, requests]);
+
+    useEffect(() => {
+        reloadRef.current = reloadRequests;
+    }, [reloadRequests]);
+
+    useSSE(useCallback((message) => {
+        if (message === "REQUESTS_UPDATED") {
+            reloadRef.current(true);
+        }
+    }, []));
 
     useEffect(() => {
         if (!searchParams.has('sort')) {
@@ -156,11 +212,10 @@ export default function Requests({ archived = false }) {
     const handleRestore = async (requestId) => {
         try {
             await restoreRequest(requestId);
-            reloadRequests(true);
+            setRequests(prev => prev.filter(r => r.requestID !== requestId));
+            setIsRestoreAlertOpen(false); // Закрыть окно
         } catch (err) {
-            const errorMessage = err.response?.data || 'Не удалось восстановить заявку';
-            logger.error('Restore Request Failed', err);
-            setError(errorMessage);
+            setError(err.response?.data || 'Ошибка восстановления');
         }
     };
 
@@ -180,70 +235,14 @@ export default function Requests({ archived = false }) {
         }, { replace: true });
     };
 
-
     const handleComplete = async (requestId) => {
         try {
             await completeRequest(requestId);
-            reloadRequests(true);
+            setRequests(prev => prev.filter(r => r.requestID !== requestId));
         } catch (err) {
-            const errorMessage = err.response?.data || 'Не удалось завершить заявку';
-            logger.error('Complete Request Failed', err);
-            setError(errorMessage);
+            setError(err.response?.data || 'Ошибка завершения');
         }
     };
-
-    const reloadRequests = useCallback(async (silent = false) => {
-        if (!silent) {
-            setLoading(true);
-            setError(null);
-        }
-        
-        const currentParams = new URLSearchParams(searchParamsString);
-        
-        try {
-            const useDateFilters = viewMode === 'gantt';
-            const params = {
-                page: parseInt(currentParams.get('page') || '0', 10),
-                archived,
-                searchTerm: currentParams.get('searchTerm') || null,
-                shopId: currentParams.get('shopId') || null,
-                workCategoryId: currentParams.get('workCategoryId') || null,
-                urgencyId: currentParams.get('urgencyId') || null,
-                contractorId: currentParams.get('contractorId') || null,
-                status: currentParams.get('status') || null,
-                overdue: currentParams.get('overdue') === 'true',
-                startDate: useDateFilters ? (currentParams.get('startDate') || null) : null,
-                endDate: useDateFilters ? (currentParams.get('endDate') || null) : null,
-                sortConfig: (currentParams.getAll('sort').length > 0 ? currentParams.getAll('sort') : ['requestID,asc']).map(s => ({
-                    field: s.split(',')[0],
-                    direction: s.split(',')[1] || 'asc'
-                }))
-            };
-            
-            const response = await getRequests(params);
-            setRequests(response.data.content);
-            setPaginationData({ totalPages: response.data.totalPages, totalItems: response.data.totalItems });
-
-            setCurrentRequest(prevReq => {
-                if (prevReq) {
-                    const updatedReq = response.data.content.find(r => r.requestID === prevReq.requestID);
-                    return updatedReq || prevReq;
-                }
-                return prevReq;
-            });
-
-        } catch (err) {
-            if (!silent) {
-                setError(err.response?.data || `Не удалось загрузить ${archived ? 'архив' : 'заявки'}`);
-            } else {
-                console.error("Silent reload failed", err);
-            }
-        } finally {
-            if (!silent) {
-                setLoading(false);
-            }
-        }
-    }, [archived, searchParamsString, viewMode]);
 
     const SortableHeader = ({ field, children }) => {
         const sort = searchParams.getAll('sort');
@@ -307,55 +306,6 @@ export default function Requests({ archived = false }) {
         reloadRequests();
     }, [reloadRequests]);
 
-useEffect(() => {
-        let reconnectTimeout = null;
-        let eventSource = null;
-
-        const connectSSE = () => {
-            if (!accessToken) return;
-
-            if (eventSource) {
-                eventSource.close();
-            }
-
-            const url = `/api/updates/stream?token=${accessToken}`;
-            eventSource = new EventSource(url);
-
-            eventSource.onopen = () => console.log("SSE подключено (Requests)");
-
-            eventSource.onmessage = (event) => {
-                if (event.data === "REQUESTS_UPDATED") {
-                    reloadRequests(true);
-                }
-            };
-
-            eventSource.onerror = (err) => {
-                if (eventSource.readyState === EventSource.CLOSED) {
-                    console.warn("SSE соединение закрыто. Пробуем переподключиться...");
-                    eventSource.close();
-                    
-                    clearTimeout(reconnectTimeout);
-                    reconnectTimeout = setTimeout(async () => {
-                        try {
-                            // Пингуем API для обновления токена
-                            await api.get('/api/user/whoami'); 
-                        } catch (e) {
-                            console.error("Не удалось восстановить сессию для SSE", e);
-                        }
-                    }, 3000);
-                }
-            };
-        };
-
-        connectSSE();
-
-        return () => {
-            if (eventSource) {
-                eventSource.close();
-            }
-            clearTimeout(reconnectTimeout);
-        };
-    }, [reloadRequests, accessToken]);
 
     const handleFormSubmit = async (formData) => {
         setFormApiError(null);
@@ -513,8 +463,6 @@ useEffect(() => {
                 </div>
 
             </div>
-
-            <p className="text-sm text-muted-foreground mb-4">Кликните на заголовок для сортировки. Удерживайте <strong>Shift</strong> для сортировки по нескольким столбцам.</p>
 
             <div className="flex items-center gap-4 mb-4">
                 {(sort.length > 1 || (sort.length === 1 && sort[0] !== 'requestID,asc')) && (
@@ -704,7 +652,9 @@ useEffect(() => {
                                             </Button>
 
                                             {isContractor && req.status === 'In work' && !archived && (
-                                                <Button variant="outline" size="sm" className="px-2 hover:text-indigo-700" onClick={() => handleComplete(req.requestID)} title="Завершить заявку">
+                                                <Button variant="outline" size="sm" className="px-2 hover:text-indigo-700" 
+                                                    onClick={() => { setTargetRequestId(req.requestID); setIsCompleteAlertOpen(true); }} 
+                                                    title="Завершить заявку">
                                                     Завершить
                                                 </Button>
                                             )}
@@ -714,7 +664,18 @@ useEffect(() => {
                                             )}
 
                                             {isAdmin && archived && req.status === 'Closed' && (
-                                                <Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => handleRestore(req.requestID)} title="Восстановить"><RotateCcw className="h-4 w-4" /></Button>
+                                                <Button 
+                                                    variant="outline" 
+                                                    size="icon" 
+                                                    className="px-2 hover:text-indigo-700" 
+                                                    onClick={() => { 
+                                                        setTargetRequestId(req.requestID); // Устанавливаем ID для восстановления
+                                                        setIsRestoreAlertOpen(true);       // Открываем модалку
+                                                    }} 
+                                                    title="Восстановить"
+                                                >
+                                                    <RotateCcw className="h-4 w-4" />
+                                                </Button>
                                             )}
                                             
                                             {isAdmin && (
@@ -737,10 +698,12 @@ useEffect(() => {
                     )}
 
                     {viewMode === 'gantt' && (
-                        <GanttChartView 
-                            filters={currentFilters} 
-                            onTaskClick={openDetails}
-                        />
+                        <Suspense fallback={<div className="h-[75vh] w-full border rounded-md flex items-center justify-center text-gray-500">Загрузка диаграммы...</div>}>
+                            <GanttChartView 
+                                filters={currentFilters} 
+                                onTaskClick={openDetails}
+                            />
+                        </Suspense>
                     )}
 
                     {viewMode === 'byShop' && (
@@ -753,18 +716,13 @@ useEffect(() => {
                                             <TableHeader>
                                                 <TableRow>
                                                     <SortableHeader field="requestID" className="w-[80px]">ID</SortableHeader>
-                                                    
-                                                    <SortableHeader field="description" className="w-full min-w-[300px]">
-                                                        Описание
-                                                    </SortableHeader>
-                                                    
-                                                    <SortableHeader field="shopName" className="min-w-[150px]">Магазин</SortableHeader>
+                                                    <SortableHeader field="description" className="w-full min-w-[300px]">Описание</SortableHeader>
+                                                    {/* УДАЛЕНО: Магазин здесь не нужен */}
                                                     <SortableHeader field="workCategoryName" className="min-w-[150px]">Вид работы</SortableHeader>
                                                     <SortableHeader field="urgencyName" className="w-[120px]">Срочность</SortableHeader>
                                                     <SortableHeader field="assignedContractorName" className="w-[150px]">Подрядчик</SortableHeader>
                                                     <SortableHeader field="status" className="w-[120px]">Статус</SortableHeader>
                                                     <SortableHeader field="daysRemaining" className="w-[80px]">Срок</SortableHeader>
-                                                    
                                                     <TableHead className="w-[150px] text-right">Действия</TableHead>
                                                 </TableRow>
                                             </TableHeader>
@@ -799,9 +757,18 @@ useEffect(() => {
                                                                     <Camera className="h-4 w-4 mr-1.5"/>
                                                                     <span className="text-xs font-semibold">{req.photoCount}</span>
                                                                 </Button>                                                                
-                                                                {isContractor && req.status === 'In work' && !archived && (<Button variant="outline" size="sm" className="px-2 hover:text-indigo-700" onClick={() => handleComplete(req.requestID)}>Завершить</Button>)}
+                                                                {isContractor && req.status === 'In work' && !archived && (
+                                                                    <Button variant="outline" size="sm" className="px-2 hover:text-indigo-700" 
+                                                                        onClick={() => { 
+                                                                            setTargetRequestId(req.requestID); // Устанавливаем ID для модалки
+                                                                            setIsCompleteAlertOpen(true);      // Открываем модальное окно завершения
+                                                                        }} 
+                                                                        title="Завершить заявку">
+                                                                        Завершить
+                                                                    </Button>
+                                                                )}
                                                                 {isAdmin && req.status !== 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openEditForm(req)}><Edit className="h-4 w-4" /></Button>)}
-                                                                {isAdmin && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => handleRestore(req.requestID)}><RotateCcw className="h-4 w-4" /></Button>)}
+                                                                {isAdmin && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => {setTargetRequestId(req.requestID); setIsRestoreAlertOpen(true);}}><RotateCcw className="h-4 w-4" /></Button>)}
                                                                 {isAdmin && (<Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)}><Trash2 className="h-4 w-4" /></Button>)}
                                                             </div>
                                                         </TableCell>
@@ -827,6 +794,41 @@ useEffect(() => {
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={handleDeleteConfirm}>Удалить</AlertDialogAction></AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={isCompleteAlertOpen} onOpenChange={setIsCompleteAlertOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Завершить заявку?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Вы уверены, что хотите отметить заявку #{targetRequestId} как выполненную? 
+                            После этого заявка перейдет в статус "Выполнена".
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Отмена</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => { handleComplete(targetRequestId); setIsCompleteAlertOpen(false); }}>
+                            Да, завершить
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={isRestoreAlertOpen} onOpenChange={setIsRestoreAlertOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Восстановить заявку?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Вы уверены, что хотите вернуть заявку #{targetRequestId} из архива в активную работу?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Отмена</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => { handleRestore(targetRequestId); setIsRestoreAlertOpen(false); }}>
+                            Да, восстановить
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
 

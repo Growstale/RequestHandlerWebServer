@@ -72,30 +72,51 @@ public class GlobalExceptionHandler {
         return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(finalMsg));
     }
 
-    @ExceptionHandler(RuntimeException.class)
-    public Mono<ResponseEntity<String>> handleRuntimeException(RuntimeException ex, ServerWebExchange exchange) {
-        // Сначала проверяем, нет ли внутри RuntimeException ошибки базы данных
-        String prettyMsg = findPrettyMessage(ex);
-        if (prettyMsg != null) {
-            logError(exchange, ex, "Database Constraint Error");
-            return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(prettyMsg));
-        }
+    @ExceptionHandler({
+            InvalidTokenException.class,
+            UnauthorizedException.class
+    })
+    public Mono<ResponseEntity<String>> handleUnauthorizedExceptions(RuntimeException ex, ServerWebExchange exchange) {
+        logWarn(exchange, ex, "Unauthorized: " + ex.getMessage());
+        // Отдаем текст нашего исключения, он безопасен
+        return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage()));
+    }
 
-        logError(exchange, ex, "Runtime Error: " + ex.getMessage());
+    @ExceptionHandler({
+            UserAlreadyExistsException.class,
+            ShopAlreadyExistsException.class,
+            NotificationAlreadyExistsException.class,
+            WorkCategoryAlreadyExistsException.class
+    })
+    public Mono<ResponseEntity<String>> handleConflictExceptions(RuntimeException ex, ServerWebExchange exchange) {
+        logWarn(exchange, ex, "Conflict: " + ex.getMessage());
+        return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidPasswordException.class)
+    public Mono<ResponseEntity<String>> handleBadRequestExceptions(RuntimeException ex, ServerWebExchange exchange) {
+        logWarn(exchange, ex, "Bad Request: " + ex.getMessage());
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage()));
     }
 
-    @ExceptionHandler(UserNotFoundException.class)
-    public Mono<ResponseEntity<String>> handleUserNotFound(UserNotFoundException ex, ServerWebExchange exchange) {
-        logWarn(exchange, ex, "User Not Found: " + ex.getMessage());
+    @ExceptionHandler({
+            UserNotFoundException.class,
+            ResourceNotFoundException.class
+    })
+    public Mono<ResponseEntity<String>> handleNotFoundExceptions(RuntimeException ex, ServerWebExchange exchange) {
+        logWarn(exchange, ex, "Not Found: " + ex.getMessage());
         return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ex.getMessage()));
     }
-
+    
     @ExceptionHandler(OperationNotAllowedException.class)
     public Mono<ResponseEntity<String>> handleOperationNotAllowed(OperationNotAllowedException ex, ServerWebExchange exchange) {
         logWarn(exchange, ex, "Operation Not Allowed: " + ex.getMessage());
         return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(ex.getMessage()));
     }
+
+    // =================================================================================
+    // 2. ОБРАБОТЧИКИ ОШИБОК ФРЕЙМВОРКА
+    // =================================================================================
 
     @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
     public Mono<ResponseEntity<String>> handleAccessDenied(org.springframework.security.access.AccessDeniedException ex, ServerWebExchange exchange) {
@@ -110,7 +131,28 @@ public class GlobalExceptionHandler {
                 .map(DefaultMessageSourceResolvable::getDefaultMessage)
                 .collect(Collectors.joining(", "));
         logWarn(exchange, ex, "Validation Error: " + errors);
+        // Ошибки валидации (например из @NotBlank) безопасны
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors));
+    }
+
+    // =================================================================================
+    // 3. ПЕРЕХВАТЧИК НЕПРЕДВИДЕННЫХ RUNTIME EXCEPTION (ЗАЩИТА ОТ УТЕЧЕК)
+    // =================================================================================
+
+    @ExceptionHandler(RuntimeException.class)
+    public Mono<ResponseEntity<String>> handleRuntimeException(RuntimeException ex, ServerWebExchange exchange) {
+        String prettyMsg = findPrettyMessage(ex);
+        if (prettyMsg != null) {
+            logError(exchange, ex, "Database Constraint Error: " + ex.getMessage());
+            return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(prettyMsg));
+        }
+
+        // Логируем ДЕТАЛЬНУЮ ошибку только в базу логов для администратора
+        logError(exchange, ex, "Unexpected Runtime Error: " + ex.getMessage());
+
+        // Клиенту отдаем БЕЗОПАСНУЮ заглушку, скрывая детали фреймворка
+        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body("Произошла непредвиденная ошибка при обработке запроса."));
     }
 
     @ExceptionHandler(Exception.class)

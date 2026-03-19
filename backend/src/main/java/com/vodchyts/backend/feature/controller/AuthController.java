@@ -29,6 +29,7 @@ public class AuthController {
                 .map(loginResponse -> {
                     ResponseCookie cookie = ResponseCookie.from("refreshToken", loginResponse.refreshToken())
                             .httpOnly(true)
+                            .secure(true)
                             .path("/")
                             .maxAge(Duration.ofDays(7))
                             .build();
