@@ -15,7 +15,7 @@ export default function ShopContractorChatForm({ currentChat, shops, contractors
     const isEditing = !!currentChat;
 
     const handleSelectChange = (name, value) => {
-        setFormData(prev => ({ ...prev, [name]: value ? parseInt(value, 10) : null }));
+        setFormData(prev => ({ ...prev, [name]: value === 'none' ? null : parseInt(value, 10) }));
     };
 
     const handleChange = (e) => {
@@ -28,30 +28,37 @@ export default function ShopContractorChatForm({ currentChat, shops, contractors
         onSubmit(formData);
     };
 
+    const isSubmitDisabled = formData.shopID === null && formData.contractorID === null;
+
     return (
         <form onSubmit={handleSubmit} className="space-y-4 pt-4">
             {apiError && <p className="text-red-600 text-sm p-2 bg-red-50 rounded-md">{apiError}</p>}
             
             <div className="space-y-2">
-                <Label htmlFor="shopID">Магазин <span className="text-destructive">*</span></Label>
-                <Select onValueChange={(v) => handleSelectChange('shopID', v)} value={formData.shopID?.toString() || ''}>
+                <Label htmlFor="shopID">Магазин</Label>
+                <Select onValueChange={(v) => handleSelectChange('shopID', v)} value={formData.shopID?.toString() || 'none'}>
                     <SelectTrigger><SelectValue placeholder="Выберите магазин..." /></SelectTrigger>
                     <SelectContent>
+                        <SelectItem value="none" className="font-bold text-blue-600">Все магазины (Глобальный чат)</SelectItem>
                         {shops.map(s => <SelectItem key={s.shopID} value={s.shopID.toString()}>{s.shopName}</SelectItem>)}
                     </SelectContent>
                 </Select>
             </div>
 
             <div className="space-y-2">
-                <Label htmlFor="contractorID">Подрядчик <span className="text-destructive">*</span></Label>
-                <Select onValueChange={(v) => handleSelectChange('contractorID', v === 'none' ? null : v)} value={formData.contractorID?.toString() || 'none'}>
+                <Label htmlFor="contractorID">Подрядчик</Label>
+                <Select onValueChange={(v) => handleSelectChange('contractorID', v)} value={formData.contractorID?.toString() || 'none'}>
                     <SelectTrigger><SelectValue placeholder="Выберите подрядчика..." /></SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="none">Без подрядчика</SelectItem>
+                        <SelectItem value="none" className="font-bold text-blue-600">Все подрядчики (Чат магазина)</SelectItem>
                         {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
                     </SelectContent>
                 </Select>
             </div>
+            
+            {isSubmitDisabled && (
+                 <p className="text-orange-600 text-xs">Необходимо выбрать конкретный Магазин или Подрядчика.</p>
+            )}
             
             <div className="space-y-2">
                 <Label htmlFor="telegramID">Telegram ID чата <span className="text-destructive">*</span></Label>

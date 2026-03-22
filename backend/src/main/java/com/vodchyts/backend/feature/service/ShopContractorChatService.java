@@ -53,7 +53,7 @@ public class ShopContractorChatService {
     public Mono<PagedResponse<ShopContractorChatResponse>> getAllChats(List<String> sort, int page, int size) {
         String sql = "SELECT scc.ShopContractorChatID, scc.ShopID, s.ShopName, scc.ContractorID, u.Login as ContractorLogin, scc.TelegramID " +
                 "FROM ShopContractorChats scc " +
-                "JOIN Shops s ON scc.ShopID = s.ShopID " +
+                "LEFT JOIN Shops s ON scc.ShopID = s.ShopID " +
                 "LEFT JOIN Users u ON scc.ContractorID = u.UserID";
 
         String countSql = "SELECT COUNT(*) FROM ShopContractorChats";
@@ -113,28 +113,22 @@ public class ShopContractorChatService {
                     return Mono.empty();
                 });
 
-        Mono<Void> logicCheck;
-        if (request.contractorID() != null) {
-            logicCheck = chatRepository.existsByShopIDAndContractorID(request.shopID(), request.contractorID())
-                    .flatMap(exists -> {
-                        if (exists) {
-                            return Mono.error(new OperationNotAllowedException("Связь для этой пары магазина и подрядчика уже существует."));
-                        }
-                        return validateUserIsContractor(request.contractorID());
-                    });
+        // Умная проверка на дубликаты
+        Mono<Boolean> duplicateCheck;
+        if (request.shopID() != null && request.contractorID() != null) {
+            duplicateCheck = chatRepository.existsByShopIDAndContractorID(request.shopID(), request.contractorID());
+        } else if (request.shopID() == null && request.contractorID() != null) {
+            duplicateCheck = chatRepository.existsByShopIDIsNullAndContractorID(request.contractorID());
+        } else if (request.shopID() != null && request.contractorID() == null) {
+            duplicateCheck = chatRepository.existsByShopIDAndContractorIDIsNull(request.shopID());
         } else {
-            String checkSql = "SELECT COUNT(*) FROM ShopContractorChats WHERE ShopID = :shopId AND ContractorID IS NULL";
-            logicCheck = databaseClient.sql(checkSql)
-                    .bind("shopId", request.shopID())
-                    .map(row -> row.get(0, Long.class))
-                    .one()
-                    .flatMap(count -> {
-                        if (count > 0) {
-                            return Mono.error(new OperationNotAllowedException("Связь для этого магазина без подрядчика уже существует."));
-                        }
-                        return Mono.empty();
-                    });
+            return Mono.error(new OperationNotAllowedException("Необходимо указать Магазин или Подрядчика."));
         }
+
+        Mono<Void> logicCheck = duplicateCheck.flatMap(exists -> {
+            if (exists) return Mono.error(new OperationNotAllowedException("Связь для этих параметров уже существует."));
+            return validateUserIsContractor(request.contractorID());
+        });
 
         return botCheck
                 .then(telegramIdCheck)
@@ -180,44 +174,24 @@ public class ShopContractorChatService {
                                 });
                     }
 
-                    boolean shopContractorPairChanged = !existingChat.getShopID().equals(request.shopID()) ||
-                            !Objects.equals(existingChat.getContractorID(), request.contractorID());
-
-                    Mono<Void> logicCheck = Mono.empty();
-
-                    if (shopContractorPairChanged) {
-                        if (request.contractorID() != null) {
-                            logicCheck = chatRepository.existsByShopIDAndContractorIDAndShopContractorChatIDNot(request.shopID(), request.contractorID(), chatId)
-                                    .flatMap(exists -> {
-                                        if (exists) {
-                                            return Mono.error(new OperationNotAllowedException("Связь для этой пары магазина и подрядчика уже существует."));
-                                        }
-                                        return validateUserIsContractor(request.contractorID());
-                                    });
-                        } else {
-                            String checkSql = "SELECT COUNT(*) FROM ShopContractorChats WHERE ShopID = :shopId AND ContractorID IS NULL AND ShopContractorChatID != :currentId";
-                            logicCheck = databaseClient.sql(checkSql)
-                                    .bind("shopId", request.shopID())
-                                    .bind("currentId", chatId)
-                                    .map(row -> row.get(0, Long.class))
-                                    .one()
-                                    .flatMap(count -> {
-                                        if (count > 0) {
-                                            return Mono.error(new OperationNotAllowedException("Связь для этого магазина без подрядчика уже существует."));
-                                        }
-                                        return Mono.empty();
-                                    });
-                        }
+                    // Умная проверка на дубликаты при обновлении
+                    Mono<Boolean> duplicateCheck;
+                    if (request.shopID() != null && request.contractorID() != null) {
+                        duplicateCheck = chatRepository.existsByShopIDAndContractorIDAndShopContractorChatIDNot(request.shopID(), request.contractorID(), chatId);
+                    } else if (request.shopID() == null && request.contractorID() != null) {
+                        duplicateCheck = chatRepository.existsByShopIDIsNullAndContractorIDAndShopContractorChatIDNot(request.contractorID(), chatId);
+                    } else if (request.shopID() != null && request.contractorID() == null) {
+                        duplicateCheck = chatRepository.existsByShopIDAndContractorIDIsNullAndShopContractorChatIDNot(request.shopID(), chatId);
                     } else {
-                        if (request.contractorID() != null) {
-                            logicCheck = validateUserIsContractor(request.contractorID());
-                        }
+                        return Mono.error(new OperationNotAllowedException("Необходимо указать Магазин или Подрядчика."));
                     }
 
-                    return botCheck
-                            .then(telegramIdCheck)
-                            .then(logicCheck)
-                            .thenReturn(existingChat);
+                    Mono<Void> logicCheck = duplicateCheck.flatMap(exists -> {
+                        if (exists) return Mono.error(new OperationNotAllowedException("Связь для этих параметров уже существует."));
+                        return validateUserIsContractor(request.contractorID());
+                    });
+
+                    return botCheck.then(telegramIdCheck).then(logicCheck).thenReturn(existingChat);
                 })
                 .flatMap(chat -> {
                     chat.setShopID(request.shopID());
@@ -227,13 +201,14 @@ public class ShopContractorChatService {
                 });
     }
 
+    public Mono<Boolean> checkIfExists(Integer shopId, Integer contractorId) {
+        return chatRepository.checkCoverage(shopId, contractorId);
+    }
+
     public Mono<Void> deleteChat(Integer chatId) {
         return chatRepository.deleteById(chatId);
     }
 
-    public Mono<Boolean> checkIfExists(Integer shopId, Integer contractorId) {
-        return chatRepository.existsByShopIDAndContractorID(shopId, contractorId);
-    }
 
     private Mono<Void> validateUserIsContractor(Integer userId) {
         if (userId == null) {
@@ -253,7 +228,7 @@ public class ShopContractorChatService {
     public Mono<ShopContractorChatResponse> findByTelegramId(Long telegramId) {
         String sql = "SELECT scc.ShopContractorChatID, scc.ShopID, s.ShopName, scc.ContractorID, u.Login as ContractorLogin, scc.TelegramID " +
                 "FROM ShopContractorChats scc " +
-                "JOIN Shops s ON scc.ShopID = s.ShopID " +
+                "LEFT JOIN Shops s ON scc.ShopID = s.ShopID " +
                 "LEFT JOIN Users u ON scc.ContractorID = u.UserID " +
                 "WHERE scc.TelegramID = :telegramId";
 

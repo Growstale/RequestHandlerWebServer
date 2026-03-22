@@ -145,15 +145,16 @@ export default function ShopContractorChats() {
     <main className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-3xl font-semibold">Управление чатами</h1>
-        <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-          <DialogTrigger asChild><Button onClick={openCreateForm}><PlusCircle className="mr-2 h-4 w-4" /> Создать связь</Button></DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{currentChat ? 'Редактировать связь' : 'Новая связь'}</DialogTitle>
-            </DialogHeader>
-            <ShopContractorChatForm
-              key={currentChat ? currentChat.shopContractorChatID : 'new'}
-              currentChat={currentChat}
+      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+                <DialogTrigger asChild><Button onClick={openCreateForm}><PlusCircle className="mr-2 h-4 w-4" /> Создать связь</Button></DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{currentChat ? 'Редактировать связь' : 'Новая связь'}</DialogTitle>
+                    <DialogDescription className="hidden">Форма настройки чата</DialogDescription>
+                  </DialogHeader>
+                  <ShopContractorChatForm
+                    key={currentChat ? currentChat.shopContractorChatID : 'new'}
+                    currentChat={currentChat}
               shops={shops}
               contractors={contractors}
               onSubmit={handleFormSubmit} 
@@ -191,8 +192,12 @@ export default function ShopContractorChats() {
               {chats.map(chat => (
                 <TableRow key={chat.shopContractorChatID}>
                   <TableCell>{chat.shopContractorChatID}</TableCell>
-                  <TableCell className="font-medium">{chat.shopName}</TableCell>
-                  <TableCell>{chat.contractorLogin || 'Без подрядчика'}</TableCell>
+                  <TableCell className="font-medium">
+                      {chat.shopName ? chat.shopName : <span className="text-blue-600 italic">Все магазины</span>}
+                  </TableCell>
+                  <TableCell>
+                      {chat.contractorLogin ? chat.contractorLogin : <span className="text-blue-600 italic">Все подрядчики</span>}
+                  </TableCell>
                   <TableCell>{chat.telegramID}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">

@@ -1743,21 +1743,16 @@ async def start_create_request(update: Update, context: Context) -> int:
         chat_info = await api_client.get_chat_info_by_telegram_id(chat.id)
 
         if not chat_info or (isinstance(chat_info, dict) and "error_message" in chat_info):
-            await update.message.reply_text(
-                "❌ Этот чат не зарегистрирован в системе.\n"
-                "Создание заявок разрешено только в привязанных чатах магазинов или в личке с ботом."
-            )
+            await update.message.reply_text("❌ Этот чат не зарегистрирован в системе...")
             return ConversationHandler.END
 
-        draft['shopID'] = chat_info['shopID']
-        draft['shopName'] = chat_info['shopName']
+        if chat_info.get('shopID'):
+            draft['shopID'] = chat_info['shopID']
+            draft['shopName'] = chat_info['shopName']
 
         if chat_info.get('contractorID'):
             draft['assignedContractorID'] = chat_info['contractorID']
             draft['contractorName'] = chat_info['contractorLogin']
-
-    else:
-        pass
 
     context.user_data['user_info'] = user_data
     context.user_data['editor_is_new'] = True

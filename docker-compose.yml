@@ -52,6 +52,7 @@ services:
       - TZ=Europe/Minsk
       - SPRING_R2DBC_URL=r2dbc:mssql://db:1433/RequestHandlerWebServer?encrypt=false&trustServerCertificate=true
       - SPRING_R2DBC_USERNAME=sa
+      - SPRING_R2DBC_PASSWORD=${MSSQL_SA_PASSWORD}
       - SPRING_SQL_INIT_MODE=always
       - BOT_URL=http://bot:8081
       - BOT_API_KEY=${INTERNAL_API_KEY} 
