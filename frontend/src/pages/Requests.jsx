@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense, lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getRequests, deleteRequest, createRequest, updateRequest, restoreRequest, completeRequest } from '@/api/requestApi';
+// ДОБАВИЛИ uploadPhotos В ИМПОРТ:
+import { getRequests, deleteRequest, createRequest, updateRequest, restoreRequest, completeRequest, uploadPhotos } from '@/api/requestApi';
 import { getShops } from '@/api/shopApi';
 import { getWorkCategories } from '@/api/workCategoryApi';
 import { getUrgencyCategories } from '@/api/urgencyCategoryApi';
@@ -307,14 +308,26 @@ export default function Requests({ archived = false }) {
     }, [reloadRequests]);
 
 
-    const handleFormSubmit = async (formData) => {
+    // ИЗМЕНЕННАЯ ФУНКЦИЯ: ТЕПЕРЬ ПРИНИМАЕТ ФАЙЛЫ
+    const handleFormSubmit = async (formData, files = []) => {
         setFormApiError(null);
         setIsSubmitting(true);
         try {
             if (currentRequest) {
                 await updateRequest(currentRequest.requestID, formData);
             } else {
-                await createRequest(formData);
+                const response = await createRequest(formData);
+                const newRequestId = response.data.requestID;
+                
+                // Если есть файлы, сразу их загружаем
+                if (files && files.length > 0) {
+                    try {
+                        await uploadPhotos(newRequestId, files);
+                    } catch (photoErr) {
+                        console.error("Ошибка при загрузке фото во время создания:", photoErr);
+                        // Не прерываем процесс, заявка уже создана, просто выводим ошибку в консоль
+                    }
+                }
             }
             setIsFormOpen(false);
             await reloadRequests(true); 
