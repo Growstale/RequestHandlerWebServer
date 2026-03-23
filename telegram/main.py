@@ -26,6 +26,9 @@ from handlers import (
     editor_select_work, editor_select_urgency, editor_select_status, editor_input_text,
     EDITOR_MAIN_MENU, EDITOR_SELECT_SHOP, EDITOR_SELECT_CONTRACTOR,
     EDITOR_SELECT_WORK, EDITOR_SELECT_URGENCY, EDITOR_INPUT_TEXT, EDITOR_SELECT_STATUS,
+    EDITOR_ADD_PHOTO,
+    editor_photo_handler,
+    editor_photo_back,
     start_delete_comment_handler, confirm_delete_comment_handler,
     start_delete_photo_handler, preview_delete_photo_handler, finalize_delete_photo_handler,
     DELETE_COMMENT_SELECT, DELETE_PHOTO_SELECT
@@ -181,6 +184,10 @@ async def main():
             EDITOR_SELECT_WORK: [CallbackQueryHandler(editor_select_work, pattern="^ework_")],
             EDITOR_SELECT_URGENCY: [CallbackQueryHandler(editor_select_urgency, pattern="^eurg_")],
             EDITOR_INPUT_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, editor_input_text)],
+            EDITOR_ADD_PHOTO: [
+                MessageHandler(filters.PHOTO | filters.Document.IMAGE, editor_photo_handler),
+                CallbackQueryHandler(editor_photo_back, pattern="^ephoto_back$")
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
     )
@@ -234,6 +241,10 @@ async def main():
             EDITOR_SELECT_URGENCY: [CallbackQueryHandler(editor_select_urgency, pattern="^eurg_")],
             EDITOR_SELECT_STATUS: [CallbackQueryHandler(editor_select_status, pattern="^estatus_")],
             EDITOR_INPUT_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, editor_input_text)],
+            EDITOR_ADD_PHOTO: [
+                MessageHandler(filters.PHOTO | filters.Document.IMAGE, editor_photo_handler),
+                CallbackQueryHandler(editor_photo_back, pattern="^ephoto_back$")
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
         name="view_conversation",

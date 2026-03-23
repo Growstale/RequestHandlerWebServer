@@ -647,7 +647,10 @@ export default function Requests({ archived = false }) {
                                     <TableCell>{getUrgencyDisplayName(req.urgencyName)}</TableCell>
                                     <TableCell>{req.assignedContractorName || '—'}</TableCell>
                                     <TableCell>{getStatusDisplayName(req.status)}</TableCell>
-                                    <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 })}>
+                                    <TableCell className={cn({ 
+                                        'font-bold text-red-600': req.isOverdue && req.urgencyName !== 'Notes' && req.status === 'In work', 
+                                        'text-green-600': req.daysRemaining > 0 && req.urgencyName !== 'Notes' 
+                                    })}>
                                         {req.urgencyName === 'Notes' ? '—' : (req.daysRemaining !== null ? req.daysRemaining : '—')}
                                     </TableCell>
                                     <TableCell>

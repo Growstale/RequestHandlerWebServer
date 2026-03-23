@@ -319,13 +319,9 @@ public class RequestService {
                 !"Closed".equals(response.status())) {
 
             LocalDateTime deadline = response.createdAt().plusDays(response.daysForTask());
-            daysRemaining = (int) Duration.between(LocalDateTime.now(), deadline).toDays();
+            daysRemaining = (int) java.time.Duration.between(LocalDateTime.now(), deadline).toDays();
         }
 
-        if (response.daysForTask() != null && !"Closed".equals(response.status())) {
-            LocalDateTime deadline = response.createdAt().plusDays(response.daysForTask());
-            daysRemaining = (int) Duration.between(LocalDateTime.now(), deadline).toDays();
-        }
         return new RequestResponse(
                 response.requestID(), response.description(), response.shopName(), response.shopID(),
                 response.workCategoryName(), response.workCategoryID(), response.urgencyName(), response.urgencyID(),
@@ -480,6 +476,8 @@ public class RequestService {
                     if (!Objects.equals(request.getStatus(), dto.status()) && "Closed".equalsIgnoreCase(dto.status())) {
                         request.setClosedAt(LocalDateTime.now());
                     }
+
+                    boolean statusChangedToInWork = !"In work".equalsIgnoreCase(request.getStatus()) && "In work".equalsIgnoreCase(dto.status());
                     request.setStatus(dto.status());
 
                     boolean wasOverdue = Boolean.TRUE.equals(request.getIsOverdue());
@@ -491,12 +489,14 @@ public class RequestService {
                         boolean isNowOverdue = LocalDateTime.now().isAfter(deadline);
                         request.setIsOverdue(isNowOverdue);
 
-                        if ("In work".equalsIgnoreCase(request.getStatus())) {
-                            if (!wasOverdue && isNowOverdue) {
-                                changes.add("❗️ *Внимание:* Срок выполнения истек\\!");
-                            } else if (wasOverdue && !isNowOverdue) {
-                                changes.add("✅ *Срок:* Просрочка устранена \\(время добавлено\\)");
+                        if ("In work".equalsIgnoreCase(request.getStatus()) && isNowOverdue) {
+                            if (!wasOverdue || statusChangedToInWork) {
+                                long daysOverdue = java.time.Duration.between(deadline, LocalDateTime.now()).toDays();
+                                daysOverdue = Math.max(1, daysOverdue);
+                                changes.add("❗️ *Внимание:* Срок выполнения истек\\! Просрочка: *" + daysOverdue + " дн\\.*");
                             }
+                        } else if (wasOverdue && !isNowOverdue) {
+                            changes.add("✅ *Срок:* Просрочка устранена \\(время добавлено\\)");
                         }
                     } else {
                         request.setIsOverdue(false);

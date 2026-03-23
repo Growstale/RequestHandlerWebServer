@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { getDashboardStats } from '@/api/analyticsApi';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import api from '@/api/axios';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
@@ -8,38 +10,72 @@ import {
 } from 'recharts';
 import { 
     Activity, CheckCircle2, AlertTriangle, 
-    Briefcase, Printer, Download, Clock, ShieldCheck 
+    Briefcase, Printer, Download, Clock, ShieldCheck, CalendarRange, TrendingUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getUrgencyDisplayName } from '@/lib/displayNames';
 import * as XLSX from 'xlsx';
 
 const COLORS =['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
-const STATUS_COLORS = {
-    'In work': '#3b82f6',
-    'Done': '#22c55e',
-    'Closed': '#64748b'
-};
 
 export default function Dashboard() {
     const [stats, setStats] = useState(null);
-    const[loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+
+    // Состояния для фильтра дат
+    const [period, setPeriod] = useState('month'); 
+    const [customStart, setCustomStart] = useState('');
+    const [customEnd, setCustomEnd] = useState('');
+
+    // Вычисление дат для пресетов
+    const dateRanges = useMemo(() => {
+        const today = new Date();
+        const end = today.toISOString().split('T')[0];
+        let start = '';
+
+        const startObj = new Date(today);
+        switch (period) {
+            case 'today': start = end; break;
+            case 'week': startObj.setDate(today.getDate() - 7); start = startObj.toISOString().split('T')[0]; break;
+            case 'month': startObj.setMonth(today.getMonth() - 1); start = startObj.toISOString().split('T')[0]; break;
+            case 'quarter': startObj.setMonth(today.getMonth() - 3); start = startObj.toISOString().split('T')[0]; break;
+            case 'half_year': startObj.setMonth(today.getMonth() - 6); start = startObj.toISOString().split('T')[0]; break;
+            case 'year': startObj.setFullYear(today.getFullYear() - 1); start = startObj.toISOString().split('T')[0]; break;
+            case 'all': start = '2000-01-01'; break;
+            case 'custom': start = customStart; break;
+            default: startObj.setMonth(today.getMonth() - 1); start = startObj.toISOString().split('T')[0]; break;
+        }
+        return { startDate: start, endDate: period === 'custom' ? customEnd : end };
+    }, [period, customStart, customEnd]);
 
     useEffect(() => {
         const fetchStats = async () => {
+            // Ждем ввода обеих дат, если выбран "Свой период"
+            if (period === 'custom' && (!customStart || !customEnd)) return; 
+
+            setLoading(true);
+            setError(null);
             try {
-                const res = await getDashboardStats();
+                let url = '/api/analytics/stats';
+                if (dateRanges.startDate && dateRanges.endDate) {
+                    url += `?startDate=${dateRanges.startDate}&endDate=${dateRanges.endDate}`;
+                }
+                const res = await api.get(url);
                 setStats(res.data);
             } catch (err) {
                 console.error(err);
-                setError("Не удалось загрузить аналитику.");
+                setError("Не удалось загрузить аналитику. Проверьте подключение к серверу.");
             } finally {
                 setLoading(false);
             }
         };
         fetchStats();
-    },[]);
+    }, [dateRanges, period, customStart, customEnd]);
+
+    const resolutionRate = stats && stats.totalRequests > 0 
+        ? ((stats.completedRequests / stats.totalRequests) * 100).toFixed(0) 
+        : "0";
 
     const handleExportExcel = () => {
         if (!stats) return;
@@ -47,34 +83,45 @@ export default function Dashboard() {
         const workbook = XLSX.utils.book_new();
 
         const summaryData = [
-            ["Показатель", "Значение"],["Всего заявок", stats.totalRequests],
-            ["В работе", stats.activeRequests],["Просрочено", stats.overdueRequests],
-            ["Выполнено", stats.completedRequests],["Среднее время выполнения (дней)", stats.averageCompletionTimeDays?.toFixed(1)],["Соблюдение SLA (%)", stats.slaCompliancePercent?.toFixed(1)]
+            ["Показатель", "Значение"],
+            ["Всего заявок (создано)", stats.totalRequests],
+            ["В работе (текущий бэклог)", stats.activeRequests],
+            ["Просрочено (текущий долг)", stats.overdueRequests],
+            ["Выполнено (за период)", stats.completedRequests],
+            ["Коэффициент закрытия (%)", resolutionRate],
+            ["Среднее время выполнения (дней)", stats.averageCompletionTimeDays?.toFixed(1)],
+            ["Соблюдение SLA (%)", stats.slaCompliancePercent?.toFixed(1)]
         ];
         const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
         XLSX.utils.book_append_sheet(workbook, summarySheet, "Сводка");
 
-        const contractorsData = [["Имя подрядчика", "Выполнено заявок"],
+        const contractorsData = [
+            ["Имя подрядчика", "Выполнено заявок"],
             ...stats.topContractors.map(c => [c.name, c.completedCount])
         ];
         const contractorsSheet = XLSX.utils.aoa_to_sheet(contractorsData);
         XLSX.utils.book_append_sheet(workbook, contractorsSheet, "Топ подрядчиков");
 
-        const worstContractorsData = [["Имя подрядчика", "Просроченных заявок"],
+        const worstContractorsData = [
+            ["Имя подрядчика", "Просроченных заявок (активных)"],
             ...stats.worstContractors.map(c => [c.name, c.value])
         ];
         const worstContractorsSheet = XLSX.utils.aoa_to_sheet(worstContractorsData);
         XLSX.utils.book_append_sheet(workbook, worstContractorsSheet, "Худшие подрядчики");
 
         const worstShopsData = [
-            ["Магазин", "Просроченных заявок"],
+            ["Магазин", "Просроченных заявок (активных)"],
             ...stats.worstShops.map(s =>[s.name, s.value])
         ];
         const worstShopsSheet = XLSX.utils.aoa_to_sheet(worstShopsData);
-        XLSX.utils.book_append_sheet(workbook, worstShopsSheet, "Проблемные магазины (сроки)");
+        XLSX.utils.book_append_sheet(workbook, worstShopsSheet, "Проблемные магазины");
 
         const dateStr = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
         XLSX.writeFile(workbook, `Otchet_Dashboard_${dateStr}.xlsx`);
+    };
+
+    const handlePrint = () => {
+        window.print();
     };
 
     if (loading) {
@@ -86,22 +133,48 @@ export default function Dashboard() {
     }
 
     if (error) {
-        return <div className="p-8 text-red-600 text-center">{error}</div>;
+        return <div className="p-8 text-red-600 text-center bg-red-50 m-6 rounded-lg">{error}</div>;
     }
 
-    const urgencyData = stats.requestsByUrgency.map(item => ({
+    const urgencyData = stats?.requestsByUrgency.map(item => ({
         ...item,
         name: getUrgencyDisplayName(item.name)
-    }));
-
-    const handlePrint = () => {
-        window.print();
-    };
+    })) || [];
 
     return (
         <main className="container mx-auto p-6 space-y-6">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
                 <h1 className="text-3xl font-bold tracking-tight">Дашборд</h1>
+                
+                <div className="flex items-center bg-white border rounded-lg shadow-sm no-print p-0.5">
+                    <div className="pl-3 pr-1 hidden sm:flex items-center justify-center">
+                        <CalendarRange className="h-4 w-4 text-gray-500" />
+                    </div>
+                    <Select value={period} onValueChange={setPeriod}>
+                        <SelectTrigger className="w-[160px] border-none shadow-none focus:ring-0 focus:ring-offset-0 bg-transparent">
+                            <SelectValue placeholder="Выберите период" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="today">За сегодня</SelectItem>
+                            <SelectItem value="week">За 7 дней</SelectItem>
+                            <SelectItem value="month">За месяц</SelectItem>
+                            <SelectItem value="quarter">За квартал</SelectItem>
+                            <SelectItem value="half_year">За полгода</SelectItem>
+                            <SelectItem value="year">За год</SelectItem>
+                            <SelectItem value="all">За всё время</SelectItem>
+                            <SelectItem value="custom">Свой период...</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    
+                    {period === 'custom' && (
+                        <div className="flex items-center gap-2 px-2 border-l h-8">
+                            <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="h-7 text-xs w-[115px] border-gray-200" />
+                            <span className="text-gray-400 text-xs">-</span>
+                            <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="h-7 text-xs w-[115px] border-gray-200" />
+                        </div>
+                    )}
+                </div>
+
                 <div className="flex gap-2 no-print">
                     <Button onClick={handleExportExcel} variant="outline" className="gap-2 bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:text-green-800">
                         <Download className="h-4 w-4" />
@@ -115,33 +188,40 @@ export default function Dashboard() {
             </div>
 
             {/* Карточки KPI */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
                 <StatsCard 
-                    title="Всего заявок" 
+                    title="Создано заявок" 
                     value={stats.totalRequests} 
                     icon={Briefcase} 
-                    description="За все время"
+                    description="За выбранный период"
                 />
                 <StatsCard 
-                    title="В работе" 
+                    title="В работе (Всего)" 
                     value={stats.activeRequests} 
                     icon={Activity} 
                     className="text-blue-600"
-                    description="Активные"
-                />
-                <StatsCard 
-                    title="Просрочено" 
-                    value={stats.overdueRequests} 
-                    icon={AlertTriangle} 
-                    className="text-red-600"
-                    description="Срыв сроков"
+                    description="Текущий бэклог"
                 />
                 <StatsCard 
                     title="Выполнено" 
                     value={stats.completedRequests} 
                     icon={CheckCircle2} 
                     className="text-green-600"
-                    description="Завершено"
+                    description="За выбранный период"
+                />
+                <StatsCard 
+                    title="Просрочено (Всего)" 
+                    value={stats.overdueRequests} 
+                    icon={AlertTriangle} 
+                    className="text-red-600"
+                    description="Срыв сроков"
+                />
+                <StatsCard 
+                    title="Коэф. закрытия" 
+                    value={`${resolutionRate}%`} 
+                    icon={TrendingUp} 
+                    className={resolutionRate >= 95 ? "text-green-600" : resolutionRate > 80 ? "text-orange-500" : "text-red-600"}
+                    description="Выполнено / Создано"
                 />
                 <StatsCard 
                     title="Среднее время" 
@@ -151,11 +231,11 @@ export default function Dashboard() {
                     description="Скорость решения"
                 />
                 <StatsCard 
-                    title="SLA" 
+                    title="SLA (Соблюдение)" 
                     value={stats.slaCompliancePercent ? `${stats.slaCompliancePercent.toFixed(0)}%` : "—"} 
                     icon={ShieldCheck} 
                     className={stats.slaCompliancePercent >= 90 ? "text-green-600" : "text-orange-500"}
-                    description="Соблюдение сроков"
+                    description="Решено в срок"
                 />
             </div>
 
@@ -163,12 +243,12 @@ export default function Dashboard() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="col-span-4">
                     <CardHeader>
-                        <CardTitle>Динамика заявок (7 дней)</CardTitle>
-                        <CardDescription>Количество созданных заявок</CardDescription>
+                        <CardTitle>Динамика создания заявок</CardTitle>
+                        <CardDescription>Распределение по датам</CardDescription>
                     </CardHeader>
                     <CardContent className="pl-2">
                         <div className="h-[300px] w-full min-h-[300px]"> 
-                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                            <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={stats.requestsLast7Days}>
                                     <defs>
                                         <linearGradient id="colorCnt" x1="0" y1="0" x2="0" y2="1">
@@ -177,9 +257,9 @@ export default function Dashboard() {
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                    <XAxis dataKey="date" />
+                                    <XAxis dataKey="date" tick={{fontSize: 11}} />
                                     <YAxis allowDecimals={false} />
-                                    <RechartsTooltip contentStyle={{ backgroundColor: 'white', borderRadius: '8px', border: '1px solid #e2e8f0' }}/>
+                                    <RechartsTooltip contentStyle={{ borderRadius: '8px' }}/>
                                     <Area type="monotone" dataKey="count" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCnt)" name="Заявки" />
                                 </AreaChart>
                             </ResponsiveContainer>
@@ -190,17 +270,17 @@ export default function Dashboard() {
                 <Card className="col-span-3">
                     <CardHeader>
                         <CardTitle>Срочность</CardTitle>
-                        <CardDescription>Распределение по важности</CardDescription>
+                        <CardDescription>За выбранный период</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-[300px] flex items-center justify-center">
-                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                        <div className="h-[250px] flex items-center justify-center">
+                            <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
                                     <Pie
                                         data={urgencyData}
                                         cx="50%"
                                         cy="50%"
-                                        innerRadius={60}
+                                        innerRadius={50}
                                         outerRadius={80}
                                         paddingAngle={5}
                                         dataKey="value"
@@ -232,50 +312,46 @@ export default function Dashboard() {
                         <CardTitle className="text-red-600 flex items-center gap-2">
                             <AlertTriangle className="h-5 w-5" /> Антирейтинг подрядчиков
                         </CardTitle>
-                        <CardDescription>Топ-5 по количеству просроченных заявок</CardDescription>
+                        <CardDescription>Текущие активные просрочки</CardDescription>
                     </CardHeader>
-                    <CardContent className="pt-4">
-                        <div className="h-[250px] w-full min-h-[250px]"> 
-                            {stats.worstContractors.length === 0 ? (
-                                <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
-                            ) : (
-                                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                                    <BarChart layout="vertical" data={stats.worstContractors} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                                        <XAxis type="number" allowDecimals={false} />
-                                        <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
-                                        <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                        <Bar dataKey="value" fill="#ef4444" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            )}
-                        </div>
+                    <CardContent className="pt-4 h-[250px]">
+                        {stats.worstContractors.length === 0 ? (
+                            <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart layout="vertical" data={stats.worstContractors} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                    <XAxis type="number" allowDecimals={false} hide />
+                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
+                                    <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                    <Bar dataKey="value" fill="#ef4444" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
                     </CardContent>
                 </Card>
 
                 <Card className="border-red-100 shadow-sm">
                     <CardHeader className="bg-red-50/50 pb-4 border-b">
                         <CardTitle className="text-red-600 flex items-center gap-2">
-                            <AlertTriangle className="h-5 w-5" /> Антирейтинг магазинов
+                            <AlertTriangle className="h-5 w-5" /> Проблемные магазины
                         </CardTitle>
-                        <CardDescription>Топ-5 магазинов с частыми просрочками</CardDescription>
+                        <CardDescription>Текущие активные просрочки</CardDescription>
                     </CardHeader>
-                    <CardContent className="pt-4">
-                        <div className="h-[250px] w-full min-h-[250px]"> 
-                            {stats.worstShops.length === 0 ? (
-                                <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
-                            ) : (
-                                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                                    <BarChart layout="vertical" data={stats.worstShops} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                                        <XAxis type="number" allowDecimals={false} />
-                                        <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
-                                        <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                        <Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            )}
-                        </div>
+                    <CardContent className="pt-4 h-[250px]">
+                        {stats.worstShops.length === 0 ? (
+                            <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart layout="vertical" data={stats.worstShops} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                    <XAxis type="number" allowDecimals={false} hide />
+                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
+                                    <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                    <Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
                     </CardContent>
                 </Card>
             </div>
@@ -287,38 +363,34 @@ export default function Dashboard() {
                         <CardTitle>Текущая загрузка подрядчиков</CardTitle>
                         <CardDescription>Количество активных заявок ("В работе")</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                        <div className="h-[250px] w-full min-h-[250px]"> 
-                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                                <BarChart layout="vertical" data={stats.contractorWorkload} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                                    <XAxis type="number" allowDecimals={false} />
-                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 12}} />
-                                    <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                    <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} name="В работе" barSize={15} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
+                    <CardContent className="h-[250px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart layout="vertical" data={stats.contractorWorkload} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                <XAxis type="number" allowDecimals={false} />
+                                <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 12}} />
+                                <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} name="В работе" barSize={15} />
+                            </BarChart>
+                        </ResponsiveContainer>
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Количество заявок по магазинам</CardTitle>
-                        <CardDescription>Общее количество заявок</CardDescription>
+                        <CardTitle>Самые активные магазины</CardTitle>
+                        <CardDescription>По количеству созданных заявок</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                        <div className="h-[250px] w-full min-h-[250px]"> 
-                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                                <BarChart data={stats.topProblemShops} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                    <XAxis dataKey="name" tick={{fontSize: 11}} interval={0} angle={-15} textAnchor="end" height={60}/>
-                                    <YAxis allowDecimals={false} />
-                                    <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                    <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Всего заявок" barSize={30} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
+                    <CardContent className="h-[250px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={stats.topProblemShops} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="name" tick={{fontSize: 11}} interval={0} angle={-15} textAnchor="end" height={60}/>
+                                <YAxis allowDecimals={false} />
+                                <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Всего заявок" barSize={30} />
+                            </BarChart>
+                        </ResponsiveContainer>
                     </CardContent>
                 </Card>
             </div>
@@ -330,18 +402,16 @@ export default function Dashboard() {
                         <CardTitle>Топ категорий работ</CardTitle>
                         <CardDescription>Самые частые причины обращений</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                        <div className="h-[250px] w-full"> 
-                            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                                <BarChart layout="vertical" data={stats.requestsByWorkCategory} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                                    <XAxis type="number" allowDecimals={false} />
-                                    <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 11}} />
-                                    <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                    <Bar dataKey="value" fill="#8884d8" radius={[0, 4, 4, 0]} name="Заявки" barSize={15} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
+                    <CardContent className="h-[250px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart layout="vertical" data={stats.requestsByWorkCategory} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                <XAxis type="number" allowDecimals={false} />
+                                <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 11}} />
+                                <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                <Bar dataKey="value" fill="#8884d8" radius={[0, 4, 4, 0]} name="Заявки" barSize={15} />
+                            </BarChart>
+                        </ResponsiveContainer>
                     </CardContent>
                 </Card>
 
@@ -353,7 +423,7 @@ export default function Dashboard() {
                     <CardContent>
                         <div className="space-y-4">
                             {stats.topContractors.length === 0 ? (
-                                <p className="text-center text-gray-400 py-6">Нет данных о выполненных заявках</p>
+                                <p className="text-center text-gray-400 py-6">Нет данных о выполненных заявках за этот период</p>
                             ) : stats.topContractors.map((contractor, i) => (
                                 <div key={i} className="flex items-center justify-between border-b pb-2 last:border-0 last:pb-0">
                                     <div className="flex items-center gap-3">
@@ -379,16 +449,12 @@ function StatsCard({ title, value, icon: Icon, description, className }) {
     return (
         <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                    {title}
-                </CardTitle>
+                <CardTitle className="text-sm font-medium leading-tight">{title}</CardTitle>
                 <Icon className={cn("h-4 w-4 text-muted-foreground", className)} />
             </CardHeader>
             <CardContent>
                 <div className={cn("text-2xl font-bold", className)}>{value}</div>
-                <p className="text-xs text-muted-foreground">
-                    {description}
-                </p>
+                <p className="text-xs text-muted-foreground mt-1">{description}</p>
             </CardContent>
         </Card>
     );

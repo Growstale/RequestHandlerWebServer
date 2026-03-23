@@ -13,11 +13,44 @@ from bot_logging import logger
 import time
 from telegram import ForceReply
 
-
 USER_LAST_ACTION_TIME = {}
 COOLDOWN_SECONDS = 1.0
 REPLY_COMMENT_SELECT = 29
 
+# ==========================================
+# 1. СНАЧАЛА ОПРЕДЕЛЯЕМ CONTEXT
+# ==========================================
+class CustomContext(CallbackContext[ExtBot, Dict, Dict, Dict]):
+    @classmethod
+    def from_update(cls, update: object, application: object) -> "CustomContext":
+        return cls(application=application, chat_id=update.effective_chat.id, user_id=update.effective_user.id)
+
+Context = CustomContext
+
+# ==========================================
+# 2. ЗАТЕМ ИСПОЛЬЗУЕМ ЕГО ДЛЯ ЗАЩИТЫ КНОПОК
+# ==========================================
+def set_menu_owner(context: Context, message_id: int, user_id: int):
+    """Запоминает, кто является владельцем меню с кнопками"""
+    context.chat_data[f"owner_{message_id}"] = user_id
+
+async def check_menu_ownership(update: Update, context: Context) -> bool:
+    """Проверяет, имеет ли право пользователь нажимать на кнопку"""
+    if not update.callback_query or not update.callback_query.message:
+        return True
+
+    query = update.callback_query
+    owner_id = context.chat_data.get(f"owner_{query.message.message_id}")
+
+    # Если владелец записан, и он не совпадает с тем, кто кликнул
+    if owner_id and owner_id != update.effective_user.id:
+        try:
+            await query.answer("⛔️ Эта кнопка предназначена не для вас!", show_alert=True)
+        except Exception:
+            pass
+        return False
+    return True
+# ==========================================
 
 def format_dt(iso_str: str) -> str:
     try:
@@ -37,14 +70,6 @@ def check_rate_limit(user_id: int) -> bool:
     USER_LAST_ACTION_TIME[user_id] = current_time
     return True
 
-
-class CustomContext(CallbackContext[ExtBot, Dict, Dict, Dict]):
-    @classmethod
-    def from_update(cls, update: object, application: object) -> "CustomContext":
-        return cls(application=application, chat_id=update.effective_chat.id, user_id=update.effective_user.id)
-
-
-Context = CustomContext
 
 SORT_FIELDS: List[tuple[str, str]] = [
     ("requestID", "ID"),
@@ -112,17 +137,12 @@ def format_request_list_item(req: dict) -> str:
     overdue_icon = "❗️" if req['isOverdue'] else ""
 
     shop_name = escape_markdown(req['shopName'])
-
     raw_description = req.get('description', '')
     limit = 50
-    if len(raw_description) > limit:
-        description_text = raw_description[:limit] + "..."
-    else:
-        description_text = raw_description
-
+    description_text = raw_description[:limit] + "..." if len(raw_description) > limit else raw_description
     description = escape_markdown(description_text)
 
-    return f"{status_icon} *ID {req['requestID']}*: {shop_name} {overdue_icon}\n_{description}_"
+    return f"{status_icon} *ID {req['requestID']}* {shop_name} {overdue_icon}\n_{description}_"
 
 
 def format_request_details(req: dict) -> str:
@@ -225,7 +245,7 @@ async def _fetch_full_dataset(user_id: int, filters: Dict[str, Any], context: Co
         base_filters['page'] = page
         response = await api_client.get_requests(user_id, base_filters, chat_id=chat_id)
         if isinstance(response, dict) and "error_message" in response:
-            return response  # Возвращаем словарь с ошибкой дальше
+            return response
 
         if response is None:
             return None
@@ -337,7 +357,8 @@ async def view_requests_start(update: Update, context: Context) -> int:
     user_id = update.effective_user.id
     user_info = await api_client.get_user_by_telegram_id(user_id)
     if not user_info:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ Ваш Telegram ID не найден в системе.")
+        msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ Ваш Telegram ID не найден в системе.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return ConversationHandler.END
 
     context.user_data['view_chat_id'] = update.effective_chat.id
@@ -351,6 +372,7 @@ async def view_requests_start(update: Update, context: Context) -> int:
     )
     context.user_data['main_message_id'] = placeholder_message.message_id
 
+    # В любом случае удаляем старые плейсхолдеры
     asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [placeholder_message.message_id], 300))
 
     return await render_main_view_menu(update, context)
@@ -381,7 +403,8 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
         if is_callback and update.callback_query:
             await update.callback_query.edit_message_text(error_text, parse_mode=ParseMode.MARKDOWN_V2)
         else:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=error_text, parse_mode=ParseMode.MARKDOWN_V2)
+            msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=error_text, parse_mode=ParseMode.MARKDOWN_V2)
+            asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return VIEW_MAIN_MENU
 
     if dataset is None:
@@ -389,28 +412,35 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
         if is_callback:
             await update.callback_query.edit_message_text(error_text)
         else:
-            await context.bot.send_message(update.effective_chat.id, error_text)
+            msg = await context.bot.send_message(update.effective_chat.id, error_text)
+            asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return VIEW_MAIN_MENU
 
     page = filters.get('page', 0)
     requests, total_pages = _slice_page(dataset, page)
-    if total_pages:
-        filters['page'] = min(max(page, 0), total_pages - 1)
-    else:
-        filters['page'] = 0
-    filter_lines = []
-    if filters.get('archived'): filter_lines.append("Тип: Архив")
-    if filters.get('searchTerm'): filter_lines.append(f"Поиск: '{escape_markdown(filters['searchTerm'])}'")
-    sort_list = _get_sort_list(filters)
-    filter_lines.append(f"{escape_markdown('Сортировка:')}\n{_format_sort_list(sort_list)}")
 
-    filter_text = "\n".join(filter_lines)
-    message_text = f"⚙️ *Активные фильтры:*\n{filter_text}\n\n"
+    is_default_sort = (filters.get('sort') == ['requestID,asc'] or not filters.get('sort'))
+    is_default_filters = (not filters.get('archived') and not filters.get('searchTerm'))
+    
+    message_text = ""
+
+    if not (is_default_sort and is_default_filters):
+        filter_lines = []
+        if filters.get('archived'): filter_lines.append("Тип: Архив")
+        if filters.get('searchTerm'): filter_lines.append(f"Поиск: '{escape_markdown(filters['searchTerm'])}'")
+        
+        if not is_default_sort:
+            sort_list = _get_sort_list(filters)
+            filter_lines.append(f"Сортировка:\n{_format_sort_list(sort_list)}")
+        
+        if filter_lines:
+            message_text = f"⚙️ *Активные фильтры:*\n" + "\n".join(filter_lines) + "\n\n"
+
     if not requests:
-        message_text += "_Заявок по вашим фильтрам не найдено\\._"
+        message_text += "_Заявок не найдено\\._"
     else:
         message_text += "\n\n".join(format_request_list_item(req) for req in requests)
-        message_text += "\n\n" + escape_markdown("Нажмите ℹ️ рядом с номером, чтобы открыть заявку.")
+        message_text += "\n\n" + escape_markdown("Нажмите ℹ️ рядом с номером для деталей.")
 
     keyboard = []
     if requests:
@@ -466,9 +496,8 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
                 context.user_data['main_message_id'] = message_id
             except BadRequest as e:
                 if "Message is not modified" in str(e):
-                    pass  # Игнорируем, если текст не изменился
+                    pass
                 elif "Message to edit not found" in str(e):
-                    # Если сообщение удалили, отправляем новое!
                     sent_message = await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=message_text,
@@ -476,8 +505,10 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
                         parse_mode=ParseMode.MARKDOWN_V2
                     )
                     context.user_data['main_message_id'] = sent_message.message_id
+                    set_menu_owner(context, sent_message.message_id, update.effective_user.id)
+                    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_message.message_id], 300))
                 else:
-                    raise e  # Пробрасываем другие ошибки дальше
+                    raise e
         else:
             sent_message = await context.bot.send_message(
                 chat_id=update.effective_chat.id,
@@ -486,18 +517,21 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
                 parse_mode=ParseMode.MARKDOWN_V2
             )
             context.user_data['main_message_id'] = sent_message.message_id
+            set_menu_owner(context, sent_message.message_id, update.effective_user.id)
             asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_message.message_id], 300))
 
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения Markdown: {e}\nТекст: {message_text}")
-        await context.bot.send_message(
+        msg = await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="Произошла ошибка форматирования или отображения списка."
         )
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
     return VIEW_MAIN_MENU
 
 
 async def view_menu_callback(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     if not check_rate_limit(update.effective_user.id):
         await query.answer("⚠️ Слишком часто!", show_alert=False)
@@ -621,22 +655,21 @@ async def complete_request_action(query, context, request_id):
 
     if response:
         _invalidate_requests_cache(context)
-
         await query.edit_message_text(
             f"✅ Заявка \\#{request_id} успешно завершена\\!",
             parse_mode=ParseMode.MARKDOWN_V2
         )
-
-        asyncio.create_task(delayed_delete_messages(context, query.message.chat_id, [query.message.message_id], 10))
-
+        asyncio.create_task(delayed_delete_messages(context, query.message.chat_id, [query.message.message_id], 15))
     else:
         await query.edit_message_text(
             f"❌ Не удалось завершить заявку \\#{request_id}\\. Попробуйте позже\\.",
             parse_mode=ParseMode.MARKDOWN_V2
         )
+        asyncio.create_task(delayed_delete_messages(context, query.message.chat_id, [query.message.message_id], 15))
 
 
 async def view_sort_callback(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     if not check_rate_limit(update.effective_user.id):
         await query.answer("⚠️ Подождите...", show_alert=False)
@@ -713,14 +746,16 @@ async def view_request_details(update: Update, context: Context) -> int | None:
     user_id = update.effective_user.id
     user_info = context.user_data.get('user_info') or await api_client.get_user_by_telegram_id(user_id)
     if not user_info:
-        await update.message.reply_text("❌ Ваш Telegram ID не найден в системе.")
+        msg = await update.message.reply_text("❌ Ваш Telegram ID не найден в системе.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return
 
     request_details = await api_client.get_request_details(user_id, request_id)
     if not request_details:
-        await update.message.reply_text(
+        msg = await update.message.reply_text(
             f"❌ Не удалось найти заявку \\#{request_id} или у вас нет прав на ее просмотр\\.",
             parse_mode=ParseMode.MARKDOWN_V2)
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return
 
     context.user_data['current_request_id'] = request_id
@@ -763,12 +798,14 @@ async def view_request_details(update: Update, context: Context) -> int | None:
     )
 
     context.user_data['main_message_id'] = sent_msg.message_id
+    set_menu_owner(context, sent_msg.message_id, update.effective_user.id)
     asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_msg.message_id], 300))
 
     return VIEW_DETAILS
 
 
 async def action_callback_handler(update: Update, context: Context) -> int | None:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     if not check_rate_limit(update.effective_user.id):
         await query.answer("⚠️ Подождите...", show_alert=False)
@@ -894,6 +931,7 @@ async def show_comments(query, context: Context, request_id: int):
 
 
 async def start_reply_comment_handler(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     await safe_answer_query(query)
 
@@ -918,6 +956,7 @@ async def start_reply_comment_handler(update: Update, context: Context) -> int:
 
 
 async def start_delete_comment_handler(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     await safe_answer_query(query)
 
@@ -949,6 +988,7 @@ async def start_delete_comment_handler(update: Update, context: Context) -> int:
 
 
 async def confirm_delete_comment_handler(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     if not check_rate_limit(update.effective_user.id): return DELETE_COMMENT_SELECT
     await safe_answer_query(query)
@@ -1007,7 +1047,6 @@ async def show_photos(query, context: Context, request_id: int):
             await show_request_details_in_message(query, context, request_id)
         return
 
-    # Заменяем текущее меню на "Загружаю..."
     await query.edit_message_text(f"Загружаю {len(photo_ids)} фото...")
 
     media_group = []
@@ -1027,23 +1066,21 @@ async def show_photos(query, context: Context, request_id: int):
         text=f"🖼 Фотографии к заявке #{request_id} отправлены. (удалятся через 30 сек)"
     )
 
-    # Собираем ID фотографий и информационного сообщения для удаления
     msgs_to_delete = [msg.message_id for msg in sent_media_messages]
     msgs_to_delete.append(info_msg.message_id)
 
     asyncio.create_task(delayed_delete_messages(context, query.message.chat_id, msgs_to_delete, 30))
 
-    # Удаляем сообщение "Загружаю..."
     try:
         await query.message.delete()
     except:
         pass
 
-    # Восстанавливаем меню заявки (появится сразу под фотографиями)
     await restore_request_menu(context, query.message.chat_id, query.from_user.id, request_id)
 
 
 async def start_delete_photo_handler(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     request_id = int(query.data.split('_')[-1])
 
@@ -1072,6 +1109,7 @@ async def start_delete_photo_handler(update: Update, context: Context) -> int:
 
 
 async def preview_delete_photo_handler(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     _, _, _, photo_id, request_id = query.data.split('_')
 
@@ -1084,16 +1122,18 @@ async def preview_delete_photo_handler(update: Update, context: Context) -> int:
         [InlineKeyboardButton("🔙 Отмена (назад к списку)", callback_data=f"start_del_img_{request_id}")]
     ]
 
-    await context.bot.send_photo(
+    sent_msg = await context.bot.send_photo(
         chat_id=update.effective_chat.id,
         photo=photo_bytes,
         caption=f"Удалить это фото из заявки #{request_id}?",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    set_menu_owner(context, sent_msg.message_id, update.effective_user.id)
     return DELETE_PHOTO_SELECT
 
 
 async def finalize_delete_photo_handler(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     if not check_rate_limit(update.effective_user.id): return DELETE_PHOTO_SELECT
     _, _, _, photo_id, request_id = query.data.split('_')
@@ -1130,7 +1170,6 @@ async def finalize_delete_photo_handler(update: Update, context: Context) -> int
         async def answer(self, *args, **kwargs):
             pass
 
-
     fake_query = FakeQuery(query.from_user, msg, context.bot)
 
     await show_photos(fake_query, context, int(request_id))
@@ -1144,7 +1183,8 @@ async def add_comment_handler(update: Update, context: Context) -> int:
 
     comment_text = update.message.text or update.message.caption
     if not comment_text:
-        await update.message.reply_text("⚠️ Пожалуйста, введите текст комментария.")
+        msg = await update.message.reply_text("⚠️ Пожалуйста, введите текст комментария.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return VIEW_ADD_COMMENT
 
     request_id = context.user_data.get('current_request_id')
@@ -1152,7 +1192,8 @@ async def add_comment_handler(update: Update, context: Context) -> int:
     user_id = update.effective_user.id
 
     if not request_id:
-        await update.message.reply_text("❌ Ошибка: сессия потеряна. Откройте заявку заново.")
+        msg = await update.message.reply_text("❌ Ошибка: сессия потеряна. Откройте заявку заново.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return ConversationHandler.END
 
     try:
@@ -1164,7 +1205,6 @@ async def add_comment_handler(update: Update, context: Context) -> int:
 
     msgs_to_delete = []
 
-    # Добавляем в список удаления сообщение-промпт (💬 Введите текст...)
     prompt_id = context.user_data.pop('comment_prompt_msg_id', None)
     if prompt_id:
         msgs_to_delete.append(prompt_id)
@@ -1182,12 +1222,10 @@ async def add_comment_handler(update: Update, context: Context) -> int:
         )
         msgs_to_delete.append(err_msg.message_id)
 
-    # Запускаем таймер на удаление
-    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, msgs_to_delete, 5))
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, msgs_to_delete, 10))
 
     _invalidate_requests_cache(context)
-    await restore_request_menu(context, update.effective_chat.id, user_id, request_id)
-    return VIEW_DETAILS
+    return ConversationHandler.END
 
 
 async def add_photo_handler(update: Update, context: Context) -> int:
@@ -1198,7 +1236,8 @@ async def add_photo_handler(update: Update, context: Context) -> int:
     user_id = update.effective_user.id
 
     if not request_id:
-        await update.message.reply_text("❌ Ошибка: не найдена заявка.")
+        msg = await update.message.reply_text("❌ Ошибка: не найдена заявка.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return VIEW_MAIN_MENU
 
     photo_bytes = None
@@ -1211,7 +1250,8 @@ async def add_photo_handler(update: Update, context: Context) -> int:
         photo_bytes = await photo_file.download_as_bytearray()
 
     if not photo_bytes:
-        await update.message.reply_text("❌ Не удалось получить фото. Пожалуйста, отправьте изображение.")
+        msg = await update.message.reply_text("❌ Не удалось получить фото. Пожалуйста, отправьте изображение.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return VIEW_ADD_PHOTO
 
     try:
@@ -1266,7 +1306,7 @@ async def finalize_photo_upload(context, chat_id, user_id, request_id, photos):
                 chat_id=chat_id,
                 text=f"❌ Ошибка: Лимит 10 фото. Уже загружено: {current_count}. Пытались добавить: {incoming_count}."
             )
-            asyncio.create_task(delayed_delete(context, chat_id, error_msg.message_id, 5))
+            asyncio.create_task(delayed_delete(context, chat_id, error_msg.message_id, 15))
 
             await restore_request_menu(context, chat_id, user_id, request_id)
             return VIEW_DETAILS
@@ -1276,19 +1316,28 @@ async def finalize_photo_upload(context, chat_id, user_id, request_id, photos):
     if success:
         _invalidate_requests_cache(context)
     else:
-        await context.bot.send_message(chat_id=chat_id, text=f"❌ Не удалось загрузить фото для заявки #{request_id}.")
+        err_msg = await context.bot.send_message(chat_id=chat_id, text=f"❌ Не удалось загрузить фото для заявки #{request_id}.")
+        asyncio.create_task(delayed_delete(context, chat_id, err_msg.message_id, 15))
 
-    await restore_request_menu(context, chat_id, user_id, request_id)
-    return VIEW_DETAILS
+    return ConversationHandler.END
 
 
 async def restore_request_menu(context, chat_id, user_id, request_id):
     try:
+        old_main_msg_id = context.user_data.get('main_message_id')
+        if old_main_msg_id:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=old_main_msg_id)
+            except Exception:
+                pass
+
         user_info = context.user_data.get('user_info') or await api_client.get_user_by_telegram_id(user_id)
         req_details = await api_client.get_request_details(user_id, request_id)
 
         if not user_info or not req_details:
-            await context.bot.send_message(chat_id=chat_id, text="⚠️ Не удалось обновить меню заявки. Попробуйте ввести /start или открыть список заявок заново.")
+            msg = await context.bot.send_message(chat_id=chat_id,
+                                           text="⚠️ Не удалось обновить меню заявки. Попробуйте ввести /start или открыть список заявок заново.")
+            asyncio.create_task(delayed_delete_messages(context, chat_id, [msg.message_id], 15))
             return
 
         context.user_data['current_request_details'] = req_details
@@ -1323,7 +1372,9 @@ async def restore_request_menu(context, chat_id, user_id, request_id):
             parse_mode=ParseMode.MARKDOWN_V2
         )
         context.user_data['main_message_id'] = sent_menu.message_id
+        set_menu_owner(context, sent_menu.message_id, user_id)
 
+        # Главное меню заявки удаляется через 5 МИНУТ (300 сек)
         asyncio.create_task(delayed_delete_messages(context, chat_id, [sent_menu.message_id], 300))
 
     except Exception as e:
@@ -1344,7 +1395,8 @@ async def new_request_start(update: Update, context: CallbackContext) -> int:
 
     user_data = await api_client.get_user_by_telegram_id(user_id)
     if not user_data or user_data.get("roleName") != "RetailAdmin":
-        await update.message.reply_text("❌ У вас нет прав для создания заявок.")
+        msg = await update.message.reply_text("❌ У вас нет прав для создания заявок.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return ConversationHandler.END
 
     context.user_data['creator_db_id'] = user_data['userID']
@@ -1357,19 +1409,22 @@ async def new_request_start(update: Update, context: CallbackContext) -> int:
         if chat_info and isinstance(chat_info, dict) and "shopID" in chat_info:
             context.user_data['request_data']['shopID'] = chat_info['shopID']
             context.user_data['request_data']['assignedContractorID'] = chat_info['contractorID']
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 f"Заявка для магазина \"{chat_info['shopName']}\" и подрядчика \"{chat_info['contractorLogin']}\"")
+            asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
             return await ask_work_category(update, context)
         else:
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 "❌ Этот чат не привязан к магазину и подрядчику. Создание заявки отсюда невозможно.")
+            asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
             return ConversationHandler.END
     else:
         return await ask_shop(update, context)
 
 
 async def cancel_command(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Создание заявки отменено.", reply_markup=None)
+    msg = await update.message.reply_text("Создание заявки отменено.", reply_markup=None)
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1377,17 +1432,21 @@ async def cancel_command(update: Update, context: CallbackContext) -> int:
 async def ask_shop(update: Update, context: CallbackContext) -> int:
     shops_response = await api_client.get_all_shops()
     if not shops_response or not shops_response.get('content'):
-        await update.message.reply_text("Не удалось загрузить список магазинов.")
+        msg = await update.message.reply_text("Не удалось загрузить список магазинов.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return ConversationHandler.END
 
     context.user_data['shops'] = shops_response['content']
     keyboard = create_paginated_keyboard(context.user_data['shops'], 0, 'shop', 'shopName', 'shopID')
-    await update.message.reply_text("<b>Шаг 1/5:</b> Выберите магазин:", reply_markup=keyboard,
-                                    parse_mode=ParseMode.HTML)
+    sent_msg = await update.message.reply_text("<b>Шаг 1/5:</b> Выберите магазин:", reply_markup=keyboard,
+                                               parse_mode=ParseMode.HTML)
+    set_menu_owner(context, sent_msg.message_id, update.effective_user.id)
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_msg.message_id], 300))
     return CREATE_SELECT_SHOP
 
 
 async def select_shop_callback(update: Update, context: CallbackContext) -> int | None:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     await safe_answer_query(query)
 
@@ -1412,17 +1471,21 @@ async def select_shop_callback(update: Update, context: CallbackContext) -> int 
 async def ask_contractor(update: Update, context: CallbackContext) -> int:
     contractors = await api_client.get_all_contractors()
     if not contractors:
-        await update.effective_message.reply_text("Не удалось загрузить список подрядчиков.")
+        msg = await update.effective_message.reply_text("Не удалось загрузить список подрядчиков.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return ConversationHandler.END
 
     context.user_data['contractors'] = contractors
     keyboard = create_paginated_keyboard(context.user_data['contractors'], 0, 'contractor', 'login', 'userID')
-    await context.bot.send_message(update.effective_chat.id, "<b>Шаг 2/5:</b> Выберите подрядчика:",
-                                   reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    sent_msg = await context.bot.send_message(update.effective_chat.id, "<b>Шаг 2/5:</b> Выберите подрядчика:",
+                                              reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    set_menu_owner(context, sent_msg.message_id, update.effective_user.id)
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_msg.message_id], 300))
     return CREATE_SELECT_CONTRACTOR
 
 
 async def select_contractor_callback(update: Update, context: CallbackContext) -> int | None:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     await safe_answer_query(query)
 
@@ -1447,18 +1510,22 @@ async def select_contractor_callback(update: Update, context: CallbackContext) -
 async def ask_work_category(update: Update, context: CallbackContext) -> int:
     work_cats_response = await api_client.get_all_work_categories()
     if not work_cats_response or not work_cats_response.get('content'):
-        await update.effective_message.reply_text("Не удалось загрузить виды работ.")
+        msg = await update.effective_message.reply_text("Не удалось загрузить виды работ.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return ConversationHandler.END
 
     context.user_data['work_categories'] = work_cats_response['content']
     keyboard = create_paginated_keyboard(context.user_data['work_categories'], 0, 'work', 'workCategoryName',
                                          'workCategoryID')
-    await context.bot.send_message(update.effective_chat.id, "<b>Шаг 3/5:</b> Выберите вид работ:",
-                                   reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    sent_msg = await context.bot.send_message(update.effective_chat.id, "<b>Шаг 3/5:</b> Выберите вид работ:",
+                                              reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    set_menu_owner(context, sent_msg.message_id, update.effective_user.id)
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_msg.message_id], 300))
     return CREATE_SELECT_WORK_CATEGORY
 
 
 async def select_work_category_callback(update: Update, context: CallbackContext) -> int | None:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     await safe_answer_query(query)
 
@@ -1486,7 +1553,8 @@ async def ask_urgency(update: Update, context: CallbackContext) -> int:
     urgencies = await api_client.get_all_urgency_categories()
 
     if not isinstance(urgencies, list):
-        await update.effective_message.reply_text("❌ Не удалось загрузить категории срочности.")
+        msg = await update.effective_message.reply_text("❌ Не удалось загрузить категории срочности.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return ConversationHandler.END
 
     for u in urgencies:
@@ -1495,15 +1563,18 @@ async def ask_urgency(update: Update, context: CallbackContext) -> int:
     context.user_data['urgencies'] = urgencies
     keyboard = create_paginated_keyboard(context.user_data['urgencies'], 0, 'urgency', 'urgencyName', 'urgencyID')
 
-    await context.bot.send_message(
+    sent_msg = await context.bot.send_message(
         update.effective_chat.id,
         "<b>Шаг 4/5:</b> Выберите срочность:",
         reply_markup=keyboard,
         parse_mode=ParseMode.HTML
     )
+    set_menu_owner(context, sent_msg.message_id, update.effective_user.id)
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_msg.message_id], 300))
     return CREATE_SELECT_URGENCY
 
 async def select_urgency_callback(update: Update, context: CallbackContext) -> int | None:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     await safe_answer_query(query)
 
@@ -1525,11 +1596,12 @@ async def select_urgency_callback(update: Update, context: CallbackContext) -> i
 
         await query.edit_message_text(f"Выбрана срочность: <b>{urgency['urgencyName']}</b>", parse_mode=ParseMode.HTML)
 
-        await context.bot.send_message(
+        msg = await context.bot.send_message(
             update.effective_chat.id,
             "<b>Шаг 5/5:</b> Теперь введите подробное описание заявки.",
             parse_mode=ParseMode.HTML
         )
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 300))
 
         return CREATE_ENTER_DESCRIPTION
     return None
@@ -1540,9 +1612,10 @@ async def description_handler(update: Update, context: CallbackContext) -> int:
     context.user_data['request_data']['description'] = description
 
     if context.user_data.get('is_customizable'):
-        await update.message.reply_text(
+        msg = await update.message.reply_text(
             "Срочность 'Настраиваемая'. Введите количество дней на выполнение (например, 10)."
         )
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 300))
         return CREATE_ENTER_CUSTOM_DAYS
     else:
         return await submit_request(update, context)
@@ -1551,7 +1624,8 @@ async def description_handler(update: Update, context: CallbackContext) -> int:
 async def custom_days_handler(update: Update, context: CallbackContext) -> int:
     days = update.message.text
     if not days.isdigit() or not 1 <= int(days) <= 365:
-        await update.message.reply_text("❌ Неверное значение. Введите число от 1 до 365.")
+        msg = await update.message.reply_text("❌ Неверное значение. Введите число от 1 до 365.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return CREATE_ENTER_CUSTOM_DAYS
 
     context.user_data['request_data']['customDays'] = int(days)
@@ -1567,11 +1641,12 @@ async def chat_id_command(update: Update, context: CallbackContext):
         f"🆔 **ID Чата:** `{chat_id}`\n\n"
         f"Используйте этот ID при настройке связей в админ-панели."
     )
-    await update.message.reply_text(message_text, parse_mode=ParseMode.MARKDOWN)
+    msg = await update.message.reply_text(message_text, parse_mode=ParseMode.MARKDOWN)
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 60))
 
 
 async def submit_request(update: Update, context: CallbackContext) -> int:
-    await update.effective_message.reply_text("Отправляю данные на сервер...")
+    loading_msg = await update.effective_message.reply_text("Отправляю данные на сервер...")
 
     payload = {
         "description": context.user_data['request_data']['description'],
@@ -1586,11 +1661,18 @@ async def submit_request(update: Update, context: CallbackContext) -> int:
 
     response = await api_client.create_request(payload)
 
+    try:
+        await loading_msg.delete()
+    except:
+        pass
+
     if response and response.get('requestID'):
-        await update.effective_message.reply_text(f"✅ Заявка успешно создана! ID новой заявки: {response['requestID']}")
+        msg = await update.effective_message.reply_text(f"✅ Заявка успешно создана! ID новой заявки: {response['requestID']}")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 60))
     else:
-        await update.effective_message.reply_text(
+        msg = await update.effective_message.reply_text(
             "❌ Не удалось создать заявку. Попробуйте снова или обратитесь к администратору.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -1613,9 +1695,10 @@ async def start_command(update: Update, context: CallbackContext):
     EDITOR_SELECT_URGENCY,
     EDITOR_INPUT_TEXT,
     EDITOR_SELECT_STATUS,
+    EDITOR_ADD_PHOTO,
     DELETE_COMMENT_SELECT,
     DELETE_PHOTO_SELECT
-) = range(20, 29)
+) = range(20, 30)
 
 
 URGENCY_TRANSLATIONS = {
@@ -1652,6 +1735,11 @@ def _get_editor_keyboard(draft: dict, is_new: bool, role: str) -> InlineKeyboard
     buttons.append([InlineKeyboardButton(f"{urg_ico} Срочность", callback_data="edit_field_urgency")])
     buttons.append([InlineKeyboardButton(f"{desc_ico} Описание", callback_data="edit_field_desc")])
 
+    temp_photos = draft.get('temp_photos', [])
+    photo_count = len(temp_photos)
+    photo_label = f"📷 Фото ({photo_count})" if photo_count > 0 else "📷 Прикрепить фото"
+    buttons.append([InlineKeyboardButton(photo_label, callback_data="edit_field_photo")])
+
     if not is_new:
         status_label = draft.get('status', 'In work')
         buttons.append([InlineKeyboardButton(f"Статус: {status_label}", callback_data="edit_field_status")])
@@ -1680,7 +1768,6 @@ async def render_editor_menu(update: Update, context: Context):
 
     text = f"🛠 <b>{'СОЗДАНИЕ' if is_new else 'РЕДАКТИРОВАНИЕ'} ЗАЯВКИ</b>\n\n"
 
-    # Используем html.escape вместо escape_markdown для HTML-парсмода
     shop_name = html.escape(draft.get('shopName', '--- Не выбрано ---'))
     contr_name = html.escape(draft.get('contractorName', '--- Не выбрано ---'))
     work_name = html.escape(draft.get('workCategoryName', '--- Не выбрано ---'))
@@ -1698,7 +1785,6 @@ async def render_editor_menu(update: Update, context: Context):
     text += f"👷 <b>Исполнитель:</b> {contr_name}\n"
     text += f"📋 <b>Вид работ:</b> {work_name}\n"
     text += f"🔥 <b>Срочность:</b> {urg_name}\n"
-    # Экранируем описание только после обрезки
     short_desc = html.escape(desc[:100])
     text += f"📝 <b>Описание:</b>\n<i>{short_desc}{'...' if len(desc) > 100 else ''}</i>\n"
 
@@ -1711,10 +1797,10 @@ async def render_editor_menu(update: Update, context: Context):
         if update.callback_query:
             await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
         else:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard,
-                                           parse_mode=ParseMode.HTML)
+            sent_msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            set_menu_owner(context, sent_msg.message_id, update.effective_user.id)
+            asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [sent_msg.message_id], 300))
     except BadRequest as e:
-        # Теперь мы увидим ошибку в логах, если она возникнет
         logger.error(f"Ошибка отрисовки меню редактора: {e}")
         if update.callback_query:
             await update.callback_query.answer("⚠️ Ошибка отображения меню", show_alert=True)
@@ -1726,33 +1812,39 @@ async def start_create_request(update: Update, context: Context) -> int:
     if not check_rate_limit(update.effective_user.id):
         return ConversationHandler.END
 
+    # 1. Сначала удаляем сообщение "➕ Новая заявка", чтобы не мусорить
+    if update.message:
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
     user_id = update.effective_user.id
     chat = update.effective_chat
 
+    # 2. Проверяем права
     user_data = await api_client.get_user_by_telegram_id(user_id)
     if not user_data or user_data.get("roleName") != "RetailAdmin":
-        await update.message.reply_text("❌ Только администратор может создавать заявки.")
+        msg = await context.bot.send_message(chat_id=chat.id, text="❌ Только администратор может создавать заявки.")
+        asyncio.create_task(delayed_delete_messages(context, chat.id, [msg.message_id], 15))
         return ConversationHandler.END
 
+    # 3. Подготавливаем черновик
     draft = {
         'createdByUserID': user_data['userID'],
         'status': 'In work'
     }
 
+    # Если мы в группе, привязываем магазин автоматически
     if chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
         chat_info = await api_client.get_chat_info_by_telegram_id(chat.id)
-
-        if not chat_info or (isinstance(chat_info, dict) and "error_message" in chat_info):
-            await update.message.reply_text("❌ Этот чат не зарегистрирован в системе...")
-            return ConversationHandler.END
-
-        if chat_info.get('shopID'):
-            draft['shopID'] = chat_info['shopID']
-            draft['shopName'] = chat_info['shopName']
-
-        if chat_info.get('contractorID'):
-            draft['assignedContractorID'] = chat_info['contractorID']
-            draft['contractorName'] = chat_info['contractorLogin']
+        if chat_info and not ("error_message" in chat_info):
+            if chat_info.get('shopID'):
+                draft['shopID'] = chat_info['shopID']
+                draft['shopName'] = chat_info['shopName']
+            if chat_info.get('contractorID'):
+                draft['assignedContractorID'] = chat_info['contractorID']
+                draft['contractorName'] = chat_info['contractorLogin']
 
     context.user_data['user_info'] = user_data
     context.user_data['editor_is_new'] = True
@@ -1760,6 +1852,7 @@ async def start_create_request(update: Update, context: Context) -> int:
 
     await _preload_dictionaries(context)
 
+    # 4. Вызываем меню (обязательно через return)
     return await render_editor_menu(update, context)
 
 
@@ -1836,6 +1929,7 @@ async def _preload_dictionaries(context: Context):
 
 
 async def editor_main_callback(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     if not check_rate_limit(update.effective_user.id):
         await query.answer("⚠️ Подождите...", show_alert=False); return EDITOR_MAIN_MENU
@@ -1856,6 +1950,16 @@ async def editor_main_callback(update: Update, context: Context) -> int:
         new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="eshop_back")])
         await query.edit_message_text("Выберите магазин:", reply_markup=InlineKeyboardMarkup(new_rows))
         return EDITOR_SELECT_SHOP
+
+    elif data == "edit_field_photo":
+        await query.edit_message_text(
+            "📷 <b>Отправка фотографий</b>\n\n"
+            "Пришлите одну или несколько фотографий для заявки.\n"
+            "Когда закончите, нажмите кнопку «Готово».",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Готово", callback_data="ephoto_back")]]),
+            parse_mode=ParseMode.HTML
+        )
+        return EDITOR_ADD_PHOTO
 
     elif data == "edit_field_contractor":
         items = context.user_data.get('dict_contractors', [])
@@ -1907,9 +2011,38 @@ async def editor_main_callback(update: Update, context: Context) -> int:
     return EDITOR_MAIN_MENU
 
 
+async def editor_photo_handler(update: Update, context: Context) -> int:
+    draft = context.user_data.get('editor_draft')
+    if 'temp_photos' not in draft:
+        draft['temp_photos'] = []
+
+    photo_bytes = None
+    if update.message.photo:
+        photo = update.message.photo[-1]
+        photo_file = await context.bot.get_file(photo.file_id)
+        photo_bytes = await photo_file.download_as_bytearray()
+    
+    if photo_bytes:
+        draft['temp_photos'].append(photo_bytes)
+        
+    try:
+        await update.message.delete()
+    except:
+        pass
+    
+    return EDITOR_ADD_PHOTO
+
+
+async def editor_photo_back(update: Update, context: Context) -> int:
+    query = update.callback_query
+    await query.answer()
+    return await render_editor_menu(update, context)
+
+
 async def _handle_selection(update: Update, context: Context,
                             prefix: str, list_key: str, id_key: str, name_key: str,
                             draft_id_key: str, draft_name_key: str, next_state: int):
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     await safe_answer_query(query)
     data = query.data
@@ -1971,6 +2104,7 @@ async def editor_select_urgency(update: Update, context: Context) -> int:
 
 
 async def editor_select_status(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
     await safe_answer_query(query)
     data = query.data
@@ -2008,6 +2142,7 @@ async def editor_input_text(update: Update, context: Context) -> int:
             return await render_editor_menu(update, context)
         else:
             msg = await update.message.reply_text("❌ Введите число от 1 до 365.")
+            asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
             return EDITOR_INPUT_TEXT
     else:
         context.user_data['editor_draft']['description'] = text
@@ -2015,12 +2150,13 @@ async def editor_input_text(update: Update, context: Context) -> int:
 
 
 async def _submit_editor_data(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
     query = update.callback_query
-    # Важно: даем пользователю фидбек сразу
     await query.answer("⏳ Сохранение...")
 
     draft = context.user_data.get('editor_draft', {})
     is_new = context.user_data.get('editor_is_new', True)
+    temp_photos = draft.get('temp_photos', []) # Забираем фото
 
     await query.edit_message_text("⏳ Отправка данных на сервер...", reply_markup=None)
 
@@ -2042,51 +2178,35 @@ async def _submit_editor_data(update: Update, context: Context) -> int:
         request_id = draft.get('requestID')
         response = await api_client.update_request(request_id, payload)
 
-    # ИСПРАВЛЕННАЯ ПРОВЕРКА: успех может быть словарем (Create) или True (Update)
-    is_success = False
-    error_detail = "Неизвестная ошибка"
+    # Определяем ID созданной/обновленной заявки
+    request_id = None
+    if isinstance(response, dict) and "requestID" in response:
+        request_id = response["requestID"]
+    elif response is True and not is_new:
+        request_id = draft.get('requestID')
 
-    if isinstance(response, dict):
-        if "error_message" in response:
-            error_detail = response["error_message"]
-        else:
-            is_success = True
-    elif response is True:
-        is_success = True
+    if request_id:
+        # ЗАГРУЗКА ФОТО, если они были прикреплены
+        if temp_photos:
+            await query.edit_message_text(f"✅ Заявка #{request_id} сохранена. Загружаю фото...")
+            await api_client.upload_photos(request_id, update.effective_user.id, temp_photos)
 
-    if is_success:
-        req_id = response.get('requestID') if isinstance(response, dict) else draft.get('requestID')
-        success_text = f"✅ Заявка #{req_id} успешно {'создана' if is_new else 'обновлена'}!"
+        success_text = f"✅ Заявка #{request_id} успешно {'создана' if is_new else 'обновлена'}!"
+        
+        try: await query.delete_message()
+        except: pass
 
-        # Удаляем меню редактора
-        try:
-            await query.delete_message()
-        except:
-            pass
-
-        # Отправляем сообщение об успехе НОВЫМ сообщением
         success_msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=success_text)
-
-        # Сбрасываем кэш, чтобы список заявок обновился
         context.user_data.pop('requests_cache', None)
-        context.user_data.pop('requests_cache_key', None)
-
-        # Подготавливаем контекст для возврата в главное меню
-        if 'view_filters' not in context.user_data:
-            context.user_data['view_filters'] = {'archived': False, 'page': 0, 'sort': ['requestID,asc']}
-
-        # Удаляем ID старого сообщения, чтобы бот прислал меню отдельным сообщением
-        context.user_data.pop('main_message_id', None)
-
-        # Удаляем сообщение об успехе через 5 секунд
+        context.user_data.pop('editor_draft', None)
+        
         asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [success_msg.message_id], 5))
-
         return ConversationHandler.END
     else:
-        # Если произошла ошибка, возвращаемся в меню
+        error_detail = response.get("error_message", "Ошибка сервера") if isinstance(response, dict) else "Неизвестная ошибка"
         await query.answer(f"❌ Ошибка: {error_detail}", show_alert=True)
         return await render_editor_menu(update, context)
-
+        
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [

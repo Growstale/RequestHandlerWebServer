@@ -24,7 +24,6 @@ const allLinks = [
   { href: '/urgency-categories', label: 'Сроки заявок', icon: CalendarClock, roles: ['RetailAdmin'] },
   { href: '/logs', label: 'Логи', icon: FileText, roles: ['RetailAdmin'] },
   { href: '/audit', label: 'Аудит', icon: Shield, roles: ['RetailAdmin'] },
-  { href: '/testing', label: 'Тестирование', icon: Wrench, roles: ['RetailAdmin'] },
 ];
 
 export default function Sidebar({ open, onClose }) {
