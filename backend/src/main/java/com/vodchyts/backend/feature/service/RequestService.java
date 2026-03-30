@@ -615,25 +615,32 @@ public class RequestService {
                                         Mono<Void> tgMono;
                                         if (dto.parentCommentID() != null) {
                                             tgMono = commentRepository.findById(dto.parentCommentID())
-                                                    .flatMap(parentComment -> {
-                                                        String parentText = parentComment.getCommentText();
-                                                        String parentSnippet = parentText.length() > 50 ? parentText.substring(0, 47) + "..." : parentText;
-                                                        String msg = String.format(
-                                                                "%s↩️ *ОТВЕТ в заявке \\#%d*\n_\"%s\"_\n\n💬 _На: \"%s\"_\n👤 *От:* %s\n\n%s",
-                                                                mention, requestId, shortReqDesc,
-                                                                notificationService.escapeMarkdown(parentSnippet), author, safeText);
-                                                        return chatRepository.findTelegramIdByRequestId(requestId)
-                                                                .flatMap(chatId -> notificationService.sendCommentNotification(
-                                                                        chatId,
-                                                                        msg,
-                                                                        requestId,
-                                                                        null
-                                                                ));
-                                                    });
+                                                    .flatMap(parentComment -> userRepository.findById(parentComment.getUserID())
+                                                            .map(User::getLogin)
+                                                            .defaultIfEmpty("Неизвестный пользователь")
+                                                            .flatMap(parentLogin -> {
+                                                                String parentText = parentComment.getCommentText();
+                                                                String parentAuthor = notificationService.escapeMarkdown(parentLogin);
+
+                                                                String msg = String.format(
+                                                                        "%s↩️ *Ответ на комментарий в заявке \\#%d*\n_\"%s\"_\n\n*Комментарий:* %s\n*От:* %s\n\n*Ответ:* %s\n*От:* %s",
+                                                                        mention, requestId, shortReqDesc,
+                                                                        notificationService.escapeMarkdown(parentText), parentAuthor,
+                                                                        safeText, author);
+
+                                                                return chatRepository.findTelegramIdByRequestId(requestId)
+                                                                        .flatMap(chatId -> notificationService.sendCommentNotification(
+                                                                                chatId,
+                                                                                msg,
+                                                                                requestId,
+                                                                                null
+                                                                        ));
+                                                            })
+                                                    );
                                         } else {
                                             String msg = String.format(
-                                                    "%s💬 *Новый комментарий к заявке \\#%d*\n_\"%s\"_\n👤 *От:* %s\n\n%s",
-                                                    mention, requestId, shortReqDesc, author, safeText);
+                                                    "%s💬 *Новый комментарий к заявке \\#%d*\n_\"%s\"_\n\n*Комментарий:* %s\n*От:* %s",
+                                                    mention, requestId, shortReqDesc, safeText, author);
                                             tgMono = chatRepository.findTelegramIdByRequestId(requestId)
                                                     .flatMap(chatId -> notificationService.sendCommentNotification(chatId, msg, requestId, savedComment.getCommentID()));
                                         }

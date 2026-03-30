@@ -51,7 +51,7 @@ IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ShopContractorChats' AND xty
 BEGIN
 CREATE TABLE dbo.ShopContractorChats(
                                         ShopContractorChatID INT IDENTITY(1,1) NOT NULL,
-                                        ShopID INT NOT NULL,
+                                        ShopID INT NULL,
                                         ContractorID INT NULL,
                                         TelegramID BIGINT NOT NULL,
                                         CONSTRAINT PK_ShopContractorChats PRIMARY KEY (ShopContractorChatID),

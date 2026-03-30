@@ -71,7 +71,7 @@ async def http_notify_comment_handler(request):
 
         if comment_id:
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("↩️ Ответить", callback_data=f"act_add_comment_{req_id}_{comment_id}")]
+                [InlineKeyboardButton("↩️ Ответить", callback_data=f"act_notify_reply_{req_id}_{comment_id}")]
             ])
 
         await bot_app.bot.send_message(

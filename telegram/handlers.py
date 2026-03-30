@@ -834,17 +834,22 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
     if data.startswith('start_del_img_'): return await start_delete_photo_handler(update, context)
 
     if data.startswith('act_'):
-        if "add_comment" in data:
-            req_id = int(parts[3])
-            parent_id = int(parts[4]) if len(parts) > 4 else None
+        if "add_comment" in data or "notify_reply" in data:
+            if "notify_reply" in data:
+                req_id = int(parts[3])
+                parent_id = int(parts[4])
+            else:
+                req_id = int(parts[3])
+                parent_id = int(parts[4]) if len(parts) > 4 else None
 
             context.user_data['current_request_id'] = req_id
             context.user_data['parent_comment_id'] = parent_id
 
-            try:
-                await query.delete_message()
-            except:
-                pass
+            if "notify_reply" not in data:
+                try:
+                    await query.delete_message()
+                except:
+                    pass
 
             text = "💬 Введите текст вашего ответа:" if parent_id else "💬 Введите текст комментария:"
             prompt_msg = await context.bot.send_message(
