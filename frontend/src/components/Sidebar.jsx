@@ -13,8 +13,8 @@ import NotificationBell from './NotificationBell';
 
 const allLinks = [
   { href: '/dashboard', label: 'Дашборд', icon: LayoutDashboard, roles: ['RetailAdmin'] },
-  { href: '/requests', label: 'Заявки', icon: Briefcase, roles: ['RetailAdmin', 'StoreManager', 'Contractor'] },
-  { href: '/requests/archive', label: 'Архив заявок', icon: Archive, roles: ['RetailAdmin', 'StoreManager', 'Contractor'] },
+  { href: '/requests', label: 'Заявки', icon: Briefcase, roles: ['RetailAdmin', 'StoreManager', 'Contractor', 'Moderator'] },
+  { href: '/requests/archive', label: 'Архив заявок', icon: Archive, roles: ['RetailAdmin', 'StoreManager', 'Contractor', 'Moderator'] },
   { href: '/users', label: 'Пользователи', icon: UsersIcon, roles: ['RetailAdmin'] },
   { href: '/shops', label: 'Магазины', icon: ShopsIcon, roles: ['RetailAdmin'] },
   { href: '/shop-contractor-chats', label: 'Чаты', icon: MessageSquare, roles: ['RetailAdmin'] },

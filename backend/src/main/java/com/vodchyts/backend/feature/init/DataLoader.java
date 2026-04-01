@@ -46,6 +46,7 @@ public class DataLoader implements CommandLineRunner {
                 createRoleIfNotExists("Contractor"),
                 createRoleIfNotExists("StoreManager"),
                 createRoleIfNotExists("RetailAdmin"),
+                createRoleIfNotExists("Moderator"),
                 createUrgencyCategoryIfNotExists("Emergency", 2),
                 createUrgencyCategoryIfNotExists("Urgent", 3),
                 createUrgencyCategoryIfNotExists("Planned", 14),

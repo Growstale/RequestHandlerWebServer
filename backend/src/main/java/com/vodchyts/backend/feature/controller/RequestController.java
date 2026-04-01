@@ -56,7 +56,7 @@ public class RequestController {
 
 
     @PostMapping
-    @PreAuthorize("hasRole('RetailAdmin')")
+    @PreAuthorize("hasAnyRole('RetailAdmin', 'Moderator')")
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<RequestResponse> createRequest(@Valid @RequestBody Mono<CreateRequestRequest> requestDto, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
         return userService.findByLogin(username)
@@ -70,7 +70,7 @@ public class RequestController {
 
 
     @PutMapping("/{requestId}")
-    @PreAuthorize("hasRole('RetailAdmin')")
+    @PreAuthorize("hasAnyRole('RetailAdmin', 'Moderator')")
     public Mono<RequestResponse> updateRequest(@PathVariable Integer requestId, @Valid @RequestBody Mono<UpdateRequestRequest> requestDto, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
         return userService.findByLogin(username).flatMap(user ->
                 requestDto.flatMap(dto ->
@@ -112,7 +112,7 @@ public class RequestController {
     }
 
     @PostMapping("/{requestId}/comments")
-    @PreAuthorize("hasAnyRole('RetailAdmin', 'Contractor')")
+    @PreAuthorize("hasAnyRole('RetailAdmin', 'Contractor', 'Moderator')")
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<CommentResponse> addComment(@PathVariable Integer requestId, @Valid @RequestBody Mono<CreateCommentRequest> commentDto, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
         return userService.findByLogin(username)
@@ -132,7 +132,7 @@ public class RequestController {
     }
 
     @PostMapping(value = "/{requestId}/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('RetailAdmin', 'Contractor')")
+    @PreAuthorize("hasAnyRole('RetailAdmin', 'Contractor', 'Moderator')")
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<Void> uploadPhotos(@PathVariable Integer requestId,
                                    @RequestPart("files") Flux<FilePart> filePartFlux,
@@ -184,7 +184,7 @@ public class RequestController {
     }
 
     @PutMapping("/{requestId}/restore")
-    @PreAuthorize("hasRole('RetailAdmin')")
+    @PreAuthorize("hasAnyRole('RetailAdmin', 'Moderator')")
     public Mono<RequestResponse> restoreRequest(@PathVariable Integer requestId, @RequestBody(required = false) Mono<Void> body, @AuthenticationPrincipal String username, ServerWebExchange exchange) {
         return userService.findByLogin(username).flatMap(user ->
                 requestService.getRequestById(requestId)
@@ -198,7 +198,7 @@ public class RequestController {
     }
 
     @DeleteMapping("/comments/{commentId}")
-    @PreAuthorize("hasRole('RetailAdmin')")
+    @PreAuthorize("hasAnyRole('RetailAdmin', 'Moderator')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> deleteComment(@PathVariable Integer commentId, ServerWebExchange exchange) {
         return requestService.deleteComment(commentId)

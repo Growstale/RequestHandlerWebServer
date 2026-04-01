@@ -467,6 +467,10 @@ public class RequestService {
                         changes.add("📝 *Новое описание:* " + notificationService.escapeMarkdown(dto.description()));
                     }
 
+                    if (!Objects.equals(request.getUrgencyID(), dto.urgencyID())) {
+                        request.setCreatedAt(LocalDateTime.now());
+                    }
+
                     request.setDescription(dto.description());
                     request.setShopID(dto.shopID());
                     request.setWorkCategoryID(dto.workCategoryID());
@@ -794,7 +798,7 @@ public class RequestService {
     private Mono<Boolean> canUserModify(Request request, User user) {
         return roleRepository.findById(user.getRoleID()).flatMap(role -> {
             String roleName = role.getRoleName();
-            if ("RetailAdmin".equals(roleName)) {
+            if ("RetailAdmin".equals(roleName) || "Moderator".equals(roleName)) {
                 return Mono.just(true);
             }
             if ("Contractor".equals(roleName) && Objects.equals(user.getUserID(), request.getAssignedContractorID())) {
@@ -812,6 +816,7 @@ public class RequestService {
                         return Mono.error(new OperationNotAllowedException("Можно восстановить только закрытую заявку."));
                     }
 
+                    request.setCreatedAt(LocalDateTime.now());
                     request.setStatus("In work");
                     request.setClosedAt(null);
 
@@ -828,20 +833,7 @@ public class RequestService {
                                         ? customDay.getDays()
                                         : urgency.getDefaultDays();
 
-                                boolean isOverdue = false;
-                                long tempDaysOverdue = 0;
-
-                                if (daysForTask != null) {
-                                    LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
-                                    isOverdue = LocalDateTime.now().isAfter(deadline);
-                                    if (isOverdue) {
-                                        tempDaysOverdue = Duration.between(deadline, LocalDateTime.now()).toDays();
-                                        tempDaysOverdue = Math.max(1, tempDaysOverdue);
-                                    }
-                                }
-
-                                request.setIsOverdue(isOverdue);
-                                final long finalDaysOverdue = tempDaysOverdue;
+                                request.setIsOverdue(false);
 
                                 Mono<String> mentionMono = request.getAssignedContractorID() != null ?
                                         userRepository.findById(request.getAssignedContractorID())
@@ -857,11 +849,6 @@ public class RequestService {
                                     msgBuilder.append(mention);
                                     msgBuilder.append("🔄 *ЗАЯВКА \\#").append(requestId).append(" ВОССТАНОВЛЕНА*\n\n");
                                     msgBuilder.append("Статус: *Закрыта* ➡️ *В работе*");
-
-                                    if (request.getIsOverdue()) {
-                                        msgBuilder.append("\n\n⚠️ *Обратите внимание:* Заявка просрочена на *")
-                                                .append(finalDaysOverdue).append(" дн\\.*");
-                                    }
 
                                     String rawDesc = request.getDescription() != null ? request.getDescription() : "";
                                     String safeDesc = notificationService.escapeMarkdown(getSafeShortDesc(rawDesc));

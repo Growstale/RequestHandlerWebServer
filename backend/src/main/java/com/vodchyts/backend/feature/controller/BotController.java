@@ -83,7 +83,7 @@ public class BotController {
                             boolean isPrivateChat = (chat_id == null || chat_id.equals(telegram_id));
 
                             if (isPrivateChat) {
-                                if ("RetailAdmin".equals(roleName)) {
+                                if ("RetailAdmin".equals(roleName) || "Moderator".equals(roleName)) {
                                     return requestService.getAllRequests(archived, searchTerm, null, null, null, null, null, null, null, null, sortParams, page, size, user.getLogin());
                                 } else if ("Contractor".equals(roleName)) {
                                     return requestService.getAllRequests(archived, searchTerm, null, null, null, user.getUserID(), null, null, null, null, sortParams, page, size, user.getLogin());

@@ -30,8 +30,9 @@ public class WebNotificationService {
     }
 
     public Mono<Void> send(Integer targetRequestID, String title, String message, Integer assignedContractorID, Integer excludeUserID) {
-        return roleRepository.findByRoleName("RetailAdmin")
-                .flatMapMany(adminRole -> userRepository.findAllByRoleID(adminRole.getRoleID()))
+        return roleRepository.findAll()
+                .filter(r -> r.getRoleName().equals("RetailAdmin") || r.getRoleName().equals("Moderator"))
+                .flatMap(role -> userRepository.findAllByRoleID(role.getRoleID()))
                 .map(User::getUserID)
                 .collectList()
                 .flatMap(adminIds -> {

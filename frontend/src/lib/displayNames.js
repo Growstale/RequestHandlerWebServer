@@ -2,6 +2,7 @@ export const roleDisplayNames = {
   RetailAdmin: 'Администратор',
   StoreManager: 'Менеджер магазина',
   Contractor: 'Подрядчик',
+  Moderator: 'Модератор',
 }
 
 export const getRoleDisplayName = (roleName) => {

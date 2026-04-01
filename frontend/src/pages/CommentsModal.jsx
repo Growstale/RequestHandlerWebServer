@@ -19,9 +19,11 @@ export default function CommentsModal({ isOpen, onClose, request }) {
     const [apiError, setApiError] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const isAdmin = user?.role === 'RetailAdmin';
+    const isAdmin = user?.role === 'RetailAdmin' || user?.role === 'Moderator';
     const isClosed = request?.status === 'Closed';
-    const canAddContent = !isClosed && user?.role !== 'StoreManager';
+    const isModerator = user?.role === 'Moderator';
+
+    const canAddContent = !isClosed && (isAdmin || isModerator || user?.role === 'Contractor');
 
     const loadComments = () => {
         if (request?.requestID && isOpen) {

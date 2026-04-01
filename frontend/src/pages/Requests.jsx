@@ -33,9 +33,11 @@ const filterKeys =['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contr
 export default function Requests({ archived = false }) {
     const { user, accessToken } = useAuth();
     const isAdmin = user?.role === 'RetailAdmin';
+    const isModerator = user?.role === 'Moderator';
     const isContractor = user?.role === 'Contractor';
     const isStoreManager = user?.role === 'StoreManager';
     const [viewMode, setViewMode] = useState('byShop'); 
+    const canCreate = isAdmin || isModerator;    
 
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -446,7 +448,7 @@ export default function Requests({ archived = false }) {
                     )}
 
 
-                    {isAdmin && !archived && (
+                    {canCreate  && !archived && (
                         <>
                             <Button onClick={openCreateForm}>
                                 <PlusCircle className="mr-2 h-4 w-4" /> Создать заявку
@@ -675,18 +677,18 @@ export default function Requests({ archived = false }) {
                                                 </Button>
                                             )}
 
-                                            {isAdmin && req.status !== 'Closed' && (
+                                            {(isAdmin || isModerator) && req.status !== 'Closed' && (
                                                 <Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openEditForm(req)} title="Редактировать"><Edit className="h-4 w-4" /></Button>
                                             )}
 
-                                            {isAdmin && archived && req.status === 'Closed' && (
+                                            {(isAdmin || isModerator) && archived && req.status === 'Closed' && (
                                                 <Button 
                                                     variant="outline" 
                                                     size="icon" 
                                                     className="px-2 hover:text-indigo-700" 
                                                     onClick={() => { 
-                                                        setTargetRequestId(req.requestID); // Устанавливаем ID для восстановления
-                                                        setIsRestoreAlertOpen(true);       // Открываем модалку
+                                                        setTargetRequestId(req.requestID);
+                                                        setIsRestoreAlertOpen(true);
                                                     }} 
                                                     title="Восстановить"
                                                 >
@@ -783,8 +785,8 @@ export default function Requests({ archived = false }) {
                                                                         Завершить
                                                                     </Button>
                                                                 )}
-                                                                {isAdmin && req.status !== 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openEditForm(req)}><Edit className="h-4 w-4" /></Button>)}
-                                                                {isAdmin && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => {setTargetRequestId(req.requestID); setIsRestoreAlertOpen(true);}}><RotateCcw className="h-4 w-4" /></Button>)}
+                                                                {(isAdmin || isModerator) && req.status !== 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openEditForm(req)}><Edit className="h-4 w-4" /></Button>)}
+                                                                {(isAdmin || isModerator) && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => {setTargetRequestId(req.requestID); setIsRestoreAlertOpen(true);}}><RotateCcw className="h-4 w-4" /></Button>)}
                                                                 {isAdmin && (<Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)}><Trash2 className="h-4 w-4" /></Button>)}
                                                             </div>
                                                         </TableCell>

@@ -998,9 +998,9 @@ async def confirm_delete_comment_handler(update: Update, context: Context) -> in
     if not check_rate_limit(update.effective_user.id): return DELETE_COMMENT_SELECT
     await safe_answer_query(query)
 
-    _, _, _, comment_id, request_id = query.data.split('_')
-    comment_id = int(comment_id)
-    request_id = int(request_id)
+    parts = query.data.split('_')
+    comment_id = int(parts[3])
+    request_id = int(parts[4])
 
     all_comments = await api_client.get_comments(request_id)
 
@@ -1008,6 +1008,14 @@ async def confirm_delete_comment_handler(update: Update, context: Context) -> in
     for c in all_comments:
         if c['commentID'] == comment_id:
             target_comment = c
+            break
+
+        for r in c.get('replies', []):
+            if r['commentID'] == comment_id:
+                target_comment = r
+                break
+
+        if target_comment:
             break
 
     if not target_comment:
@@ -1032,7 +1040,7 @@ async def confirm_delete_comment_handler(update: Update, context: Context) -> in
         return DELETE_COMMENT_SELECT
 
     await api_client.delete_comment(comment_id)
-    await query.answer("✅ Комментарий и ответы удалены")
+    await query.answer("✅ Удалено")
 
     await show_comments(query, context, request_id)
     return VIEW_DETAILS
@@ -1829,8 +1837,8 @@ async def start_create_request(update: Update, context: Context) -> int:
 
     # 2. Проверяем права
     user_data = await api_client.get_user_by_telegram_id(user_id)
-    if not user_data or user_data.get("roleName") != "RetailAdmin":
-        msg = await context.bot.send_message(chat_id=chat.id, text="❌ Только администратор может создавать заявки.")
+    if not user_data or user_data.get("roleName") not in ["RetailAdmin", "Moderator"]:
+        msg = await context.bot.send_message(chat_id=chat.id, text="❌ У вас нет прав для создания заявок.")
         asyncio.create_task(delayed_delete_messages(context, chat.id, [msg.message_id], 15))
         return ConversationHandler.END
 

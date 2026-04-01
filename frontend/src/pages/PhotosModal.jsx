@@ -23,8 +23,8 @@ export default function PhotosModal({ isOpen, onClose, request }) {
     const fileInputRef = useRef(null);
     const { user } = useAuth();
 
-    const canUpload = !isClosed && (user?.role === 'RetailAdmin' || user?.role === 'Contractor');
-    const canDelete = !isClosed && user?.role === 'RetailAdmin';
+    const canUpload = !isClosed && (user?.role === 'RetailAdmin' || user?.role === 'Contractor' || user?.role === 'Moderator');
+    const canDelete = !isClosed && (user?.role === 'RetailAdmin' || user?.role === 'Moderator');
 
     const loadPhotoIds = () => {
         if (request?.requestID) {
