@@ -10,4 +10,5 @@ import reactor.core.publisher.Flux;
 public interface ReactiveShopRepository extends ReactiveCrudRepository<Shop, Integer> {
     Mono<Shop> findByShopName(String shopName);
     Flux<Shop> findAllByUserID(Integer userId);
+    Mono<Boolean> existsByUserID(Integer userId);
 }

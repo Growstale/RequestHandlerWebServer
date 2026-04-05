@@ -162,7 +162,7 @@ const handlePaste = useCallback((e) => {
     return (
         <>
             <Dialog open={isOpen} onOpenChange={onClose}>
-                <DialogContent className="max-w-4xl w-full">
+                <DialogContent className="max-w-4xl w-[95vw] sm:w-full max-h-[95vh] md:max-h-[90vh] overflow-y-auto p-4 sm:p-6 rounded-xl">
                     <DialogHeader>
                         <DialogTitle>Фото к заявке #{request?.requestID}</DialogTitle>
                     </DialogHeader>

@@ -226,7 +226,7 @@ public class ShopContractorChatService {
     }
 
     public Mono<ShopContractorChatResponse> findByTelegramId(Long telegramId) {
-        String sql = "SELECT scc.ShopContractorChatID, scc.ShopID, s.ShopName, scc.ContractorID, u.Login as ContractorLogin, scc.TelegramID " +
+        String sql = "SELECT scc.ShopContractorChatID, scc.ShopID, s.ShopName, scc.ContractorID, COALESCE(u.FullName, u.Login) as ContractorLogin, scc.TelegramID " +
                 "FROM ShopContractorChats scc " +
                 "LEFT JOIN Shops s ON scc.ShopID = s.ShopID " +
                 "LEFT JOIN Users u ON scc.ContractorID = u.UserID " +

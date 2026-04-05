@@ -51,7 +51,7 @@ export default function ShopContractorChatForm({ currentChat, shops, contractors
                     <SelectTrigger><SelectValue placeholder="Выберите подрядчика..." /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="none" className="font-bold text-blue-600">Все подрядчики (Чат магазина)</SelectItem>
-                        {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
+                        {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.fullName || c.login}</SelectItem>)}
                     </SelectContent>
                 </Select>
             </div>

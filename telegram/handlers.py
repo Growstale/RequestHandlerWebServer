@@ -604,7 +604,7 @@ async def show_request_details_in_message(query, context: Context, request_id: i
     if role in ['RetailAdmin', 'Contractor'] and status != 'Closed':
         second_action_row.append(InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
         second_action_row.append(InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
-    if role == 'RetailAdmin':
+    if role in ['RetailAdmin', 'Moderator']:
         second_action_row.append(InlineKeyboardButton("✏️ Изменить", callback_data=f"act_edit_{request_id}"))
     if role == 'Contractor' and status == 'In work':
         second_action_row.append(InlineKeyboardButton("✅ Завершить", callback_data=f"act_complete_{request_id}"))
@@ -781,8 +781,10 @@ async def view_request_details(update: Update, context: Context) -> int | None:
         second_action_row.append(InlineKeyboardButton("➕ Комментарий", callback_data=f"act_add_comment_{request_id}"))
         second_action_row.append(InlineKeyboardButton("📷 Добавить фото", callback_data=f"act_add_photo_{request_id}"))
 
-    if role == 'RetailAdmin':
+    if role in ['RetailAdmin', 'Moderator']:
         second_action_row.append(InlineKeyboardButton("✏️ Изменить", callback_data=f"act_edit_{request_id}"))
+        if request_details.get('photoCount', 0) > 0:
+            second_action_row.append(InlineKeyboardButton("🗑 Удалить фото", callback_data=f"start_del_img_{request_id}"))
 
     if role == 'Contractor' and status == 'In work':
         second_action_row.append(InlineKeyboardButton("✅ Завершить", callback_data=f"act_complete_{request_id}"))
@@ -814,6 +816,13 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
     await safe_answer_query(query)
     data = query.data
     parts = data.split('_')
+
+    if data == "delete_this_msg":
+        try:
+            await query.delete_message()
+        except:
+            pass
+        return
 
     # 1. Простые команды
     if data == "act_back_list":
@@ -895,7 +904,7 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
 
 async def show_comments(query, context: Context, request_id: int):
     user_info = context.user_data.get('user_info') or await api_client.get_user_by_telegram_id(query.from_user.id)
-    is_admin = user_info and user_info.get('roleName') == 'RetailAdmin'
+    is_admin = user_info and user_info.get('roleName') in ['RetailAdmin', 'Moderator']
     comments = await api_client.get_comments(request_id)
 
     if not comments:
@@ -1056,15 +1065,14 @@ async def show_photos(query, context: Context, request_id: int):
 
     if not photo_ids:
         await safe_answer_query(query, text="Фотографий нет.", show_alert=True)
-        if query.data.startswith("fin_del_img"):
-            await show_request_details_in_message(query, context, request_id)
         return
 
-    await query.edit_message_text(f"Загружаю {len(photo_ids)} фото...")
+    # 1. В основном сообщении пишем статус загрузки
+    await query.edit_message_text(f"⏳ Загружаю {len(photo_ids)} фото...")
 
+    # 2. Подготовка и отправка медиагруппы (самих картинок)
     media_group = []
-    display_ids = photo_ids[-10:]
-
+    display_ids = photo_ids[-10:]  # Берем последние 10, если их больше
     for pid in display_ids:
         photo_bytes = await api_client.get_photo(pid)
         if photo_bytes:
@@ -1074,22 +1082,31 @@ async def show_photos(query, context: Context, request_id: int):
     if media_group:
         sent_media_messages = await query.message.reply_media_group(media=media_group)
 
+    # 3. Формируем кнопки специально для НОВОГО сервисного сообщения
+    keyboard = []
+    # Кнопка удаления только для Админа и Менеджера
+    if user_info.get('roleName') in ['RetailAdmin', 'Manager']:
+        keyboard.append(
+            [InlineKeyboardButton("🗑 Выбрать фото для удаления", callback_data=f"start_del_img_{request_id}")])
+
+    # Кнопка, чтобы просто убрать этот блок
+    keyboard.append([InlineKeyboardButton("❌ Закрыть просмотр", callback_data="delete_this_msg")])
+
+    # 4. Отправляем ОТДЕЛЬНОЕ сообщение с кнопками управления
     info_msg = await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text=f"🖼 Фотографии к заявке #{request_id} отправлены. (удалятся через 30 сек)"
+        text=f"🖼 Фотографии к заявке #{request_id} отправлены. (удалятся через 60 сек)",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+    # 5. Возвращаем ОСНОВНОЕ сообщение в режим просмотра деталей заявки
+    # Чтобы кнопки 'Добавить коммент', 'Завершить' и т.д. не исчезли
+    await show_request_details_in_message(query, context, request_id)
+
+    # 6. Настраиваем авто-удаление фото и сервисного сообщения
     msgs_to_delete = [msg.message_id for msg in sent_media_messages]
     msgs_to_delete.append(info_msg.message_id)
-
-    asyncio.create_task(delayed_delete_messages(context, query.message.chat_id, msgs_to_delete, 30))
-
-    try:
-        await query.message.delete()
-    except:
-        pass
-
-    await restore_request_menu(context, query.message.chat_id, query.from_user.id, request_id)
+    asyncio.create_task(delayed_delete_messages(context, query.message.chat_id, msgs_to_delete, 60))
 
 
 async def start_delete_photo_handler(update: Update, context: Context) -> int:
@@ -1489,7 +1506,7 @@ async def ask_contractor(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END
 
     context.user_data['contractors'] = contractors
-    keyboard = create_paginated_keyboard(context.user_data['contractors'], 0, 'contractor', 'login', 'userID')
+    keyboard = create_paginated_keyboard(context.user_data['contractors'], 0, 'contractor', 'fullName', 'userID')
     sent_msg = await context.bot.send_message(update.effective_chat.id, "<b>Шаг 2/5:</b> Выберите подрядчика:",
                                               reply_markup=keyboard, parse_mode=ParseMode.HTML)
     set_menu_owner(context, sent_msg.message_id, update.effective_user.id)
@@ -2081,7 +2098,7 @@ async def _handle_selection(update: Update, context: Context,
 
         if item:
             context.user_data['editor_draft'][draft_id_key] = selected_id
-            context.user_data['editor_draft'][draft_name_key] = item[name_key]
+            context.user_data['editor_draft'][draft_name_key] = item.get('fullName') or item.get(name_key)
 
             if list_key == 'dict_urgencies' and item['urgencyName'] in ['Customizable', 'Настраиваемая']:
                 context.user_data['editor_prompt_message_id'] = query.message.message_id

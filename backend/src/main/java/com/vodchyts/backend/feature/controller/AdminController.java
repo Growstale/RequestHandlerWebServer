@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -50,7 +51,7 @@ public class AdminController {
     }
 
     @DeleteMapping("/users/{userId}")
-    public Mono<ResponseEntity<Void>> deleteUser(@PathVariable Integer userId, ServerWebExchange exchange) {
+    public Mono<ResponseEntity<Void>> deleteUser(@PathVariable Integer userId, @AuthenticationPrincipal String initiatorLogin, ServerWebExchange exchange) {
         return adminService.getAllUsers(null, null, 0, 1000)
                 .flatMap(paged -> {
                     // Находим удаляемую запись для аудита
@@ -59,7 +60,7 @@ public class AdminController {
                             .findFirst()
                             .orElse(null);
                     
-                    return adminService.deleteUser(userId)
+                    return adminService.deleteUser(userId, initiatorLogin)
                             .then(Mono.fromRunnable(() -> {
                                 // Аудит удаления
                                 auditHelper.auditDelete("Users", userId, userToDelete, exchange).subscribe();
@@ -69,7 +70,7 @@ public class AdminController {
     }
 
     @PutMapping("/users/{userId}")
-    public Mono<UserResponse> updateUser(@PathVariable Integer userId, @Valid @RequestBody Mono<UpdateUserRequest> request, ServerWebExchange exchange) {
+    public Mono<UserResponse> updateUser(@PathVariable Integer userId, @Valid @RequestBody Mono<UpdateUserRequest> request, @AuthenticationPrincipal String initiatorLogin, ServerWebExchange exchange) {
         return adminService.getAllUsers(null, null, 0, 1000)
                 .flatMap(paged -> {
                     // Находим старую версию для аудита
@@ -78,7 +79,7 @@ public class AdminController {
                             .findFirst()
                             .orElse(null);
                     
-                    return request.flatMap(req -> adminService.updateUser(userId, req)
+                    return request.flatMap(req -> adminService.updateUser(userId, req, initiatorLogin)
                             .flatMap(updatedUser -> {
                                 // Аудит обновления
                                 auditHelper.auditUpdate("Users", userId, oldUser, updatedUser, exchange).subscribe();

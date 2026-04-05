@@ -101,17 +101,18 @@ public class AnalyticsService {
                     }
                 }).all();
 
-        Flux<DashboardStatsResponse.TopContractorData> topContractors = db.sql("SELECT TOP 5 u.Login, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID " + dateFilter.replace("WHERE", "WHERE r.") + " AND r.Status IN ('Done', 'Closed') GROUP BY u.Login ORDER BY cnt DESC")
-                .bind("start", start).bind("end", end).map(row -> new DashboardStatsResponse.TopContractorData(row.get("Login", String.class), getLong(row, "cnt"))).all();
+        Flux<DashboardStatsResponse.TopContractorData> topContractors = db.sql("SELECT TOP 5 u.FullName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID " + dateFilter.replace("WHERE", "WHERE r.") + " AND r.Status IN ('Done', 'Closed') GROUP BY u.FullName ORDER BY cnt DESC")
+                .bind("start", start).bind("end", end)
+                .map(row -> new DashboardStatsResponse.TopContractorData(row.get("FullName", String.class), getLong(row, "cnt"))).all();
 
-        Flux<DashboardStatsResponse.ChartData> workload = db.sql("SELECT TOP 7 u.Login, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID WHERE r.Status = 'In work' GROUP BY u.Login ORDER BY cnt DESC")
-                .map(row -> new DashboardStatsResponse.ChartData(row.get("Login", String.class), getLong(row, "cnt"))).all();
+        Flux<DashboardStatsResponse.ChartData> workload = db.sql("SELECT TOP 7 u.FullName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID WHERE r.Status = 'In work' GROUP BY u.FullName ORDER BY cnt DESC")
+                .map(row -> new DashboardStatsResponse.ChartData(row.get("FullName", String.class), getLong(row, "cnt"))).all();
 
         Flux<DashboardStatsResponse.ChartData> problemShops = db.sql("SELECT TOP 5 s.ShopName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Shops s ON r.ShopID = s.ShopID " + dateFilter.replace("WHERE", "WHERE r.") + " GROUP BY s.ShopName ORDER BY cnt DESC")
                 .bind("start", start).bind("end", end).map(row -> new DashboardStatsResponse.ChartData(row.get("ShopName", String.class), getLong(row, "cnt"))).all();
 
-        Flux<DashboardStatsResponse.ChartData> worstContractors = db.sql("SELECT TOP 5 u.Login, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID WHERE r.IsOverdue = 1 GROUP BY u.Login ORDER BY cnt DESC")
-                .map(row -> new DashboardStatsResponse.ChartData(row.get("Login", String.class), getLong(row, "cnt"))).all();
+        Flux<DashboardStatsResponse.ChartData> worstContractors = db.sql("SELECT TOP 5 u.FullName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID WHERE r.IsOverdue = 1 GROUP BY u.FullName ORDER BY cnt DESC")
+                .map(row -> new DashboardStatsResponse.ChartData(row.get("FullName", String.class), getLong(row, "cnt"))).all();
 
         Flux<DashboardStatsResponse.ChartData> worstShops = db.sql("SELECT TOP 5 s.ShopName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Shops s ON r.ShopID = s.ShopID WHERE r.IsOverdue = 1 GROUP BY s.ShopName ORDER BY cnt DESC")
                 .map(row -> new DashboardStatsResponse.ChartData(row.get("ShopName", String.class), getLong(row, "cnt"))).all();

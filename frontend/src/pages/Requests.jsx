@@ -429,32 +429,31 @@ export default function Requests({ archived = false }) {
 
     return (
         <main className="container mx-auto p-6">
-            <div className="flex justify-between items-center mb-4">
-                <h1 className="text-3xl font-semibold">{archived ? 'Архив заявок' : 'Управление заявками'}</h1>
-                
-                <div className="flex items-center gap-2">
-                    {!archived && (
-                        <>
-                            <Button variant={viewMode === 'table' ? 'secondary' : 'outline'} onClick={() => setViewMode('table')}>
-                                <List className="mr-2 h-4 w-4" /> Таблица
-                            </Button>
-                            <Button variant={viewMode === 'gantt' ? 'secondary' : 'outline'} onClick={() => setViewMode('gantt')}>
-                                <BarChart3 className="mr-2 h-4 w-4" /> Диаграмма
-                            </Button>
-                            <Button variant={viewMode === 'byShop' ? 'secondary' : 'outline'} onClick={() => setViewMode('byShop')}>
-                                <Store className="mr-2 h-4 w-4" /> По магазинам
-                            </Button>
-                        </>
-                    )}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+    <h1 className="text-2xl md:text-3xl font-semibold">{archived ? 'Архив заявок' : 'Управление заявками'}</h1>
+    
+    <div className="grid grid-cols-2 md:flex items-center gap-2 w-full md:w-auto">
+        {!archived && (
+            <>
+                <Button variant={viewMode === 'table' ? 'secondary' : 'outline'} onClick={() => setViewMode('table')} className="w-full text-xs sm:text-sm px-2 md:w-auto">
+                    <List className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> Таблица
+                </Button>
+                <Button variant={viewMode === 'gantt' ? 'secondary' : 'outline'} onClick={() => setViewMode('gantt')} className="w-full text-xs sm:text-sm px-2 md:w-auto">
+                    <BarChart3 className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> Диаграмма
+                </Button>
+                <Button variant={viewMode === 'byShop' ? 'secondary' : 'outline'} onClick={() => setViewMode('byShop')} className="w-full col-span-2 md:col-span-1 text-xs sm:text-sm px-2 md:w-auto">
+                    <Store className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> По магазинам
+                </Button>
+            </>
+        )}
 
-
-                    {canCreate  && !archived && (
-                        <>
-                            <Button onClick={openCreateForm}>
-                                <PlusCircle className="mr-2 h-4 w-4" /> Создать заявку
-                            </Button>
-                            <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-                                <DialogContent className="max-w-3xl">
+        {canCreate  && !archived && (
+            <>
+                <Button onClick={openCreateForm} className="w-full col-span-2 md:col-span-1 md:w-auto">
+                    <PlusCircle className="mr-2 h-4 w-4 shrink-0" /> Создать заявку
+                </Button>
+                <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+                    <DialogContent className="max-w-3xl w-[95vw] sm:w-full max-h-[95vh] flex flex-col overflow-hidden p-4 sm:p-6 rounded-xl">
                                     <DialogHeader>
                                         <DialogTitle>{currentRequest ? 'Редактировать заявку' : 'Новая заявка'}</DialogTitle>
                                         <DialogDescription className="hidden">Форма создания или редактирования заявки</DialogDescription>
@@ -479,7 +478,7 @@ export default function Requests({ archived = false }) {
 
             </div>
 
-            <div className="flex items-center gap-4 mb-4">
+            <div className="flex flex-wrap items-center gap-2 md:gap-4 mb-4">
                 {(sort.length > 1 || (sort.length === 1 && sort[0] !== 'requestID,asc')) && (
                     <Button variant="outline" onClick={handleResetSort}>
                         <XCircle className="mr-2 h-4 w-4" />Сбросить сортировку

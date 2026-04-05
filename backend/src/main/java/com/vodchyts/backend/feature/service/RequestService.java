@@ -104,7 +104,7 @@ public class RequestService {
                         .flatMap(role -> {
                             StringBuilder sqlBuilder = new StringBuilder(
                                     "SELECT r.RequestID, r.Description, r.ShopID, r.WorkCategoryID, r.UrgencyID, r.AssignedContractorID, r.Status, r.CreatedAt, r.ClosedAt, r.IsOverdue, " +
-                                            "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, u.Login as AssignedContractorName, u.TelegramUsername as ContractorTgUsername, " +
+                                            "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, COALESCE(u.FullName, u.Login) as AssignedContractorName, u.TelegramUsername as ContractorTgUsername, " +
                                             "CASE WHEN uc.UrgencyName = 'Customizable' THEN rcd.Days ELSE uc.DefaultDays END as DaysForTask, " +
                                             "(SELECT COUNT(*) FROM RequestComments rc WHERE rc.RequestID = r.RequestID) as CommentCount, " +
                                             "(SELECT COUNT(*) FROM RequestPhotos rp WHERE rp.RequestID = r.RequestID) as PhotoCount " +
@@ -292,7 +292,7 @@ public class RequestService {
     private Mono<RequestResponse> enrichRequest(Integer requestId) {
         //noinspection SqlResolve
         String sql = "SELECT r.RequestID, r.Description, r.ShopID, r.WorkCategoryID, r.UrgencyID, r.AssignedContractorID, r.Status, r.CreatedAt, r.ClosedAt, r.IsOverdue, " +
-                "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, u.Login as AssignedContractorName, u.TelegramUsername as ContractorTgUsername, " +
+                "s.ShopName, wc.WorkCategoryName, uc.UrgencyName, COALESCE(u.FullName, u.Login) as AssignedContractorName, u.TelegramUsername as ContractorTgUsername, " +
                 "CASE WHEN uc.UrgencyName = 'Customizable' THEN rcd.Days ELSE uc.DefaultDays END as DaysForTask, " +
                 "(SELECT COUNT(*) FROM RequestComments rc WHERE rc.RequestID = r.RequestID) as CommentCount, " +
                 "(SELECT COUNT(*) FROM RequestPhotos rp WHERE rp.RequestID = r.RequestID) as PhotoCount " +
@@ -463,8 +463,45 @@ public class RequestService {
                         changes.add("🔥 *Срочность:* " + localizedUrgency);
                     }
 
-                    if (!Objects.equals(request.getDescription(), dto.description())) {
-                        changes.add("📝 *Новое описание:* " + notificationService.escapeMarkdown(dto.description()));
+                    String oldDesc = request.getDescription() != null ? request.getDescription() : "";
+                    String newDesc = dto.description() != null ? dto.description() : "";
+
+                    if (!oldDesc.equals(newDesc)) {
+                        int prefixLen = 0;
+                        int oldLen = oldDesc.length();
+                        int newLen = newDesc.length();
+                        int minLen = Math.min(oldLen, newLen);
+
+                        // 1. Находим длину общего начала
+                        while (prefixLen < minLen && oldDesc.charAt(prefixLen) == newDesc.charAt(prefixLen)) {
+                            prefixLen++;
+                        }
+
+                        // 2. Находим длину общего конца
+                        int suffixLen = 0;
+                        while (suffixLen < (minLen - prefixLen) &&
+                                oldDesc.charAt(oldLen - 1 - suffixLen) == newDesc.charAt(newLen - 1 - suffixLen)) {
+                            suffixLen++;
+                        }
+
+                        // 3. Разделяем новую строку на три части
+                        String prefix = newDesc.substring(0, prefixLen);
+                        String addedPart = newDesc.substring(prefixLen, newLen - suffixLen);
+                        String suffix = newDesc.substring(newLen - suffixLen);
+
+                        String formattedDescription;
+
+                        if (addedPart.isEmpty()) {
+                            // Если текст только удаляли, просто показываем результат (или можно выделить всё)
+                            formattedDescription = notificationService.escapeMarkdown(newDesc);
+                        } else {
+                            // Экранируем каждую часть и оборачиваем добавленную в звездочки
+                            formattedDescription = notificationService.escapeMarkdown(prefix)
+                                    + "*" + notificationService.escapeMarkdown(addedPart) + "*"
+                                    + notificationService.escapeMarkdown(suffix);
+                        }
+
+                        changes.add("📝 *Новое описание:*\n" + formattedDescription);
                     }
 
                     if (!Objects.equals(request.getUrgencyID(), dto.urgencyID())) {

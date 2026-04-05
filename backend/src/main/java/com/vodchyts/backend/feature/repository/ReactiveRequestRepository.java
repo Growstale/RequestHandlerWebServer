@@ -9,4 +9,5 @@ import reactor.core.publisher.Mono;
 public interface ReactiveRequestRepository extends ReactiveCrudRepository<Request, Integer> {
     Mono<Long> countByWorkCategoryID(Integer categoryId);
     Mono<Boolean> existsByAssignedContractorIDAndStatus(Integer contractorId, String status);
+    Mono<Boolean> existsByAssignedContractorID(Integer contractorId);
 }

@@ -206,6 +206,7 @@ async def main():
             ],
             VIEW_DETAILS: [
                 CallbackQueryHandler(action_callback_handler, pattern="^act_"),
+                CallbackQueryHandler(lambda u, c: u.callback_query.delete_message(), pattern="^delete_this_msg$"),
                 CallbackQueryHandler(action_callback_handler, pattern="^start_del_"),
                 CallbackQueryHandler(action_callback_handler, pattern="^start_reply_")
             ],

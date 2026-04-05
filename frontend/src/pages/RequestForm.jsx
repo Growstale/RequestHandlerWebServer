@@ -154,7 +154,7 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
     return (
         <form onSubmit={handleSubmit} className="flex flex-col h-full pt-4">
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[60vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 overflow-y-auto px-1 pr-2 custom-scrollbar" style={{ maxHeight: 'calc(100vh - 200px)' }}>
                 
                 {apiError && <p className="col-span-1 md:col-span-2 text-red-600 p-2 bg-red-50 rounded-md">{apiError}</p>}
                 
@@ -173,7 +173,7 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
                     <Select onValueChange={(v) => handleSelectChange('assignedContractorID', v)} value={formData.assignedContractorID?.toString() || ''}>
                         <SelectTrigger><SelectValue placeholder="Выберите исполнителя..." /></SelectTrigger>
                         <SelectContent>
-                            {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.login}</SelectItem>)}
+                            {contractors.map(c => <SelectItem key={c.userID} value={c.userID.toString()}>{c.fullName || c.login}</SelectItem>)}
                         </SelectContent>
                     </Select>
                 </div>

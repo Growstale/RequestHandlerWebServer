@@ -123,7 +123,7 @@ export default function UserForm({ currentUser, onSubmit, onCancel, apiError, ro
                   id="telegramUsername" 
                   name="telegramUsername" 
                   placeholder="username (без @)" 
-                  value={formData.telegramUsername} 
+                  value={formData.telegramUsername || ''}
                   onChange={handleChange} 
                 />
               </div>

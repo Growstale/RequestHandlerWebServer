@@ -175,7 +175,7 @@ public class RequestController {
 
     @DeleteMapping("/photos/{photoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasRole('RetailAdmin')")
+    @PreAuthorize("hasAnyRole('RetailAdmin', 'Moderator')")
     public Mono<Void> deletePhoto(@PathVariable Integer photoId, ServerWebExchange exchange) {
         return requestService.deletePhoto(photoId)
                 .doOnSuccess(v -> {

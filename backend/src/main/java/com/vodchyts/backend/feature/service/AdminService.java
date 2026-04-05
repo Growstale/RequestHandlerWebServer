@@ -170,95 +170,106 @@ public class AdminService {
         return orders.isEmpty() ? " ORDER BY u.UserID ASC" : " ORDER BY " + orders;
     }
 
-    public Mono<Void> deleteUser(Integer userId) {
-        String adminRoleName = "RetailAdmin";
+    public Mono<Void> deleteUser(Integer userId, String initiatorLogin) {
+        return userRepository.findByLogin(initiatorLogin)
+                .flatMap(initiator -> {
+                    if (initiator.getUserID().equals(userId)) {
+                        return Mono.error(new OperationNotAllowedException("Вы не можете удалить свою собственную учетную запись."));
+                    }
 
-        return userRepository.findById(userId)
-                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с ID " + userId + " не найден")))
-                .flatMap(userToDelete ->
-                        roleRepository.findById(userToDelete.getRoleID())
-                                .flatMap(userRole -> {
-                                    if (adminRoleName.equals(userRole.getRoleName())) {
-                                        return Mono.error(new OperationNotAllowedException("Нельзя удалить учетную запись администратора"));
-                                    }
-                                    return userRepository.delete(userToDelete);
-                                })
-                )
+                    return userRepository.findById(userId)
+                            .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь не найден")))
+                            .flatMap(userRepository::delete);
+                })
                 .doOnSuccess(v -> updateBroadcaster.publish("USERS_UPDATED"));
     }
 
-    public Mono<UserResponse> updateUser(Integer userId, UpdateUserRequest request) {
-        return userRepository.findById(userId)
-                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с ID " + userId + " не найден")))
-                .flatMap(user -> {
+
+    public Mono<UserResponse> updateUser(Integer userId, UpdateUserRequest request, String initiatorLogin) {
+        return Mono.zip(userRepository.findById(userId), userRepository.findByLogin(initiatorLogin))
+                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь не найден")))
+                .flatMap(tuple -> {
+                    User targetUser = tuple.getT1();
+                    User initiator = tuple.getT2();
+
+                    // 1. Базовые обновления
                     if (request.password() != null && !request.password().isBlank()) {
                         passwordValidator.validate(request.password());
-                        user.setPassword(passwordEncoder.encode(request.password()));
+                        targetUser.setPassword(passwordEncoder.encode(request.password()));
                     }
-                    if (request.contactInfo() != null) user.setContactInfo(request.contactInfo());
-                    if (request.fullName() != null) user.setFullName(request.fullName());
-                    if (request.telegramID() != null) {
-                        user.setTelegramID(request.telegramID().isEmpty() ? null : Long.parseLong(request.telegramID()));
-                    }
-
-                    if (request.telegramUsername() != null) {
-                        String tgUser = request.telegramUsername().replace("@", "").trim();
-                        user.setTelegramUsername(tgUser.isEmpty() ? null : tgUser);
+                    if (request.contactInfo() != null) targetUser.setContactInfo(request.contactInfo());
+                    if (request.fullName() != null) targetUser.setFullName(request.fullName());
+                    if (request.telegramID() != null && !request.telegramID().isBlank()) {
+                        targetUser.setTelegramID(Long.parseLong(request.telegramID()));
                     }
 
-                    Mono<User> userMono = Mono.just(user);
+                    String cleanedUsername = (request.telegramUsername() != null)
+                            ? request.telegramUsername().replace("@", "").trim()
+                            : null;
+                    targetUser.setTelegramUsername(cleanedUsername == null || cleanedUsername.isEmpty() ? null : cleanedUsername);
 
+                    // 2. Логика смены роли
                     if (request.roleName() != null && !request.roleName().isBlank()) {
-                        userMono = roleRepository.findById(user.getRoleID())
+                        return roleRepository.findById(targetUser.getRoleID())
                                 .flatMap(currentRole -> {
+                                    // Если роль не меняется, просто идем дальше
                                     if (currentRole.getRoleName().equals(request.roleName())) {
-                                        return Mono.just(currentRole);
+                                        return Mono.just(targetUser);
                                     }
-                                    if ("RetailAdmin".equals(currentRole.getRoleName())) {
+
+                                    // Проверка: Запрет смены роли самому себе
+                                    if (initiator.getUserID().equals(userId)) {
                                         return Mono.error(new OperationNotAllowedException(
-                                                "Нельзя изменить роль Администратора. Вы не можете понизить уровень доступа для этой учетной записи."
-                                        ));
+                                                "Вы не можете изменить роль самому себе."));
                                     }
+
+                                    // ПРОВЕРКА 1: Если текущая роль - Подрядчик
                                     if ("Contractor".equals(currentRole.getRoleName())) {
-                                        return requestRepository.existsByAssignedContractorIDAndStatus(userId, "In work")
-                                                .flatMap(hasActive -> {
-                                                    if (hasActive) {
+                                        return requestRepository.existsByAssignedContractorID(userId)
+                                                .flatMap(hasRequests -> {
+                                                    if (hasRequests) {
                                                         return Mono.error(new OperationNotAllowedException(
-                                                                "Нельзя изменить роль: у этого подрядчика есть активные заявки. Сначала переназначьте или завершите их."
-                                                        ));
+                                                                "Нельзя сменить роль пользователю, так как за ним числятся заявки. Сначала переназначьте заявки на другого исполнителя."));
                                                     }
-                                                    return Mono.just(currentRole);
+                                                    return proceedWithRoleChange(targetUser, request.roleName());
                                                 });
                                     }
+
+                                    // ПРОВЕРКА 2: Если текущая роль - Менеджер магазина
                                     if ("StoreManager".equals(currentRole.getRoleName())) {
-                                        return shopRepository.findAllByUserID(userId)
-                                                .hasElements()
+                                        return shopRepository.existsByUserID(userId)
                                                 .flatMap(hasShops -> {
                                                     if (hasShops) {
                                                         return Mono.error(new OperationNotAllowedException(
-                                                                "Нельзя изменить роль: этот пользователь привязан к магазинам. Сначала снимите его с должности в разделе 'Магазины'."
-                                                        ));
+                                                                "Нельзя сменить роль пользователю, так как он назначен ответственным за магазины. Сначала назначьте другого менеджера для магазинов."));
                                                     }
-                                                    return Mono.just(currentRole);
+                                                    return proceedWithRoleChange(targetUser, request.roleName());
                                                 });
                                     }
-                                    return Mono.just(currentRole);
-                                })
-                                .then(roleRepository.findByRoleName(request.roleName()))
-                                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Роль '" + request.roleName() + "' не найдена")))
-                                .map(newRole -> {
-                                    user.setRoleID(newRole.getRoleID());
-                                    if (!"Contractor".equals(newRole.getRoleName())) {
-                                        user.setTelegramUsername(null);
-                                    }
-                                    return user;
+
+                                    // Для остальных ролей (RetailAdmin, Moderator) просто меняем
+                                    return proceedWithRoleChange(targetUser, request.roleName());
                                 });
                     }
-                    return userMono;
+                    return Mono.just(targetUser);
                 })
                 .flatMap(userRepository::save)
                 .flatMap(this::mapUserToUserResponse)
                 .doOnSuccess(v -> updateBroadcaster.publish("USERS_UPDATED"));
+    }
+
+    // Вспомогательный метод для смены ID роли в объекте пользователя
+    private Mono<User> proceedWithRoleChange(User targetUser, String newRoleName) {
+        return roleRepository.findByRoleName(newRoleName)
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Новая роль не найдена")))
+                .map(newRole -> {
+                    targetUser.setRoleID(newRole.getRoleID());
+                    // Если новая роль не подрядчик, очищаем ник телеграма (необязательно, но логично)
+                    if (!"Contractor".equals(newRole.getRoleName())) {
+                        targetUser.setTelegramUsername(null);
+                    }
+                    return targetUser;
+                });
     }
 
     public Mono<UserResponse> mapUserToUserResponse(User user) {

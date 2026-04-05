@@ -71,7 +71,7 @@ export default function CommentsModal({ isOpen, onClose, request }) {
     return (
         <>
             <Dialog open={isOpen} onOpenChange={onClose}>
-                <DialogContent className="max-w-2xl flex flex-col max-h-[90vh]">
+                <DialogContent className="max-w-2xl w-[95vw] sm:w-full flex flex-col max-h-[95vh] md:max-h-[90vh] p-4 sm:p-6 rounded-xl">
                     <DialogHeader>
                         <DialogTitle>Комментарии к заявке #{request?.requestID}</DialogTitle>
                     </DialogHeader>

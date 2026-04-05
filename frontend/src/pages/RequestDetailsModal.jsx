@@ -61,7 +61,7 @@ export default function RequestDetailsModal({ isOpen, onClose, request, footerCo
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0"> 
+            <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[95vh] md:max-h-[90vh] flex flex-col p-0 rounded-xl overflow-hidden">
                 
                 <DialogHeader className="p-6 pb-2 shrink-0">
                     <DialogTitle>Детали заявки #{request.requestID}</DialogTitle>
