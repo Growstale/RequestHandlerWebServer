@@ -97,3 +97,7 @@ export const completeRequest = (id) => {
 export const deleteComment = (commentId) => {
   return api.delete(`/api/requests/comments/${commentId}`);
 }
+
+export const getRequestById = (id) => {
+  return api.get(`/api/requests/${id}`);
+}

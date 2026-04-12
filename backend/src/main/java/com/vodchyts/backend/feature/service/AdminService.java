@@ -199,8 +199,16 @@ public class AdminService {
                     }
                     if (request.contactInfo() != null) targetUser.setContactInfo(request.contactInfo());
                     if (request.fullName() != null) targetUser.setFullName(request.fullName());
-                    if (request.telegramID() != null && !request.telegramID().isBlank()) {
-                        targetUser.setTelegramID(Long.parseLong(request.telegramID()));
+                    if (request.telegramID() != null) {
+                        if (request.telegramID().isBlank()) {
+                            targetUser.setTelegramID(null);
+                        } else {
+                            try {
+                                targetUser.setTelegramID(Long.parseLong(request.telegramID().trim()));
+                            } catch (NumberFormatException e) {
+                                return Mono.error(new OperationNotAllowedException("Telegram ID должен быть числом"));
+                            }
+                        }
                     }
 
                     String cleanedUsername = (request.telegramUsername() != null)

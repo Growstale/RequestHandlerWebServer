@@ -30,13 +30,23 @@ services:
         condition: service_healthy
     networks:
       - app-network
-    entrypoint: >
-      /bin/bash -c "
-      echo 'Waiting for SQL Server...';
-      sleep 30;
-      echo 'Creating Database...';
-      /opt/mssql-tools/bin/sqlcmd -S db -U sa -P \$MSSQL_SA_PASSWORD -Q 'CREATE DATABASE RequestHandlerWebServer' || echo 'Database likely exists';
-      "
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        echo "Waiting for SQL Server to accept connections..."
+        for i in {1..30}; do
+          /opt/mssql-tools/bin/sqlcmd -S db -U sa -P "$$MSSQL_SA_PASSWORD" -Q "SELECT 1" > /dev/null 2>&1
+          if [ $$? -eq 0 ]; then
+            echo "SQL Server is ready!"
+            break
+          fi
+          echo "Not ready yet... waiting..."
+          sleep 3
+        done
+        echo "Ensuring Database RequestHandlerWebServer exists..."
+        /opt/mssql-tools/bin/sqlcmd -S db -U sa -P "$$MSSQL_SA_PASSWORD" -Q "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'RequestHandlerWebServer') BEGIN CREATE DATABASE RequestHandlerWebServer; END;"
+        echo "Init script finished."
 
   backend:
     build: ./backend

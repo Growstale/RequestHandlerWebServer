@@ -42,6 +42,11 @@ const processQueue = (error, token = null) => {
 api.interceptors.response.use(
   res => res,
   async err => {
+    if (err.response && typeof err.response.data === 'string' && err.response.data.includes('<html')) {
+        err.response.data = `Сервер временно недоступен (Ошибка ${err.response.status}). Пожалуйста, подождите пару минут.`;
+        return Promise.reject(err);
+    }
+
     const originalReq = err.config
 
     if (

@@ -73,7 +73,7 @@ public class AuthService {
                 });
     }
 
-    public Mono<LoginResponse> refresh(String refreshToken) {
+    public Mono<LoginResponseWithRefresh> refresh(String refreshToken) {
         if (!jwtUtils.validateToken(refreshToken)) {
             return Mono.error(new InvalidTokenException("Недействительный JWT токен обновления"));
         }
@@ -92,12 +92,27 @@ public class AuthService {
                     return userRepository.findByLogin(username)
                             .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь не найден")))
                             .flatMap(user -> roleRepository.findById(user.getRoleID())
-                                    .map(role -> {
+                                    .flatMap(role -> {
+                                        // 1. Генерируем новую пару токенов
                                         String newAccessToken = jwtUtils.generateAccessToken(username, role.getRoleName());
-                                        return new LoginResponse(newAccessToken);
+                                        String newRefreshToken = jwtUtils.generateRefreshToken(username);
+                                        String newTokenHash = sha256(newRefreshToken);
+
+                                        // 2. Создаем новую сущность для БД
+                                        RefreshToken newTokenEntity = new RefreshToken();
+                                        newTokenEntity.setUserID(user.getUserID());
+                                        newTokenEntity.setTokenHash(newTokenHash);
+                                        newTokenEntity.setIssuedAt(LocalDateTime.now());
+                                        newTokenEntity.setExpiresAt(LocalDateTime.now().plus(Duration.ofMillis(refreshExpirationMs)));
+
+                                        // 3. Удаляем старый токен и сохраняем новый
+                                        return refreshTokenRepository.deleteByTokenHash(tokenHash)
+                                                .then(refreshTokenRepository.save(newTokenEntity))
+                                                .thenReturn(new LoginResponseWithRefresh(newAccessToken, newRefreshToken));
                                     }));
                 });
     }
+
 
     public Mono<ResponseEntity<Void>> logout(String refreshToken) {
         String tokenHash = sha256(refreshToken);

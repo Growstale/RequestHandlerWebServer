@@ -79,10 +79,9 @@ public class LoggingWebFilter implements WebFilter {
                                 long duration = System.currentTimeMillis() - startTime;
                                 String message = String.format("%s %s - %d - %dms", method, path, statusCode, duration);
 
-                                // Убрано INFO. Пишем только если статус >= 400 (предупреждения и ошибки)
                                 if (statusCode >= 500) {
                                     loggingService.logError("HTTP_REQUEST", message, null, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
-                                } else if (statusCode >= 400) {
+                                } else if (statusCode >= 400 && statusCode != 401 && statusCode != 403 && statusCode != 404) {
                                     loggingService.logWarn("HTTP_REQUEST", message, userID, userLogin, ipAddress, userAgent, path, method).subscribe();
                                 }
                             })

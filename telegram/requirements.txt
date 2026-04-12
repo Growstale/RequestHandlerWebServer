@@ -2,3 +2,4 @@ python-telegram-bot
 aiohttp
 python-dotenv
 httpx
+Pillow

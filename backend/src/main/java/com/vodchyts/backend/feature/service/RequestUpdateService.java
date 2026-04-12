@@ -25,6 +25,8 @@ import java.util.concurrent.ScheduledFuture;
 import static org.springframework.data.relational.core.query.Criteria.where;
 import static org.springframework.data.relational.core.query.Query.query;
 
+import jakarta.annotation.PreDestroy;
+
 @Service
 public class RequestUpdateService {
 
@@ -37,7 +39,7 @@ public class RequestUpdateService {
     private final ReactiveShopContractorChatRepository chatRepository;
     private final TelegramNotificationService notificationService;
     private final WebNotificationService webNotificationService;
-    private final TaskScheduler taskScheduler;
+    private final ThreadPoolTaskScheduler taskScheduler;
     private ScheduledFuture<?> overdueCheckTask;
     private ScheduledFuture<?> dailyReminderTask;
     private final UpdateBroadcaster updateBroadcaster;
@@ -280,5 +282,13 @@ public class RequestUpdateService {
     private boolean isWeekend() {
         DayOfWeek today = LocalDate.now().getDayOfWeek();
         return today == DayOfWeek.SATURDAY || today == DayOfWeek.SUNDAY;
+    }
+
+    @PreDestroy
+    public void cleanup() {
+        log.info("Остановка фоновых задач RequestUpdateService...");
+        if (this.taskScheduler != null) {
+            this.taskScheduler.shutdown();
+        }
     }
 }

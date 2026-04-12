@@ -16,7 +16,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin/shop-contractor-chats")
-@PreAuthorize("hasRole('RetailAdmin')")
+@PreAuthorize("hasAnyRole('RetailAdmin', 'Moderator')")
 public class ShopContractorChatController {
 
     private final ShopContractorChatService chatService;

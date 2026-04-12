@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { auditApi } from '@/api/auditApi';
 import { logger } from '@/lib/logger';
 import { Filter, Plus, Edit, Trash2, Eye, X } from 'lucide-react';
@@ -352,6 +352,9 @@ export default function Audit() {
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Детали изменений</DialogTitle>
+                            <DialogDescription className="sr-only">
+                                Просмотр старых и новых значений полей записи
+                            </DialogDescription>
                     </DialogHeader>
                     {selectedLog && (
                         <div className="space-y-4">

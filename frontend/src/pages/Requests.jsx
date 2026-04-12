@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense, lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
-// ДОБАВИЛИ uploadPhotos В ИМПОРТ:
-import { getRequests, deleteRequest, createRequest, updateRequest, restoreRequest, completeRequest, uploadPhotos } from '@/api/requestApi';
+import { getRequests, deleteRequest, createRequest, updateRequest, restoreRequest, completeRequest, uploadPhotos, getRequestById } from '@/api/requestApi';
 import { getShops } from '@/api/shopApi';
 import { getWorkCategories } from '@/api/workCategoryApi';
 import { getUrgencyCategories } from '@/api/urgencyCategoryApi';
@@ -39,6 +38,7 @@ export default function Requests({ archived = false }) {
     const [viewMode, setViewMode] = useState('byShop'); 
     const canCreate = isAdmin || isModerator;    
 
+    const [unreadNotifications, setUnreadNotifications] = useState([]);
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -69,6 +69,21 @@ export default function Requests({ archived = false }) {
     const [isCompleteAlertOpen, setIsCompleteAlertOpen] = useState(false);
     const [isRestoreAlertOpen, setIsRestoreAlertOpen] = useState(false);
     const [targetRequestId, setTargetRequestId] = useState(null);
+
+    const [highlightConfig, setHighlightConfig] = useState({ details: false, comments: false, photos: false });
+
+const clearAndCheckNotifs = (requestId, keywords) => {
+        const toDelete = unreadNotifications.filter(n =>
+            n.requestID === requestId &&
+            keywords.some(kw => n.title.toLowerCase().includes(kw))
+        );
+
+        if (toDelete.length > 0) {
+            toDelete.forEach(n => api.delete(`/api/web-notifications/${n.notificationID}`).catch(e => console.error(e)));
+            return toDelete;
+        }
+        return [];
+    };
 
     const reloadRequests = useCallback(async (silent = false) => {
         if (!silent) {
@@ -115,6 +130,19 @@ export default function Requests({ archived = false }) {
 
     const reloadRef = useRef(reloadRequests);
 
+    const fetchUnreadNotifications = useCallback(async () => {
+        try {
+            const res = await api.get('/api/web-notifications');
+            setUnreadNotifications(res.data);
+        } catch (e) {
+            console.error("Ошибка загрузки уведомлений", e);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchUnreadNotifications();
+    }, [fetchUnreadNotifications]);
+
     const groupedRequests = useMemo(() => {
         if (viewMode !== 'byShop') return {};
         return requests.reduce((acc, req) => {
@@ -133,7 +161,10 @@ export default function Requests({ archived = false }) {
         if (message === "REQUESTS_UPDATED") {
             reloadRef.current(true);
         }
-    }, []));
+        if (message === `WEB_NOTIFICATION_USER_${user?.id}`) {
+            fetchUnreadNotifications();
+        }
+    }, [user?.id, fetchUnreadNotifications]));
 
     useEffect(() => {
         if (!searchParams.has('sort')) {
@@ -345,22 +376,36 @@ export default function Requests({ archived = false }) {
     useEffect(() => {
         const openId = searchParams.get('openId');
         if (openId) {
-            const req = requests.find(r => r.requestID === parseInt(openId));
+            const reqId = parseInt(openId);
+            const reqFromList = requests.find(r => r.requestID === reqId);
             
-            if (req) {
+            const handleOpen = (req) => {
                 setCurrentRequest(req);
+                const deletedNotifs = clearAndCheckNotifs(req.requestID, ['обновлен', 'выполнен', 'новая', 'восстановлен', 'просроч']);
+                setHighlightConfig(prev => ({ 
+                    ...prev, 
+                    details: {
+                        updated: deletedNotifs.some(n => /обновлен|выполнен|новая/i.test(n.title)),
+                        overdue: deletedNotifs.some(n => /просроч/i.test(n.title)),
+                        restored: deletedNotifs.some(n => /восстановлен/i.test(n.title))
+                    } 
+                }));
                 setIsDetailsOpen(true);
-                setSearchParams(prev => {
-                    prev.delete('openId');
-                    return prev;
-                }, { replace: true });
+                setSearchParams(prev => { prev.delete('openId'); return prev; }, { replace: true });
+            };
+
+            if (reqFromList) {
+                handleOpen(reqFromList);
             } else if (!loading) {
-                // Если заявки нет на текущей странице, можно либо загрузить её отдельно,
-                // либо просто сбросить фильтры. Для простоты пока просто ищем в текущем списке.
+                getRequestById(reqId).then(res => {
+                    handleOpen(res.data);
+                }).catch(err => {
+                    console.error("Не удалось загрузить заявку по ID", err);
+                    setSearchParams(prev => { prev.delete('openId'); return prev; }, { replace: true });
+                });
             }
         }
-    }, [searchParams, requests, loading]);
-
+    }, [searchParams, requests, loading, setSearchParams]);
 
     const handleDeleteConfirm = async () => {
         if (!currentRequest) return;
@@ -376,19 +421,48 @@ export default function Requests({ archived = false }) {
     
     const openDetails = useCallback((req) => {
         setCurrentRequest(req);
+        const deletedNotifs = clearAndCheckNotifs(req.requestID, ['обновлен', 'выполнен', 'новая', 'восстановлен', 'просроч']);
+        
+        const allMessages = deletedNotifs.map(n => n.message?.toLowerCase() || "").join(" ");
+        
+        setHighlightConfig(prev => ({ 
+            ...prev, 
+            details: {
+                status: allMessages.includes('статус'),
+                urgency: allMessages.includes('срочность'),
+                contractor: allMessages.includes('исполнитель'),
+                shop: allMessages.includes('магазин'),
+                description: allMessages.includes('описание'),
+                overdue: deletedNotifs.some(n => n.title.toLowerCase().includes('просроч')),
+                restored: deletedNotifs.some(n => n.title.toLowerCase().includes('восстановлен'))
+            } 
+        }));
         setIsDetailsOpen(true);
-    }, []);
+    }, [unreadNotifications]);
 
     const openCreateForm = () => { setCurrentRequest(null); setFormApiError(null); setIsFormOpen(true); };
     const openEditForm = (req) => { setCurrentRequest(req); setFormApiError(null); setIsFormOpen(true); };
     const openDeleteAlert = (req) => { setCurrentRequest(req); setIsAlertOpen(true); };
-    const openComments = (req) => { setCurrentRequest(req); setIsCommentsOpen(true); };
-    const openPhotos = (req) => { setCurrentRequest(req); setIsPhotosOpen(true); };
+    const openComments = (req) => { 
+        setCurrentRequest(req); 
+        const deletedNotifs = clearAndCheckNotifs(req.requestID, ['комментарий']);
+        setHighlightConfig(prev => ({ ...prev, comments: deletedNotifs.length > 0 }));
+        setIsCommentsOpen(true); 
+    };
+    
+    const openPhotos = (req) => { 
+        setCurrentRequest(req); 
+        const deletedNotifs = clearAndCheckNotifs(req.requestID, ['фото']);
+        setHighlightConfig(prev => ({ ...prev, photos: deletedNotifs.length > 0 }));
+        setIsPhotosOpen(true); 
+    };
 
     const openCommentsFromDetails = (req) => {
         setBackToDetails(true);
         setIsDetailsOpen(false);
         setCurrentRequest(req);
+        const deletedNotifs = clearAndCheckNotifs(req.requestID, ['комментарий']);
+        setHighlightConfig(prev => ({ ...prev, comments: deletedNotifs.length > 0 }));
         setIsCommentsOpen(true);
     };
 
@@ -396,6 +470,8 @@ export default function Requests({ archived = false }) {
         setBackToDetails(true);
         setIsDetailsOpen(false);
         setCurrentRequest(req);
+        const deletedNotifs = clearAndCheckNotifs(req.requestID, ['фото']);
+        setHighlightConfig(prev => ({ ...prev, photos: deletedNotifs.length > 0 }));
         setIsPhotosOpen(true);
     };
 
@@ -628,12 +704,23 @@ export default function Requests({ archived = false }) {
                                 <TableHead className="w-[150px] text-right">Действия</TableHead>
                             </TableRow>
                         </TableHeader>
-                        <TableBody>
-                            {requests.map(req => (
-                                <TableRow key={req.requestID} className={cn({ 
-                                    'bg-red-100': req.isOverdue && req.status === 'In work',
-                                    'bg-blue-100': req.status === 'Done' 
-                                })}>
+                            <TableBody>
+                                {requests.map(req => {
+                                    const notifsForReq = unreadNotifications.filter(n => n.requestID === req.requestID);
+                                    const hasUnread = notifsForReq.length > 0;
+                                    const hasNewComments = notifsForReq.some(n => n.title.toLowerCase().includes('комментарий'));
+                                    const hasNewPhotos = notifsForReq.some(n => n.title.toLowerCase().includes('фото'));
+                                    const hasUpdate = notifsForReq.some(n => {
+                                        const t = n.title.toLowerCase();
+                                        return t.includes('обновлен') || t.includes('выполнен') || t.includes('новая') || t.includes('восстановлен') || t.includes('просроч');
+                                    });
+
+                                    return (
+                                    <TableRow key={req.requestID} className={cn("transition-all duration-300", { 
+                                        'bg-red-100': req.isOverdue && req.status === 'In work',
+                                        'bg-blue-100': req.status === 'Done',
+                                        'border-l-4 border-l-yellow-400': hasUnread
+                                    })}>
                                     <TableCell>{req.requestID}</TableCell>
                                     <TableCell className="max-w-0 w-full">
                                         <div 
@@ -656,14 +743,14 @@ export default function Requests({ archived = false }) {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex gap-1">
-                                            <Button variant="ghost" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDetails(req)} title="Просмотр деталей">
+                                            <Button variant="ghost" size="icon" className={cn("px-2", hasUpdate ? "text-yellow-600 bg-yellow-100 animate-pulse hover:text-yellow-700 hover:bg-yellow-200" : "hover:text-indigo-700")} onClick={() => openDetails(req)} title="Просмотр деталей">
                                                 <Eye className="h-4 w-4"/>
                                             </Button>
-                                            <Button variant="ghost" size="sm" className="px-2 hover:text-blue-700" onClick={() => openComments(req)} title="Комментарии">
+                                            <Button variant="ghost" size="sm" className={cn("px-2", hasNewComments ? "text-yellow-600 bg-yellow-100 animate-pulse hover:text-yellow-700 hover:bg-yellow-200" : "hover:text-blue-700")} onClick={() => openComments(req)} title="Комментарии">
                                                 <MessageSquare className="h-4 w-4 mr-1.5"/>
                                                 <span className="text-xs font-semibold">{req.commentCount}</span>
                                             </Button>
-                                            <Button variant="ghost" size="sm" className="px-2 hover:text-indigo-700" onClick={() => openPhotos(req)} title="Фотографии">
+                                            <Button variant="ghost" size="sm" className={cn("px-2", hasNewPhotos ? "text-yellow-600 bg-yellow-100 animate-pulse hover:text-yellow-700 hover:bg-yellow-200" : "hover:text-indigo-700")} onClick={() => openPhotos(req)} title="Фотографии">
                                                 <Camera className="h-4 w-4 mr-1.5"/>
                                                 <span className="text-xs font-semibold">{req.photoCount}</span>
                                             </Button>
@@ -698,13 +785,14 @@ export default function Requests({ archived = false }) {
                                             {isAdmin && (
                                                 <Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)} title="Удалить"><Trash2 className="h-4 w-4" /></Button>
                                             )}
-                                        </div>
-                                    </TableCell>
+                                                </div>
+                                            </TableCell>
 
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
+                                        </TableRow>
+                                            );
+                                        })}
+                                </TableBody>
+                            </Table>
                             </div>
                             <Pagination 
                                 currentPage={page}
@@ -744,53 +832,67 @@ export default function Requests({ archived = false }) {
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {groupedRequests[shopName].map(req => (
-                                                    <TableRow key={req.requestID} className={cn({ 
-                                                        'bg-red-100': req.isOverdue && req.status === 'In work',
-                                                        'bg-blue-100': req.status === 'Done' 
-                                                    })}>
-                                                        <TableCell>{req.requestID}</TableCell>
-                                                        <TableCell className="max-w-0 w-full">
-                                                            <div 
-                                                                className="line-clamp-2 break-words text-sm" 
-                                                                title={req.description}
-                                                            >
-                                                                {req.description}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell>{req.workCategoryName}</TableCell>
-                                                        <TableCell>{getUrgencyDisplayName(req.urgencyName)}</TableCell>
-                                                        <TableCell>{req.assignedContractorName || '—'}</TableCell>
-                                                        <TableCell>{getStatusDisplayName(req.status)}</TableCell>
-                                                        <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 })}>{req.daysRemaining !== null ? req.daysRemaining : '—'}</TableCell>
-                                                        <TableCell>
-                                                            <div className="flex gap-1">
-                                                                <Button variant="ghost" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDetails(req)} title="Просмотр деталей"><Eye className="h-4 w-4"/></Button>
-                                                                <Button variant="ghost" size="sm" className="px-2 hover:text-blue-700" onClick={() => openComments(req)} title="Комментарии">
-                                                                    <MessageSquare className="h-4 w-4 mr-1.5"/>
-                                                                    <span className="text-xs font-semibold">{req.commentCount}</span>
-                                                                </Button>
-                                                                <Button variant="ghost" size="sm" className="px-2 hover:text-indigo-700" onClick={() => openPhotos(req)} title="Фотографии">
-                                                                    <Camera className="h-4 w-4 mr-1.5"/>
-                                                                    <span className="text-xs font-semibold">{req.photoCount}</span>
-                                                                </Button>                                                                
-                                                                {isContractor && req.status === 'In work' && !archived && (
-                                                                    <Button variant="outline" size="sm" className="px-2 hover:text-indigo-700" 
-                                                                        onClick={() => { 
-                                                                            setTargetRequestId(req.requestID); // Устанавливаем ID для модалки
-                                                                            setIsCompleteAlertOpen(true);      // Открываем модальное окно завершения
-                                                                        }} 
-                                                                        title="Завершить заявку">
-                                                                        Завершить
+                                                {groupedRequests[shopName].map(req => {
+                                                    const notifsForReq = unreadNotifications.filter(n => n.requestID === req.requestID);
+                                                    const hasUnread = notifsForReq.length > 0;
+                                                    const hasNewComments = notifsForReq.some(n => n.title.toLowerCase().includes('комментарий'));
+                                                    const hasNewPhotos = notifsForReq.some(n => n.title.toLowerCase().includes('фото'));
+                                                    const hasUpdate = notifsForReq.some(n => {
+                                                        const t = n.title.toLowerCase();
+                                                        return t.includes('обновлен') || t.includes('выполнен') || t.includes('новая') || t.includes('восстановлен') || t.includes('просроч');
+                                                    });
+
+                                                    return (
+                                                            <TableRow key={req.requestID} className={cn("transition-all duration-300", { 
+                                                                'bg-red-100': req.isOverdue && req.status === 'In work',
+                                                                'bg-blue-100': req.status === 'Done',
+                                                                'border-l-4 border-l-yellow-400': hasUnread
+                                                            })}>
+                                                            <TableCell>{req.requestID}</TableCell>
+                                                            <TableCell className="max-w-0 w-full">
+                                                                <div 
+                                                                    className="line-clamp-2 break-words text-sm" 
+                                                                    title={req.description}
+                                                                >
+                                                                    {req.description}
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell>{req.workCategoryName}</TableCell>
+                                                            <TableCell>{getUrgencyDisplayName(req.urgencyName)}</TableCell>
+                                                            <TableCell>{req.assignedContractorName || '—'}</TableCell>
+                                                            <TableCell>{getStatusDisplayName(req.status)}</TableCell>
+                                                            <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 })}>{req.daysRemaining !== null ? req.daysRemaining : '—'}</TableCell>
+                                                            <TableCell>
+                                                                <div className="flex gap-1">
+                                                                    <Button variant="ghost" size="icon" className={cn("px-2", hasUpdate ? "text-yellow-600 bg-yellow-100 animate-pulse hover:text-yellow-700 hover:bg-yellow-200" : "hover:text-indigo-700")} onClick={() => openDetails(req)} title="Просмотр деталей">
+                                                                        <Eye className="h-4 w-4"/>
                                                                     </Button>
-                                                                )}
-                                                                {(isAdmin || isModerator) && req.status !== 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openEditForm(req)}><Edit className="h-4 w-4" /></Button>)}
-                                                                {(isAdmin || isModerator) && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => {setTargetRequestId(req.requestID); setIsRestoreAlertOpen(true);}}><RotateCcw className="h-4 w-4" /></Button>)}
-                                                                {isAdmin && (<Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)}><Trash2 className="h-4 w-4" /></Button>)}
-                                                            </div>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
+                                                                    <Button variant="ghost" size="sm" className={cn("px-2", hasNewComments ? "text-yellow-600 bg-yellow-100 animate-pulse hover:text-yellow-700 hover:bg-yellow-200" : "hover:text-blue-700")} onClick={() => openComments(req)} title="Комментарии">
+                                                                        <MessageSquare className="h-4 w-4 mr-1.5"/>
+                                                                        <span className="text-xs font-semibold">{req.commentCount}</span>
+                                                                    </Button>
+                                                                    <Button variant="ghost" size="sm" className={cn("px-2", hasNewPhotos ? "text-yellow-600 bg-yellow-100 animate-pulse hover:text-yellow-700 hover:bg-yellow-200" : "hover:text-indigo-700")} onClick={() => openPhotos(req)} title="Фотографии">
+                                                                        <Camera className="h-4 w-4 mr-1.5"/>
+                                                                        <span className="text-xs font-semibold">{req.photoCount}</span>
+                                                                    </Button>                                                                
+                                                                    {isContractor && req.status === 'In work' && !archived && (
+                                                                        <Button variant="outline" size="sm" className="px-2 hover:text-indigo-700" 
+                                                                            onClick={() => { 
+                                                                                setTargetRequestId(req.requestID); 
+                                                                                setIsCompleteAlertOpen(true);      
+                                                                            }} 
+                                                                            title="Завершить заявку">
+                                                                            Завершить
+                                                                        </Button>
+                                                                    )}
+                                                                    {(isAdmin || isModerator) && req.status !== 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openEditForm(req)}><Edit className="h-4 w-4" /></Button>)}
+                                                                    {(isAdmin || isModerator) && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => {setTargetRequestId(req.requestID); setIsRestoreAlertOpen(true);}}><RotateCcw className="h-4 w-4" /></Button>)}
+                                                                    {isAdmin && (<Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)}><Trash2 className="h-4 w-4" /></Button>)}
+                                                                </div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })}
                                             </TableBody>
                                         </Table>
                                     </div>
@@ -853,6 +955,8 @@ export default function Requests({ archived = false }) {
                 isOpen={isDetailsOpen} 
                 onClose={() => setIsDetailsOpen(false)} 
                 request={currentRequest} 
+                highlightUpdate={highlightConfig.details} 
+                isAdmin={isAdmin || isModerator}
                 footerContent={
                     currentRequest ? (
                         <div className="flex justify-end gap-2 w-full">
@@ -866,9 +970,8 @@ export default function Requests({ archived = false }) {
                     ) : null
                 }
             />
-            <CommentsModal isOpen={isCommentsOpen} onClose={handleCommentsModalClose} request={currentRequest} />
-            <PhotosModal isOpen={isPhotosOpen} onClose={handlePhotosModalClose} request={currentRequest} />
-
+            <CommentsModal isOpen={isCommentsOpen} onClose={handleCommentsModalClose} request={currentRequest} hasNew={highlightConfig.comments} />
+            <PhotosModal isOpen={isPhotosOpen} onClose={handlePhotosModalClose} request={currentRequest} hasNew={highlightConfig.photos} />
                         <div className="mt-6 border-t pt-4">
                 <h3 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">
                     Условные обозначения

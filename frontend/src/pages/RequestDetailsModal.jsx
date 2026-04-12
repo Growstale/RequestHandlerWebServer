@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { getUrgencyDisplayName, getStatusDisplayName } from '@/lib/displayNames';
 import { getShopContractorChats } from '@/api/shopContractorChatApi';
 import { cn } from '@/lib/utils';
-import { Send, AlertTriangle, Loader2 } from 'lucide-react';
+import { Send, AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
 
 const formatDate = (dateString) => {
     if (!dateString) return '—';
@@ -27,7 +27,7 @@ const renderDeadlineInfo = (request) => {
 };
 
 
-export default function RequestDetailsModal({ isOpen, onClose, request, footerContent }) {
+export default function RequestDetailsModal({ isOpen, onClose, request, footerContent, highlightUpdate, isAdmin }) {
     const [chatInfo, setChatInfo] = useState({ status: 'idle', data: null });
 
     // Загрузка информации о чате при открытии модалки
@@ -68,65 +68,74 @@ export default function RequestDetailsModal({ isOpen, onClose, request, footerCo
                 </DialogHeader>
 
                 <div className="flex-1 overflow-y-auto p-6 pt-0 custom-scrollbar text-sm">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                    {/* КРАСИВЫЕ ПЛАШКИ УВЕДОМЛЕНИЙ */}
+                    {highlightUpdate?.overdue && (
+                        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded-md font-semibold animate-in fade-in zoom-in duration-500 flex items-center gap-2">
+                            <AlertTriangle className="h-5 w-5" />
+                            Внимание: Заявка была просрочена!
+                        </div>
+                    )}
+                    {highlightUpdate?.restored && (
+                        <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-md font-semibold animate-in fade-in zoom-in duration-500 flex items-center gap-2">
+                            <RotateCcw className="h-5 w-5" />
+                            Заявка была восстановлена из архива.
+                        </div>
+                    )}
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
                         <div className="space-y-4">
-                            <div>
+                            <div className={cn("p-1 rounded transition-colors duration-1000", highlightUpdate?.shop && "bg-yellow-100 ring-1 ring-yellow-300 shadow-sm")}>
                                 <p className="font-semibold text-gray-700">Магазин:</p>
                                 <p>{request.shopName}</p>
                             </div>
-                            <div>
+                            <div className="p-1">
                                 <p className="font-semibold text-gray-700">Вид работы:</p>
                                 <p>{request.workCategoryName}</p>
                             </div>
-                            <div>
+                            <div className={cn("p-1 rounded transition-colors duration-1000", highlightUpdate?.urgency && "bg-yellow-100 ring-1 ring-yellow-300 shadow-sm")}>
                                 <p className="font-semibold text-gray-700">Срочность:</p>
                                 <p>{getUrgencyDisplayName(request.urgencyName)}</p>
                             </div>
-                            {request.urgencyName === 'Customizable' && request.daysForTask && (
-                                 <div>
-                                    <p className="font-semibold text-gray-700">Дней на выполнение:</p>
-                                    <p>{request.daysForTask}</p>
-                                </div>
-                            )}
+                            
+                            <div className="p-1">
+                                <p className="font-semibold text-gray-700">Создана:</p>
+                                <p>{formatDate(request.createdAt)}</p>
+                            </div>
                         </div>
 
                         <div className="space-y-4">
-                            <div>
+                            <div className={cn("p-1 rounded transition-colors duration-1000", highlightUpdate?.status && "bg-yellow-100 ring-1 ring-yellow-300 shadow-sm")}>
                                 <p className="font-semibold text-gray-700">Статус:</p>
                                 <p>{getStatusDisplayName(request.status)}</p>
                             </div>
-                             <div>
+                            <div>
                                 <p className="font-semibold text-gray-700">Срок:</p>
-                                <p className={cn({
-                                    'font-bold text-red-600': request.isOverdue && request.status === 'In work'
-                                })}>
+                                <p className={cn(request.isOverdue && request.status === 'In work' && 'font-bold text-red-600')}>
                                     {renderDeadlineInfo(request)}
                                 </p>
                             </div>
-                            <div>
+                            <div className={cn("p-1 rounded transition-colors duration-1000", highlightUpdate?.contractor && "bg-yellow-100 ring-1 ring-yellow-300 shadow-sm")}>
                                 <p className="font-semibold text-gray-700">Исполнитель:</p>
                                 <p>{request.assignedContractorName || 'Не назначен'}</p>
                             </div>
-                             <div>
-                                <p className="font-semibold text-gray-700">Дата создания:</p>
-                                <p>{formatDate(request.createdAt)}</p>
-                            </div>
+
                             {request.status === 'Closed' && request.closedAt && (
-                                 <div>
-                                    <p className="font-semibold text-gray-700">Дата закрытия:</p>
+                                <div className="p-1">
+                                    <p className="font-semibold text-gray-700">Закрыта:</p>
                                     <p>{formatDate(request.closedAt)}</p>
                                 </div>
                             )}
                         </div>
-                        
+
                         <div className="md:col-span-2 pt-4 border-t">
                             <p className="font-semibold text-gray-700">Описание:</p>
-                            <p className="mt-1 whitespace-pre-wrap bg-gray-50 p-3 rounded-md">
+                            <p className={cn("mt-1 whitespace-pre-wrap p-3 rounded-md transition-colors duration-1000", 
+                                highlightUpdate?.description ? "bg-yellow-100 border border-yellow-300 shadow-sm" : "bg-gray-50")}>
                                 {request.description || 'Описание отсутствует.'}
                             </p>
                         </div>
 
-                        {/* СЕКЦИЯ: ИНФОРМАЦИЯ О ЧАТЕ */}
+                        {isAdmin && (
                         <div className="md:col-span-2 pt-2">
                             <p className="font-semibold text-gray-700 mb-2">Уведомления в Telegram:</p>
                             
@@ -156,7 +165,7 @@ export default function RequestDetailsModal({ isOpen, onClose, request, footerCo
                                 </div>
                             )}
                         </div>
-
+                        )}
                     </div>
                 </div>
 

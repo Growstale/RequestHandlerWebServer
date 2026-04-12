@@ -49,8 +49,9 @@ public class RequestService {
     private final ReactiveUrgencyCategoryRepository urgencyCategoryRepository;
     private final WebNotificationService webNotificationService;
     private final UpdateBroadcaster updateBroadcaster;
+    private final ReactiveWebNotificationRepository webNotificationRepository;
 
-    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository, WebNotificationService webNotificationService, UpdateBroadcaster updateBroadcaster) {
+    public RequestService(R2dbcEntityTemplate template, DatabaseClient databaseClient, ReactiveRequestRepository requestRepository, ReactiveRequestCustomDayRepository customDayRepository, ReactiveRequestCommentRepository commentRepository, ReactiveRequestPhotoRepository photoRepository, ReactiveRoleRepository roleRepository, ReactiveUserRepository userRepository, ReactiveShopRepository shopRepository, TelegramNotificationService notificationService, ReactiveShopContractorChatRepository chatRepository, ReactiveWorkCategoryRepository workCategoryRepository, ReactiveUrgencyCategoryRepository urgencyCategoryRepository, WebNotificationService webNotificationService, UpdateBroadcaster updateBroadcaster, ReactiveWebNotificationRepository webNotificationRepository) {
         this.template = template;
         this.databaseClient = databaseClient;
         this.requestRepository = requestRepository;
@@ -66,6 +67,7 @@ public class RequestService {
         this.urgencyCategoryRepository = urgencyCategoryRepository;
         this.webNotificationService = webNotificationService;
         this.updateBroadcaster = updateBroadcaster;
+        this.webNotificationRepository = webNotificationRepository;
     }
 
 
@@ -391,7 +393,7 @@ public class RequestService {
                         Mono<Void> web = webNotificationService.send(
                                 requestId,
                                 "Обновление заявки #" + requestId,
-                                "Параметры заявки были изменены.",
+                                String.join(", ", changes),
                                 savedReq.getAssignedContractorID(),
                                 initiatorId // Исключаем инициатора
                         );
@@ -563,7 +565,8 @@ public class RequestService {
     }
 
     public Mono<Void> deleteRequest(Integer requestId) {
-        return requestRepository.deleteById(requestId)
+        return webNotificationRepository.deleteByRequestID(requestId)
+                .then(requestRepository.deleteById(requestId))
                 .doOnSuccess(v -> updateBroadcaster.publish("REQUESTS_UPDATED"));
     }
 

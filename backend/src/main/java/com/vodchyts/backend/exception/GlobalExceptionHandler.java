@@ -77,8 +77,6 @@ public class GlobalExceptionHandler {
             UnauthorizedException.class
     })
     public Mono<ResponseEntity<String>> handleUnauthorizedExceptions(RuntimeException ex, ServerWebExchange exchange) {
-        logWarn(exchange, ex, "Unauthorized: " + ex.getMessage());
-        // Отдаем текст нашего исключения, он безопасен
         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage()));
     }
 
@@ -130,8 +128,6 @@ public class GlobalExceptionHandler {
                 .getAllErrors().stream()
                 .map(DefaultMessageSourceResolvable::getDefaultMessage)
                 .collect(Collectors.joining(", "));
-        logWarn(exchange, ex, "Validation Error: " + errors);
-        // Ошибки валидации (например из @NotBlank) безопасны
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors));
     }
 

@@ -8,7 +8,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { Trash2, Reply, X, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils'; 
 
-export default function CommentsModal({ isOpen, onClose, request }) {
+export default function CommentsModal({ isOpen, onClose, request, hasNew }) {
     const [comments, setComments] = useState([]);
     const [newComment, setNewComment] = useState('');
     const [replyTo, setReplyTo] = useState(null); 
@@ -60,7 +60,7 @@ export default function CommentsModal({ isOpen, onClose, request }) {
     const handleDelete = async () => {
         if (!deletingComment) return;
         try {
-            await deleteComment(deletingComment.commentID); // Сервер удалит и детей сам
+            await deleteComment(deletingComment.commentID); 
             setDeletingComment(null);
             loadComments();
         } catch (error) {
@@ -74,55 +74,74 @@ export default function CommentsModal({ isOpen, onClose, request }) {
                 <DialogContent className="max-w-2xl w-[95vw] sm:w-full flex flex-col max-h-[95vh] md:max-h-[90vh] p-4 sm:p-6 rounded-xl">
                     <DialogHeader>
                         <DialogTitle>Комментарии к заявке #{request?.requestID}</DialogTitle>
+                        <DialogDescription className="hidden">Окно для чтения и добавления комментариев к заявке</DialogDescription>
                     </DialogHeader>
                     
                     {apiError && <p className="text-sm text-red-600 mb-2">{apiError}</p>}
 
                     <div className="flex-grow overflow-y-auto pr-4 space-y-4 custom-scrollbar">
                         {loading && <p className="text-center py-4">Загрузка...</p>}
-                        {comments.map(c => (
-                            <div key={c.commentID} className="space-y-3">
-                                <div className="p-3 bg-gray-50 rounded-lg group border border-gray-100">
-                                    <div className="flex justify-between items-start mb-1">
-                                        <div className="text-xs">
-                                            <span className="font-bold text-blue-700">{c.userLogin}</span>
-                                            <span className="text-gray-400 ml-2">{new Date(c.createdAt).toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {canAddContent && (
-                                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyTo(c)}>
-                                                    <Reply className="h-3 w-3" />
-                                                </Button>
-                                            )}
-                                            {isAdmin && (
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-red-400 hover:text-red-600" onClick={() => setDeletingComment(c)}>
-                                                    <Trash2 className="h-3 w-3" />
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <p className="text-sm whitespace-pre-wrap">{c.commentText}</p>
-                                </div>
+                        {comments.map((c, index) => {
+                            const isLastRoot = index === comments.length - 1;
+                            const highlightParent = hasNew && isLastRoot && (!c.replies || c.replies.length === 0);
 
-                                {/* Ответы (Replies) */}
-                                {c.replies?.map(r => (
-                                    <div key={r.commentID} className="ml-8 p-2 bg-blue-50/50 border-l-2 border-blue-200 rounded-r-lg group">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <div className="text-[10px]">
-                                                <span className="font-bold text-blue-600">{r.userLogin}</span>
-                                                <span className="text-gray-400 ml-2">{new Date(r.createdAt).toLocaleString()}</span>
+                            return (
+                                <div key={c.commentID} className="space-y-3">
+                                    {/* Основной комментарий */}
+                                    <div className={cn(
+                                        "p-3 rounded-lg group border transition-colors duration-1000", 
+                                        highlightParent ? "bg-yellow-100 border-yellow-300 shadow-sm" : "bg-gray-50 border-gray-100"
+                                    )}>
+                                        <div className="flex justify-between items-start mb-1">
+                                            <div className="text-xs">
+                                                <span className="font-bold text-blue-700">{c.userLogin}</span>
+                                                <span className="text-gray-400 ml-2">{new Date(c.createdAt).toLocaleString()}</span>
                                             </div>
-                                            {isAdmin && (
-                                                <Button variant="ghost" size="icon" className="h-5 w-5 text-red-400 opacity-0 group-hover:opacity-100" onClick={() => setDeletingComment(r)}>
-                                                    <Trash2 className="h-3 w-3" />
-                                                </Button>
-                                            )}
+                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {canAddContent && (
+                                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyTo(c)}>
+                                                        <Reply className="h-3 w-3" />
+                                                    </Button>
+                                                )}
+                                                {isAdmin && (
+                                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-red-400 hover:text-red-600" onClick={() => setDeletingComment(c)}>
+                                                        <Trash2 className="h-3 w-3" />
+                                                    </Button>
+                                                )}
+                                            </div>
                                         </div>
-                                        <p className="text-xs whitespace-pre-wrap">{r.commentText}</p>
+                                        <p className="text-sm whitespace-pre-wrap">{c.commentText}</p>
                                     </div>
-                                ))}
-                            </div>
-                        ))}
+
+                                    {/* Ответы (Replies) */}
+                                    {c.replies?.map((r, rIndex) => {
+                                        const highlightReply = hasNew && isLastRoot && rIndex === c.replies.length - 1;
+                                        
+                                        return (
+                                            <div key={r.commentID} className={cn(
+                                                "ml-8 p-2 border-l-2 rounded-r-lg group transition-colors duration-1000",
+                                                highlightReply 
+                                                    ? "bg-yellow-100 border-yellow-400 shadow-md" 
+                                                    : "bg-blue-50/50 border-blue-200"
+                                            )}>
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <div className="text-[10px]">
+                                                        <span className="font-bold text-blue-600">{r.userLogin}</span>
+                                                        <span className="text-gray-400 ml-2">{new Date(r.createdAt).toLocaleString()}</span>
+                                                    </div>
+                                                    {isAdmin && (
+                                                        <Button variant="ghost" size="icon" className="h-5 w-5 text-red-400 opacity-0 group-hover:opacity-100" onClick={() => setDeletingComment(r)}>
+                                                            <Trash2 className="h-3 w-3" />
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs whitespace-pre-wrap">{r.commentText}</p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })}
                     </div>
 
                     {canAddContent && (
@@ -151,39 +170,39 @@ export default function CommentsModal({ isOpen, onClose, request }) {
                 </DialogContent>
             </Dialog>
 
-      <AlertDialog open={!!deletingComment} onOpenChange={() => setDeletingComment(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {deletingComment?.replies?.length > 0 
-                ? "Удалить ветку комментариев?" 
-                : "Удалить комментарий?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {deletingComment?.replies?.length > 0 ? (
-                <span className="font-medium">
-                  Внимание: у этого комментария есть ответы ({deletingComment.replies.length} шт.). 
-                  При удалении родительского комментария вся ветка переписки будет безвозвратно удалена.
-                </span>
-              ) : (
-                "Это действие необратимо. Вы уверены, что хотите удалить этот комментарий?"
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDelete} 
-              className={cn(
-                "bg-red-600 hover:bg-red-700",
-                deletingComment?.replies?.length > 0 && "bg-destructive text-destructive-foreground animate-pulse"
-              )}
-            >
-              {deletingComment?.replies?.length > 0 ? "Да, удалить всё" : "Удалить"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            <AlertDialog open={!!deletingComment} onOpenChange={() => setDeletingComment(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {deletingComment?.replies?.length > 0 
+                                ? "Удалить ветку комментариев?" 
+                                : "Удалить комментарий?"}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {deletingComment?.replies?.length > 0 ? (
+                                <span className="font-medium">
+                                    Внимание: у этого комментария есть ответы ({deletingComment.replies.length} шт.). 
+                                    При удалении родительского комментария вся ветка переписки будет безвозвратно удалена.
+                                </span>
+                            ) : (
+                                "Это действие необратимо. Вы уверены, что хотите удалить этот комментарий?"
+                            )}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Отмена</AlertDialogCancel>
+                        <AlertDialogAction 
+                            onClick={handleDelete} 
+                            className={cn(
+                                "bg-red-600 hover:bg-red-700",
+                                deletingComment?.replies?.length > 0 && "bg-destructive text-destructive-foreground animate-pulse"
+                            )}
+                        >
+                            {deletingComment?.replies?.length > 0 ? "Да, удалить всё" : "Удалить"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }

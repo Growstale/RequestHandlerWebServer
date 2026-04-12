@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHeader, TableRow, TableHead } from "@/components/ui/table";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +28,9 @@ export default function MessageTemplateSelectorModal({ isOpen, onClose, template
             <DialogContent className="max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>Выбрать шаблон для вставки</DialogTitle>
+                    <DialogDescription className="sr-only">
+                        Выберите один из существующих шаблонов для быстрого заполнения текста
+                    </DialogDescription>
                 </DialogHeader>
                 <div className="my-4">
                     <Input

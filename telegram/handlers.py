@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes, ConversationHandler, CallbackContext, Ext
 from telegram.constants import ParseMode, ChatType
 from telegram.error import BadRequest, TimedOut, RetryAfter
 import api_client
-from utils import create_paginated_keyboard
+from utils import create_paginated_keyboard, compress_image
 from bot_logging import logger
 import time
 from telegram import ForceReply
@@ -1274,10 +1274,21 @@ async def add_photo_handler(update: Update, context: Context) -> int:
     if update.message.photo:
         photo = update.message.photo[-1]
         photo_file = await context.bot.get_file(photo.file_id)
-        photo_bytes = await photo_file.download_as_bytearray()
+        raw_bytes = await photo_file.download_as_bytearray()
+        try:
+            photo_bytes = compress_image(raw_bytes)
+        except Exception as e:
+            logger.error(f"Ошибка при сжатии фото: {e}")
+            photo_bytes = raw_bytes  # Если не вышло сжать, оставим оригинал
+
     elif update.message.document and update.message.document.mime_type.startswith('image/'):
         photo_file = await context.bot.get_file(update.message.document.file_id)
-        photo_bytes = await photo_file.download_as_bytearray()
+        raw_bytes = await photo_file.download_as_bytearray()
+        try:
+            photo_bytes = compress_image(raw_bytes)
+        except Exception as e:
+            logger.error(f"Ошибка при сжатии фото: {e}")
+            photo_bytes = raw_bytes  # Если не вышло сжать, оставим оригинал
 
     if not photo_bytes:
         msg = await update.message.reply_text("❌ Не удалось получить фото. Пожалуйста, отправьте изображение.")
@@ -2050,8 +2061,13 @@ async def editor_photo_handler(update: Update, context: Context) -> int:
     if update.message.photo:
         photo = update.message.photo[-1]
         photo_file = await context.bot.get_file(photo.file_id)
-        photo_bytes = await photo_file.download_as_bytearray()
-    
+        raw_bytes = await photo_file.download_as_bytearray()
+        try:
+            photo_bytes = compress_image(raw_bytes)
+        except Exception as e:
+            logger.error(f"Ошибка при сжатии фото в редакторе: {e}")
+            photo_bytes = raw_bytes
+
     if photo_bytes:
         draft['temp_photos'].append(photo_bytes)
         

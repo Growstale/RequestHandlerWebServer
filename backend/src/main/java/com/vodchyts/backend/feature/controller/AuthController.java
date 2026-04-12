@@ -1,5 +1,6 @@
 package com.vodchyts.backend.feature.controller;
 
+import com.vodchyts.backend.config.JwtConfig;
 import com.vodchyts.backend.exception.UnauthorizedException;
 import com.vodchyts.backend.feature.dto.LoginRequest;
 import com.vodchyts.backend.feature.dto.LoginResponse;
@@ -17,9 +18,11 @@ import java.time.Duration;
 public class AuthController {
 
     private final AuthService authService;
+    private final JwtConfig jwtConfig;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, JwtConfig jwtConfig) {
         this.authService = authService;
+        this.jwtConfig = jwtConfig;
     }
 
     @PostMapping("/login")
@@ -31,7 +34,7 @@ public class AuthController {
                             .httpOnly(true)
                             .secure(true)
                             .path("/")
-                            .maxAge(Duration.ofDays(7))
+                            .maxAge(Duration.ofMillis(jwtConfig.getRefreshExpirationMs()))
                             .build();
                     exchange.getResponse().addCookie(cookie);
 
@@ -52,7 +55,18 @@ public class AuthController {
         String refreshToken = cookie.getValue();
 
         return authService.refresh(refreshToken)
-                .map(ResponseEntity::ok);
+                .map(tokens -> {
+                    // Устанавливаем НОВУЮ куку с новым токеном
+                    ResponseCookie newCookie = ResponseCookie.from("refreshToken", tokens.refreshToken())
+                            .httpOnly(true)
+                            .secure(true)
+                            .path("/")
+                            .maxAge(Duration.ofMillis(jwtConfig.getRefreshExpirationMs()))
+                            .build();
+                    exchange.getResponse().addCookie(newCookie);
+
+                    return ResponseEntity.ok(new LoginResponse(tokens.accessToken()));
+                });
     }
 
     @PostMapping("/logout")

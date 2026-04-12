@@ -1,4 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from PIL import Image
+import io
 
 ITEMS_PER_PAGE = 8
 
@@ -42,3 +44,23 @@ def create_paginated_keyboard(items: list, page: int, data_prefix: str, name_key
         keyboard.append(nav_row)
 
     return InlineKeyboardMarkup(keyboard)
+
+
+def compress_image(image_bytes: bytearray) -> bytes:
+    """Сжимает изображение до 1280px и конвертирует в JPEG 70% качества"""
+    # Читаем байты в объект Pillow
+    img = Image.open(io.BytesIO(image_bytes))
+
+    # Конвертируем в RGB (необходимо для JPEG, если оригинал был PNG с прозрачностью)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+
+    # Пропорциональное уменьшение (thumbnail не увеличивает маленькие фото)
+    MAX_SIZE = (1280, 1280)
+    img.thumbnail(MAX_SIZE, Image.Resampling.LANCZOS)
+
+    # Сохраняем результат в буфер
+    output = io.BytesIO()
+    img.save(output, format="JPEG", quality=70, optimize=True)
+
+    return output.getvalue()

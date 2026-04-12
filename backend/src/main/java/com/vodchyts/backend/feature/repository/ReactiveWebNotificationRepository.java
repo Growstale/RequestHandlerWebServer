@@ -8,4 +8,5 @@ import reactor.core.publisher.Mono;
 public interface ReactiveWebNotificationRepository extends ReactiveCrudRepository<WebNotification, Integer> {
     Flux<WebNotification> findByUserIDAndIsReadFalseOrderByCreatedAtDesc(Integer userID);
     Mono<Void> deleteByUserID(Integer userID);
+    Mono<Void> deleteByRequestID(Integer requestID);
 }

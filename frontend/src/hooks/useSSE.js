@@ -35,19 +35,13 @@ export function useSSE(onMessage) {
             };
 
             globalSSE.onerror = (e) => {
-                // Если статус 401 - значит токен протух
-                // EventSource сам по себе не возвращает статус код ошибки, 
-                // но если соединение закрывается и мы не можем подключиться - считаем что токен умер
-                console.warn('❌ SSE: Ошибка соединения (возможно протух токен)');
+                console.warn('❌ SSE: Ошибка соединения. Пытаемся переподключиться...');
                 
                 globalSSE.close();
                 globalSSE = null;
 
                 api.get('/api/user/whoami').catch(err => {
-                    if (err.response?.status === 401) {
-                        console.log('SSE: Токен истек, вызываем logout...');
-                        logout(); // Очистит accessToken в AuthProvider, вызовет перерендер
-                    }
+                    console.log('SSE: whoami failed, waiting for axios interceptor to resolve it.');
                 });
             };
         };

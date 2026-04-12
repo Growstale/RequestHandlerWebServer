@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { getUrgencyDisplayName } from '@/lib/displayNames';
 import { getShopContractorChats } from '@/api/shopContractorChatApi';
 import { Loader2, Send, AlertTriangle, X, Paperclip } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const getInitialFormData = (req) => {
   return {
@@ -27,17 +28,65 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
     // --- Состояния для файлов ---
     const [files, setFiles] = useState([]);
     const [fileError, setFileError] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false); // Состояние сжатия
 
     const isEditing = !!currentRequest;
 
-    const selectedUrgency = urgencyCategories.find(u => u.urgencyID === formData.urgencyID);
-    const isCustomizable = selectedUrgency?.urgencyName === 'Customizable';
+    // --- Функция сжатия изображения ---
+    const compressImage = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 1280;
+                    const MAX_HEIGHT = 1280;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", {
+                                type: 'image/jpeg',
+                                lastModified: Date.now()
+                            });
+                            resolve(compressedFile);
+                        } else {
+                            reject(new Error("Ошибка сжатия"));
+                        }
+                    }, 'image/jpeg', 0.7);
+                };
+                img.onerror = reject;
+            };
+            reader.onerror = reject;
+        });
+    };
 
     useEffect(() => {
+        const selectedUrgency = urgencyCategories.find(u => u.urgencyID === formData.urgencyID);
+        const isCustomizable = selectedUrgency?.urgencyName === 'Customizable';
         if (isCustomizable && formData.customDays === '') {
             setFormData(prev => ({ ...prev, customDays: selectedUrgency.defaultDays || 30 }));
         }
-    }, [isCustomizable, selectedUrgency, formData.customDays]);
+    }, [formData.urgencyID, urgencyCategories, formData.customDays]);
 
     useEffect(() => {
       const checkChat = async () => {
@@ -70,9 +119,9 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
     }, [formData.shopID, formData.assignedContractorID]);
     
     // --- Обработчики файлов ---
-    const handleFileChange = (e) => {
+    const handleFileChange = async (e) => {
         const selectedFiles = Array.from(e.target.files);
-        const MAX_SIZE = 5 * 1024 * 1024;
+        if (selectedFiles.length === 0) return;
 
         if (files.length + selectedFiles.length > 10) {
             setFileError('Можно прикрепить не более 10 фотографий.');
@@ -80,50 +129,52 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
             return;
         }
 
-        const oversizedFile = selectedFiles.find(f => f.size > MAX_SIZE);
-        if (oversizedFile) {
-            setFileError(`Файл ${oversizedFile.name} слишком большой (макс. 5МБ).`);
-            e.target.value = null;
-            return;
-        }
-
         setFileError('');
-        setFiles(prev => [...prev, ...selectedFiles]);
-        e.target.value = null; 
+        setIsProcessing(true);
+        try {
+            const compressed = await Promise.all(selectedFiles.map(f => compressImage(f)));
+            setFiles(prev => [...prev, ...compressed]);
+        } catch (err) {
+            setFileError("Ошибка при обработке файлов.");
+        } finally {
+            setIsProcessing(false);
+            e.target.value = null; 
+        }
     };
 
     const removeFile = (indexToRemove) => {
         setFiles(prev => prev.filter((_, index) => index !== indexToRemove));
     };
 
-    const handlePaste = useCallback((e) => {
-        if (isEditing) return; // Разрешаем вставку только при создании
+    const handlePaste = useCallback(async (e) => {
+        if (isEditing || isProcessing || isSubmitting) return; 
         const items = e.clipboardData.items;
-        const newFiles = [];
-        const MAX_SIZE = 5 * 1024 * 1024;
+        const pastedFiles = [];
 
         for (let i = 0; i < items.length; i++) {
             if (items[i].type.indexOf("image") !== -1) {
                 const file = items[i].getAsFile();
-                if (file) {
-                    if (file.size > MAX_SIZE) {
-                        setFileError(`Вставленный файл слишком большой (макс. 5МБ).`);
-                        continue;
-                    }
-                    newFiles.push(file);
-                }
+                if (file) pastedFiles.push(file);
             }
         }
 
-        if (newFiles.length > 0) {
-            if (files.length + newFiles.length > 10) {
+        if (pastedFiles.length > 0) {
+            if (files.length + pastedFiles.length > 10) {
                 setFileError('Можно прикрепить не более 10 фотографий.');
                 return;
             }
             setFileError('');
-            setFiles(prev => [...prev, ...newFiles]);
+            setIsProcessing(true);
+            try {
+                const compressed = await Promise.all(pastedFiles.map(f => compressImage(f)));
+                setFiles(prev => [...prev, ...compressed]);
+            } catch (err) {
+                setFileError("Ошибка при обработке скриншота.");
+            } finally {
+                setIsProcessing(false);
+            }
         }
-    }, [isEditing, files.length]);
+    }, [isEditing, files.length, isProcessing, isSubmitting]);
 
     useEffect(() => {
         window.addEventListener('paste', handlePaste);
@@ -144,17 +195,18 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
     const handleSubmit = (e) => {
         e.preventDefault();
         const dataToSend = { ...formData };
-        if (!isCustomizable) {
+        const selectedUrgency = urgencyCategories.find(u => u.urgencyID === formData.urgencyID);
+        if (selectedUrgency?.urgencyName !== 'Customizable') {
             delete dataToSend.customDays;
         }
-        // Передаем файлы вместе с датой!
         onSubmit(dataToSend, files);
     };
 
+    const isCustomizable = urgencyCategories.find(u => u.urgencyID === formData.urgencyID)?.urgencyName === 'Customizable';
+
     return (
         <form onSubmit={handleSubmit} className="flex flex-col h-full pt-4">
-            
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 overflow-y-auto px-1 pr-2 custom-scrollbar" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 overflow-y-auto px-1 pr-2 custom-scrollbar" style={{ maxHeight: 'calc(100vh - 200px)' }}>
                 
                 {apiError && <p className="col-span-1 md:col-span-2 text-red-600 p-2 bg-red-50 rounded-md">{apiError}</p>}
                 
@@ -186,18 +238,35 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
                 {/* --- СЕКЦИЯ ПРИКРЕПЛЕНИЯ ФОТО (ТОЛЬКО ПРИ СОЗДАНИИ) --- */}
                 {!isEditing && (
                     <div className="space-y-2 md:col-span-2 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                        <Label className="flex items-center gap-2 text-slate-700">
-                            <Paperclip className="w-4 h-4" /> Прикрепить фото (макс. 10 шт)
+                        <Label className="flex items-center gap-2 text-slate-700 font-semibold">
+                            <Paperclip className="w-4 h-4" /> Фотографии (макс. 10 шт)
                         </Label>
                         <div className="flex flex-col gap-3">
-                            <Input 
-                                type="file" 
-                                multiple 
-                                accept="image/*"
-                                onChange={handleFileChange}
-                                className="bg-white file:mr-4 file:py-1 file:px-2 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                            />
-                            <p className="text-xs text-slate-500">Также можно вставить картинку из буфера обмена (Ctrl+V)</p>
+                            <Label htmlFor="file-upload-form" className={cn(
+                                "border-2 border-dashed rounded-lg p-4 transition-colors text-center cursor-pointer bg-white",
+                                isProcessing ? "border-yellow-400 bg-yellow-50" : "border-slate-300 hover:bg-slate-50"
+                            )}>
+                                {isProcessing ? (
+                                    <div className="flex flex-col items-center gap-1">
+                                        <Loader2 className="w-5 h-5 animate-spin text-yellow-600" />
+                                        <span className="text-xs text-yellow-700 font-medium">Сжатие...</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-sm text-slate-600 font-medium">Выберите файлы или вставьте (Ctrl+V)</span>
+                                        <span className="text-[10px] text-slate-400 uppercase tracking-tight">Будут сжаты автоматически</span>
+                                    </div>
+                                )}
+                                <input 
+                                    id="file-upload-form"
+                                    type="file" 
+                                    multiple 
+                                    accept="image/*"
+                                    onChange={handleFileChange}
+                                    className="hidden"
+                                    disabled={isProcessing || isSubmitting}
+                                />
+                            </Label>
                             
                             {files.length > 0 && (
                                 <div className="flex flex-wrap gap-3 mt-2">
@@ -286,14 +355,14 @@ export default function RequestForm({ currentRequest, onSubmit, onCancel, apiErr
             </div>
 
             <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
-                <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
+                <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting || isProcessing}>
                     Отмена
                 </Button>
-                <Button type="submit" disabled={isSubmitting}>
+                <Button type="submit" disabled={isSubmitting || isProcessing}>
                     {isSubmitting ? (
                         <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Сохранение...
+                            Создание...
                         </>
                     ) : (
                         isEditing ? 'Сохранить' : 'Создать'

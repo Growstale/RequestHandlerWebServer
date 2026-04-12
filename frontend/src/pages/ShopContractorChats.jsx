@@ -150,7 +150,7 @@ export default function ShopContractorChats() {
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>{currentChat ? 'Редактировать связь' : 'Новая связь'}</DialogTitle>
-                    <DialogDescription className="hidden">Форма настройки чата</DialogDescription>
+                    <DialogDescription className="sr-only">Форма настройки чата</DialogDescription>
                   </DialogHeader>
                   <ShopContractorChatForm
                     key={currentChat ? currentChat.shopContractorChatID : 'new'}
