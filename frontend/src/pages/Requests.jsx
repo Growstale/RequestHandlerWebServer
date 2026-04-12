@@ -12,7 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BarChart3, List, PlusCircle, Trash2, Edit, MessageSquare, Camera, Search, XCircle, RotateCcw, Eye, ArrowUpDown, Store } from 'lucide-react';
+import { BarChart3, List, PlusCircle, Trash2, Edit, MessageSquare, Camera, Search, XCircle, RotateCcw, Eye, ArrowUpDown, Store, CalendarRange } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 import RequestForm from './RequestForm';
 import CommentsModal from './CommentsModal';
@@ -27,7 +27,7 @@ import { useSSE } from '@/hooks/useSSE';
 
 const GanttChartView = lazy(() => import('./GanttChartView'));
 
-const filterKeys =['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue', 'startDate', 'endDate'];
+const filterKeys = ['searchTerm', 'shopId', 'workCategoryId', 'urgencyId', 'contractorId', 'status', 'overdue', 'startDate', 'endDate', 'closedStartDate', 'closedEndDate'];
 
 export default function Requests({ archived = false }) {
     const { user, accessToken } = useAuth();
@@ -72,6 +72,14 @@ export default function Requests({ archived = false }) {
 
     const [highlightConfig, setHighlightConfig] = useState({ details: false, comments: false, photos: false });
 
+    const [period, setPeriod] = useState('all');
+    const [customStart, setCustomStart] = useState('');
+    const [customEnd, setCustomEnd] = useState('');
+
+    const [closedPeriod, setClosedPeriod] = useState('all');
+    const [closedCustomStart, setClosedCustomStart] = useState('');
+    const [closedCustomEnd, setClosedCustomEnd] = useState('');
+
 const clearAndCheckNotifs = (requestId, keywords) => {
         const toDelete = unreadNotifications.filter(n =>
             n.requestID === requestId &&
@@ -92,7 +100,7 @@ const clearAndCheckNotifs = (requestId, keywords) => {
         }
         const currentParams = new URLSearchParams(searchParamsString);
         try {
-            const useDateFilters = viewMode === 'gantt';
+            const useDateFilters = viewMode === 'gantt' || archived;
             const params = {
                 page: parseInt(currentParams.get('page') || '0', 10),
                 archived,
@@ -105,6 +113,9 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                 overdue: currentParams.get('overdue') === 'true',
                 startDate: useDateFilters ? (currentParams.get('startDate') || null) : null,
                 endDate: useDateFilters ? (currentParams.get('endDate') || null) : null,
+                closedStartDate: searchParams.get('closedStartDate') || null,
+                closedEndDate: searchParams.get('closedEndDate') || null,
+
                 sortConfig: (currentParams.getAll('sort').length > 0 ? currentParams.getAll('sort') : ['requestID,asc']).map(s => ({
                     field: s.split(',')[0],
                     direction: s.split(',')[1] || 'asc'
@@ -154,6 +165,68 @@ const clearAndCheckNotifs = (requestId, keywords) => {
     }, [viewMode, requests]);
 
     useEffect(() => {
+        if (!archived) return;
+
+        const today = new Date();
+        const endStr = today.toISOString().split('T')[0];
+        
+        // Расчет для даты создания
+        let startStr = '';
+        const startObj = new Date(today);
+        switch (period) {
+            case 'today': startStr = endStr; break;
+            case 'week': startObj.setDate(today.getDate() - 7); startStr = startObj.toISOString().split('T')[0]; break;
+            case 'month': startObj.setMonth(today.getMonth() - 1); startStr = startObj.toISOString().split('T')[0]; break;
+            case 'quarter': startObj.setMonth(today.getMonth() - 3); startStr = startObj.toISOString().split('T')[0]; break;
+            case 'half_year': startObj.setMonth(today.getMonth() - 6); startStr = startObj.toISOString().split('T')[0]; break;
+            case 'year': startObj.setFullYear(today.getFullYear() - 1); startStr = startObj.toISOString().split('T')[0]; break;
+            case 'custom': startStr = customStart; break;
+            default: startStr = ''; break;
+        }
+
+        // Расчет для даты закрытия
+        let cStartStr = '';
+        const cStartObj = new Date(today);
+        switch (closedPeriod) {
+            case 'today': cStartStr = endStr; break;
+            case 'week': cStartObj.setDate(today.getDate() - 7); cStartStr = cStartObj.toISOString().split('T')[0]; break;
+            case 'month': cStartObj.setMonth(today.getMonth() - 1); cStartStr = cStartObj.toISOString().split('T')[0]; break;
+            case 'all': cStartStr = ''; break;
+            case 'custom': cStartStr = closedCustomStart; break;
+            default: cStartStr = ''; break;
+        }
+
+        setSearchParams(prev => {
+            // Обработка даты создания
+            if (period === 'all') {
+                prev.delete('startDate');
+                prev.delete('endDate');
+            } else if (period === 'custom') {
+                if (customStart) prev.set('startDate', customStart);
+                if (customEnd) prev.set('endDate', customEnd);
+            } else {
+                prev.set('startDate', startStr);
+                prev.set('endDate', endStr);
+            }
+
+            // Обработка даты закрытия
+            if (closedPeriod === 'all') {
+                prev.delete('closedStartDate');
+                prev.delete('closedEndDate');
+            } else if (closedPeriod === 'custom') {
+                if (closedCustomStart) prev.set('closedStartDate', closedCustomStart);
+                if (closedCustomEnd) prev.set('closedEndDate', closedCustomEnd);
+            } else {
+                prev.set('closedStartDate', cStartStr);
+                prev.set('closedEndDate', endStr);
+            }
+
+            prev.set('page', '0');
+            return prev;
+        }, { replace: true });
+    }, [period, customStart, customEnd, closedPeriod, closedCustomStart, closedCustomEnd, archived]);
+
+    useEffect(() => {
         reloadRef.current = reloadRequests;
     }, [reloadRequests]);
 
@@ -176,6 +249,13 @@ const clearAndCheckNotifs = (requestId, keywords) => {
     }, []);
 
     const handleResetFilters = () => {
+        setPeriod('all');
+        setCustomStart('');
+        setCustomEnd('');
+        setClosedPeriod('all');
+        setClosedCustomStart('');
+        setClosedCustomEnd('');
+
         setSearchParams(prev => {
             filterKeys.forEach(key => prev.delete(key));
             prev.set('page', '0');
@@ -192,8 +272,10 @@ const clearAndCheckNotifs = (requestId, keywords) => {
         contractorId: searchParams.get('contractorId') || null,
         status: searchParams.get('status') || null,
         overdue: searchParams.get('overdue') === 'true',
-        startDate: viewMode === 'gantt' ? (searchParams.get('startDate') || null) : null,
-        endDate: viewMode === 'gantt' ? (searchParams.get('endDate') || null) : null,
+        startDate: (viewMode === 'gantt' || archived) ? (searchParams.get('startDate') || null) : null,
+        endDate: (viewMode === 'gantt' || archived) ? (searchParams.get('endDate') || null) : null,
+        closedStartDate: archived ? (searchParams.get('closedStartDate') || null) : null,
+        closedEndDate: archived ? (searchParams.get('closedEndDate') || null) : null,
         sortConfig: (searchParams.getAll('sort').length > 0 ? searchParams.getAll('sort') : ['requestID,asc']).map(s => ({
             field: s.split(',')[0],
             direction: s.split(',')[1] || 'asc'
@@ -567,12 +649,76 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                 )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2 mb-4 p-4 border rounded-lg bg-gray-50 items-end">
+<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mb-4 p-4 border rounded-lg bg-gray-50 items-end">
                  
-                 <div className="space-y-1 xl:col-span-2">
-                    <Label className="text-xs text-muted-foreground ml-1">Поиск</Label>
-                    <Input placeholder="Поиск..." value={searchTerm} onChange={e => updateQueryParam('searchTerm', e.target.value)} className="bg-white" />
-                 </div>
+            <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground ml-1">Поиск</Label>
+                <Input placeholder="Поиск..." value={searchTerm} onChange={e => updateQueryParam('searchTerm', e.target.value)} className="bg-white" />
+            </div>
+
+            {archived && (
+                <>
+                {/* Дата создания */}
+                <div className={cn("space-y-1 transition-all", period === 'custom' ? "md:col-span-2" : "")}>
+                    <Label className="text-xs text-muted-foreground ml-1">Дата создания</Label>
+                    <div className="flex flex-col xl:flex-row xl:items-center bg-white border rounded-md min-h-[36px] gap-1 p-1">
+                        <div className="flex items-center w-full xl:w-auto">
+                            <CalendarRange className="h-4 w-4 text-gray-500 mx-2 hidden xl:block shrink-0" />
+                            <Select value={period} onValueChange={setPeriod}>
+                                <SelectTrigger className="w-full xl:w-[130px] border-none shadow-none focus:ring-0 bg-transparent h-8 text-xs">
+                                    <SelectValue placeholder="Период" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="today">За сегодня</SelectItem>
+                                    <SelectItem value="week">За 7 дней</SelectItem>
+                                    <SelectItem value="month">За месяц</SelectItem>
+                                    <SelectItem value="all">За всё время</SelectItem>
+                                    <SelectItem value="custom">Свой период...</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        
+                        {period === 'custom' && (
+                            <div className="flex items-center gap-1 w-full xl:w-auto xl:border-l border-gray-100 xl:pl-2">
+                                <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="h-8 text-xs flex-1 xl:w-[120px] border-gray-200" />
+                                <span className="text-gray-300 hidden xl:inline">—</span>
+                                <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="h-8 text-xs flex-1 xl:w-[120px] border-gray-200" />
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Дата закрытия (архивации) */}
+                <div className={cn("space-y-1 transition-all", closedPeriod === 'custom' ? "md:col-span-2" : "")}>
+                    <Label className="text-xs text-muted-foreground ml-1">Дата закрытия (архивации)</Label>
+                    <div className="flex flex-col xl:flex-row xl:items-center bg-white border rounded-md min-h-[36px] gap-1 p-1">
+                        <div className="flex items-center w-full xl:w-auto">
+                            <CalendarRange className="h-4 w-4 text-gray-500 mx-2 hidden xl:block shrink-0" />
+                            <Select value={closedPeriod} onValueChange={setClosedPeriod}>
+                                <SelectTrigger className="w-full xl:w-[130px] border-none shadow-none focus:ring-0 bg-transparent h-8 text-xs">
+                                    <SelectValue placeholder="Период" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="today">За сегодня</SelectItem>
+                                    <SelectItem value="week">За 7 дней</SelectItem>
+                                    <SelectItem value="month">За месяц</SelectItem>
+                                    <SelectItem value="all">За всё время</SelectItem>
+                                    <SelectItem value="custom">Свой период...</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        
+                        {closedPeriod === 'custom' && (
+                            <div className="flex items-center gap-1 w-full xl:w-auto xl:border-l border-gray-100 xl:pl-2">
+                                <Input type="date" value={closedCustomStart} onChange={e => setClosedCustomStart(e.target.value)} className="h-8 text-xs flex-1 xl:w-[120px] border-gray-200" />
+                                <span className="text-gray-300 hidden xl:inline">—</span>
+                                <Input type="date" value={closedCustomEnd} onChange={e => setClosedCustomEnd(e.target.value)} className="h-8 text-xs flex-1 xl:w-[120px] border-gray-200" />
+                            </div>
+                        )}
+                    </div>
+                </div>
+                </>
+            )}
 
                  {viewMode === 'gantt' && (
                     <>

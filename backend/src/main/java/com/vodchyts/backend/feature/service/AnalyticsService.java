@@ -31,12 +31,10 @@ public class AnalyticsService {
     }
 
     public Mono<DashboardStatsResponse> getDashboardStats(LocalDate startDate, LocalDate endDate) {
-        // Устанавливаем дефолтные даты, если они не переданы
         LocalDate start = startDate != null ? startDate : LocalDate.of(2000, 1, 1);
-        LocalDate end = endDate != null ? endDate : LocalDate.now().plusDays(1);
+        LocalDate end = endDate != null ? endDate.plusDays(1) : LocalDate.now().plusDays(1);
 
-        // Для SQL BETWEEN нам нужно, чтобы end включал конец дня
-        String dateFilter = " WHERE CreatedAt >= :start AND CreatedAt <= :end ";
+        String dateFilter = " WHERE CreatedAt >= :start AND CreatedAt < :end ";
 
         // 1. Базовые счетчики (за период)
         Mono<Long> total = db.sql("SELECT COUNT(*) FROM Requests" + dateFilter)

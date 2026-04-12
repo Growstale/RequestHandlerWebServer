@@ -146,31 +146,43 @@ export default function Dashboard() {
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
                 <h1 className="text-3xl font-bold tracking-tight">Дашборд</h1>
                 
-                <div className="flex items-center bg-white border rounded-lg shadow-sm no-print p-0.5">
-                    <div className="pl-3 pr-1 hidden sm:flex items-center justify-center">
-                        <CalendarRange className="h-4 w-4 text-gray-500" />
+<div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center bg-white border rounded-lg shadow-sm no-print p-1 gap-1 max-w-full">
+                    <div className="flex items-center w-full sm:w-auto">
+                        <div className="pl-2 pr-1 hidden sm:flex items-center justify-center">
+                            <CalendarRange className="h-4 w-4 text-gray-500" />
+                        </div>
+                        <Select value={period} onValueChange={setPeriod}>
+                            <SelectTrigger className="w-full sm:w-[150px] border-none shadow-none focus:ring-0 focus:ring-offset-0 bg-transparent h-8">
+                                <SelectValue placeholder="Выберите период" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="today">За сегодня</SelectItem>
+                                <SelectItem value="week">За 7 дней</SelectItem>
+                                <SelectItem value="month">За месяц</SelectItem>
+                                <SelectItem value="quarter">За квартал</SelectItem>
+                                <SelectItem value="half_year">За полгода</SelectItem>
+                                <SelectItem value="year">За год</SelectItem>
+                                <SelectItem value="all">За всё время</SelectItem>
+                                <SelectItem value="custom">Свой период...</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
-                    <Select value={period} onValueChange={setPeriod}>
-                        <SelectTrigger className="w-[160px] border-none shadow-none focus:ring-0 focus:ring-offset-0 bg-transparent">
-                            <SelectValue placeholder="Выберите период" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="today">За сегодня</SelectItem>
-                            <SelectItem value="week">За 7 дней</SelectItem>
-                            <SelectItem value="month">За месяц</SelectItem>
-                            <SelectItem value="quarter">За квартал</SelectItem>
-                            <SelectItem value="half_year">За полгода</SelectItem>
-                            <SelectItem value="year">За год</SelectItem>
-                            <SelectItem value="all">За всё время</SelectItem>
-                            <SelectItem value="custom">Свой период...</SelectItem>
-                        </SelectContent>
-                    </Select>
                     
                     {period === 'custom' && (
-                        <div className="flex items-center gap-2 px-2 border-l h-8">
-                            <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="h-7 text-xs w-[115px] border-gray-200" />
-                            <span className="text-gray-400 text-xs">-</span>
-                            <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="h-7 text-xs w-[115px] border-gray-200" />
+                        <div className="flex items-center gap-2 px-1 sm:px-2 sm:border-l border-gray-100 pb-1 sm:pb-0 w-full sm:w-auto">
+                            <Input 
+                                type="date" 
+                                value={customStart} 
+                                onChange={e => setCustomStart(e.target.value)} 
+                                className="h-8 text-xs flex-1 sm:w-[125px] border-gray-200 focus-visible:ring-1" 
+                            />
+                            <span className="text-gray-400 text-xs hidden sm:inline">—</span>
+                            <Input 
+                                type="date" 
+                                value={customEnd} 
+                                onChange={e => setCustomEnd(e.target.value)} 
+                                className="h-8 text-xs flex-1 sm:w-[125px] border-gray-200 focus-visible:ring-1" 
+                            />
                         </div>
                     )}
                 </div>

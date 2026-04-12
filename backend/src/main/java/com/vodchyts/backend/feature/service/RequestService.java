@@ -97,6 +97,7 @@ public class RequestService {
             boolean archived, String searchTerm, Integer shopId, Integer workCategoryId,
             Integer urgencyId, Integer contractorId, String status, Boolean overdue,
             LocalDate startDate, LocalDate endDate,
+            LocalDate closedStartDate, LocalDate closedEndDate,
             List<String> sort, int page, int size,
             String username
     ) {
@@ -158,6 +159,14 @@ public class RequestService {
 
                                 conditions.add("CAST(" + deadlineCalculation + " AS DATE) <= :endDate");
                                 bindings.put("endDate", endDate);
+                            }
+                            if (closedStartDate != null) {
+                                conditions.add("CAST(r.ClosedAt AS DATE) >= :closedStart");
+                                bindings.put("closedStart", closedStartDate);
+                            }
+                            if (closedEndDate != null) {
+                                conditions.add("CAST(r.ClosedAt AS DATE) <= :closedEnd");
+                                bindings.put("closedEnd", closedEndDate);
                             }
 
                             Mono<Void> roleConditionsMono = Mono.just(user).flatMap(u -> {

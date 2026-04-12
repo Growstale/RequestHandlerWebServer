@@ -18,6 +18,8 @@ export const getRequests = (params = {}) => {
   if (params.status) queryParams.append('status', params.status);
   if (params.startDate) queryParams.append('startDate', params.startDate);
   if (params.endDate) queryParams.append('endDate', params.endDate);
+  if (params.closedStartDate) queryParams.append('closedStartDate', params.closedStartDate);
+  if (params.closedEndDate) queryParams.append('closedEndDate', params.closedEndDate);
 
   if (params.sortConfig) {
     params.sortConfig.forEach(sort => {

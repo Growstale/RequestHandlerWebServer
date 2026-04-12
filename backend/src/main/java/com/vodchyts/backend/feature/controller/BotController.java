@@ -84,21 +84,21 @@ public class BotController {
 
                             if (isPrivateChat) {
                                 if ("RetailAdmin".equals(roleName) || "Moderator".equals(roleName)) {
-                                    return requestService.getAllRequests(archived, searchTerm, null, null, null, null, null, null, null, null, sortParams, page, size, user.getLogin());
+                                    return requestService.getAllRequests(archived, searchTerm, null, null, null, null, null, null, null, null, null, null, sortParams, page, size, user.getLogin());
                                 } else if ("Contractor".equals(roleName)) {
-                                    return requestService.getAllRequests(archived, searchTerm, null, null, null, user.getUserID(), null, null, null, null, sortParams, page, size, user.getLogin());
+                                    return requestService.getAllRequests(archived, searchTerm, null, null, null, user.getUserID(), null, null, null, null, null, null, sortParams, page, size, user.getLogin());
                                 }
                             } else {
                                 return chatService.findByTelegramId(chat_id)
                                         .switchIfEmpty(Mono.error(new OperationNotAllowedException("Этот чат не привязан ни к одной связке Магазин-Подрядчик.")))
                                         .flatMap(link -> {
                                             if ("RetailAdmin".equals(roleName)) {
-                                                return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, link.contractorID(), null, null, null, null, sortParams, page, size, user.getLogin());
+                                                return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, link.contractorID(), null, null, null, null, null, null, sortParams, page, size, user.getLogin());
                                             } else if ("Contractor".equals(roleName)) {
                                                 if (link.contractorID() != null && !link.contractorID().equals(user.getUserID())) {
                                                     return Mono.error(new OperationNotAllowedException("У вас нет прав доступа к заявкам в этом чате (чат закреплен за другим исполнителем)."));
                                                 }
-                                                return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, user.getUserID(), null, null, null, null, sortParams, page, size, user.getLogin());
+                                                return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, user.getUserID(), null, null, null, null, null, null, sortParams, page, size, user.getLogin());
                                             }
                                             return Mono.error(new OperationNotAllowedException("Доступ запрещен."));
                                         });

@@ -102,18 +102,6 @@ public class ShopContractorChatService {
                     return Mono.empty();
                 });
 
-        Mono<Void> telegramIdCheck = databaseClient.sql("SELECT COUNT(*) FROM ShopContractorChats WHERE TelegramID = :telegramId")
-                .bind("telegramId", request.telegramID())
-                .map(row -> row.get(0, Long.class))
-                .one()
-                .flatMap(count -> {
-                    if (count > 0) {
-                        return Mono.error(new OperationNotAllowedException("Чат с таким Telegram ID уже зарегистрирован в системе."));
-                    }
-                    return Mono.empty();
-                });
-
-        // Умная проверка на дубликаты
         Mono<Boolean> duplicateCheck;
         if (request.shopID() != null && request.contractorID() != null) {
             duplicateCheck = chatRepository.existsByShopIDAndContractorID(request.shopID(), request.contractorID());
@@ -130,10 +118,7 @@ public class ShopContractorChatService {
             return validateUserIsContractor(request.contractorID());
         });
 
-        return botCheck
-                .then(telegramIdCheck)
-                .then(logicCheck)
-                .then(Mono.defer(() -> {
+        return botCheck.then(logicCheck).then(Mono.defer(() -> {
                     ShopContractorChat chat = new ShopContractorChat();
                     chat.setShopID(request.shopID());
                     chat.setContractorID(request.contractorID());
@@ -159,20 +144,6 @@ public class ShopContractorChatService {
                                 });
                     }
 
-                    Mono<Void> telegramIdCheck = Mono.empty();
-                    if (!existingChat.getTelegramID().equals(request.telegramID())) {
-                        telegramIdCheck = databaseClient.sql("SELECT COUNT(*) FROM ShopContractorChats WHERE TelegramID = :telegramId AND ShopContractorChatID != :currentId")
-                                .bind("telegramId", request.telegramID())
-                                .bind("currentId", chatId)
-                                .map(row -> row.get(0, Long.class))
-                                .one()
-                                .flatMap(count -> {
-                                    if (count > 0) {
-                                        return Mono.error(new OperationNotAllowedException("Чат с таким Telegram ID уже используется в другой записи."));
-                                    }
-                                    return Mono.empty();
-                                });
-                    }
 
                     // Умная проверка на дубликаты при обновлении
                     Mono<Boolean> duplicateCheck;
@@ -191,7 +162,7 @@ public class ShopContractorChatService {
                         return validateUserIsContractor(request.contractorID());
                     });
 
-                    return botCheck.then(telegramIdCheck).then(logicCheck).thenReturn(existingChat);
+                    return botCheck.then(logicCheck).thenReturn(existingChat);
                 })
                 .flatMap(chat -> {
                     chat.setShopID(request.shopID());

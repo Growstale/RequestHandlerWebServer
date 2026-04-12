@@ -48,10 +48,15 @@ public class RequestController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean overdue,
             @RequestParam(required = false) LocalDate startDate,
-            @RequestParam(required = false) LocalDate endDate
+            @RequestParam(required = false) LocalDate endDate,
+            @RequestParam(required = false) LocalDate closedStartDate,
+            @RequestParam(required = false) LocalDate closedEndDate
     ) {
         List<String> sortParams = exchange.getRequest().getQueryParams().get("sort");
-        return requestService.getAllRequests(archived, searchTerm, shopId, workCategoryId, urgencyId, contractorId, status, overdue, startDate, endDate, sortParams, page, size, username);
+        return requestService.getAllRequests(archived, searchTerm, shopId, workCategoryId, urgencyId,
+                contractorId, status, overdue, startDate, endDate,
+                closedStartDate, closedEndDate,
+                sortParams, page, size, username);
     }
 
 
