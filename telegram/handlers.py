@@ -860,13 +860,26 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
                 except:
                     pass
 
-            text = "💬 Введите текст вашего ответа:" if parent_id else "💬 Введите текст комментария:"
+                # Прячем упоминание пользователя в эмодзи (требуется для срабатывания ForceReply)
+            mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
+
+            if parent_id:
+                text = f"{mention} Введите текст вашего ответа:"
+            else:
+                text = f"{mention} Введите текст комментария к заявке <b>#{req_id}</b>:"
+
             prompt_msg = await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text=text,
-                reply_markup=ForceReply(selective=True)
+                reply_markup=ForceReply(selective=True),
+                parse_mode=ParseMode.HTML  # Обязательно HTML для работы скрытой ссылки
             )
+
+            # Привязываем заявку к ID этого сообщения, чтобы избежать гонки состояний
+            context.user_data[f'prompt_req_{prompt_msg.message_id}'] = req_id
+            context.user_data[f'prompt_parent_{prompt_msg.message_id}'] = parent_id
             context.user_data['comment_prompt_msg_id'] = prompt_msg.message_id
+
             return VIEW_ADD_COMMENT
 
         if parts[-1].isdigit():
@@ -878,7 +891,7 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
             context.user_data['current_request_id'] = req_id
             sent_msg = await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="📤 <b>Отправьте фото</b> для заявки:",
+                text=f"📤 <b>Отправьте фото</b> для заявки #{req_id}:",
                 parse_mode=ParseMode.HTML
             )
             context.user_data['photo_prompt_message_id'] = sent_msg.message_id
@@ -934,7 +947,7 @@ async def show_comments(query, context: Context, request_id: int):
         text = text[:3900] + "\n\\.\\.\\.\n_\\(сообщения слишком длинные, показана часть\\)_"
 
     keyboard = []
-    keyboard.append([InlineKeyboardButton("↩️ Ответить на коммент", callback_data=f"start_reply_cmt_{request_id}")])
+    keyboard.append([InlineKeyboardButton("↩️ Ответить на комментарий", callback_data=f"start_reply_cmt_{request_id}")])
 
     if is_admin:
         keyboard.append([InlineKeyboardButton("🗑 Удалить комментарий", callback_data=f"start_del_cmt_{request_id}")])
@@ -1208,53 +1221,80 @@ async def finalize_delete_photo_handler(update: Update, context: Context) -> int
 
 
 async def add_comment_handler(update: Update, context: Context) -> int:
+    # Игнорируем общение в группах (защита от перехвата чужих сообщений)
+    if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        if not update.message.reply_to_message or update.message.reply_to_message.from_user.id != context.bot.id:
+            return VIEW_ADD_COMMENT
+
     if not check_rate_limit(update.effective_user.id):
         return VIEW_ADD_COMMENT
 
     comment_text = update.message.text or update.message.caption
     if not comment_text:
-        msg = await update.message.reply_text("⚠️ Пожалуйста, введите текст комментария.")
+        msg = await update.message.reply_text("⚠️ Пожалуйста, введите текст комментария.", reply_markup=get_main_menu_keyboard())
         asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
         return VIEW_ADD_COMMENT
 
-    request_id = context.user_data.get('current_request_id')
-    parent_id = context.user_data.pop('parent_comment_id', None)
+    request_id = None
+    parent_id = None
+
+    # Достаем ID из скрытых данных сообщения, на которое ответил пользователь
+    if update.message.reply_to_message:
+        reply_id = update.message.reply_to_message.message_id
+        request_id = context.user_data.pop(f'prompt_req_{reply_id}', None)
+        parent_id = context.user_data.pop(f'prompt_parent_{reply_id}', None)
+
+    # Фолбэк (если ответ сбился)
+    if not request_id:
+        request_id = context.user_data.get('current_request_id')
+        parent_id = context.user_data.pop('parent_comment_id', None)
+
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
 
     if not request_id:
-        msg = await update.message.reply_text("❌ Ошибка: сессия потеряна. Откройте заявку заново.")
-        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
+        msg = await update.message.reply_text("❌ Ошибка: привязка потеряна. Откройте заявку заново.", reply_markup=get_main_menu_keyboard())
+        asyncio.create_task(delayed_delete_messages(context, chat_id, [msg.message_id], 15))
         return ConversationHandler.END
 
     try:
         await update.message.delete()
-    except:
+    except Exception:
         pass
 
     response = await api_client.add_comment(request_id, user_id, comment_text, parent_id)
-
     msgs_to_delete = []
 
+    # Удаляем изначальный промпт ("Введите текст...")
     prompt_id = context.user_data.pop('comment_prompt_msg_id', None)
     if prompt_id:
         msgs_to_delete.append(prompt_id)
 
+    # Отправляем сообщение об успехе И ПРИКРЕПЛЯЕМ is_persistent клавиатуру.
+    # Даже когда мы удалим это сообщение через 5 сек, Telegram запомнит, что кнопки должны остаться.
     if response:
         success_msg = await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"✅ Комментарий к заявке #{request_id} добавлен."
+            chat_id=chat_id,
+            text=f"✅ Комментарий к заявке #{request_id} добавлен.",
+            reply_markup=get_main_menu_keyboard()
         )
         msgs_to_delete.append(success_msg.message_id)
     else:
         err_msg = await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="❌ Ошибка бэкенда при сохранении комментария."
+            chat_id=chat_id,
+            text="❌ Ошибка бэкенда при сохранении комментария.",
+            reply_markup=get_main_menu_keyboard()
         )
         msgs_to_delete.append(err_msg.message_id)
 
-    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, msgs_to_delete, 10))
+    # Удаляем временные сообщения (успех/ошибка и промпт) через 5 секунд
+    asyncio.create_task(delayed_delete_messages(context, chat_id, msgs_to_delete, 5))
 
     _invalidate_requests_cache(context)
+
+    if response:
+        await restore_request_menu(context, chat_id, user_id, request_id)
+
     return ConversationHandler.END
 
 
@@ -1345,7 +1385,8 @@ async def finalize_photo_upload(context, chat_id, user_id, request_id, photos):
         if current_count + incoming_count > 10:
             error_msg = await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"❌ Ошибка: Лимит 10 фото. Уже загружено: {current_count}. Пытались добавить: {incoming_count}."
+                text=f"❌ Ошибка: Лимит 10 фото. Уже загружено: {current_count}. Пытались добавить: {incoming_count}.",
+                reply_markup=get_main_menu_keyboard() # <-- Возвращаем кнопки при ошибке лимита
             )
             asyncio.create_task(delayed_delete(context, chat_id, error_msg.message_id, 15))
 
@@ -1354,10 +1395,23 @@ async def finalize_photo_upload(context, chat_id, user_id, request_id, photos):
 
     success = await api_client.upload_photos(request_id, user_id, photos)
 
+    # Клавиатура применяется для любых чатов
+    reply_kw = {'reply_markup': get_main_menu_keyboard()}
+
     if success:
         _invalidate_requests_cache(context)
+        success_msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"✅ Фото для заявки #{request_id} успешно загружены.",
+            **reply_kw
+        )
+        asyncio.create_task(delayed_delete(context, chat_id, success_msg.message_id, 10))
     else:
-        err_msg = await context.bot.send_message(chat_id=chat_id, text=f"❌ Не удалось загрузить фото для заявки #{request_id}.")
+        err_msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"❌ Не удалось загрузить фото для заявки #{request_id}.",
+            **reply_kw
+        )
         asyncio.create_task(delayed_delete(context, chat_id, err_msg.message_id, 15))
 
     return ConversationHandler.END
@@ -2258,7 +2312,12 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📋 Мои заявки"), KeyboardButton("➕ Новая заявка")]
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    return ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
 
 async def start_command(update: Update, context: CallbackContext):
     if not check_rate_limit(update.effective_user.id): return

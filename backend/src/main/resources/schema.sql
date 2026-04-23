@@ -57,7 +57,6 @@ CREATE TABLE dbo.ShopContractorChats(
                                         CONSTRAINT PK_ShopContractorChats PRIMARY KEY (ShopContractorChatID),
                                         CONSTRAINT FK_ShopContractorChats_Shops FOREIGN KEY (ShopID) REFERENCES dbo.Shops(ShopID) ON DELETE CASCADE,
                                         CONSTRAINT FK_ShopContractorChats_Users FOREIGN KEY (ContractorID) REFERENCES dbo.Users(UserID) ON DELETE NO ACTION,
-                                        CONSTRAINT UQ_ShopContractorChats_TelegramID UNIQUE (TelegramID),
                                         CONSTRAINT UQ_ShopContractorChats_Shop_User UNIQUE (ShopID, ContractorID)
 )
 END;
