@@ -47,13 +47,12 @@ public class ShopService {
             row.get("ShopID", Integer.class),
             row.get("ShopName", String.class),
             row.get("Address", String.class),
-            row.get("Email", String.class),
             row.get("UserID", Integer.class),
             row.get("UserLogin", String.class)
     );
 
     public Mono<PagedResponse<ShopResponse>> getAllShops(List<String> sort, int page, int size) {
-        String sql = "SELECT s.ShopID, s.ShopName, s.Address, s.Email, s.UserID, u.Login as UserLogin " +
+        String sql = "SELECT s.ShopID, s.ShopName, s.Address, s.UserID, u.Login as UserLogin " +
                 "FROM Shops s LEFT JOIN Users u ON s.UserID = u.UserID";
 
         String countSql = "SELECT COUNT(*) FROM Shops";
@@ -112,7 +111,6 @@ public class ShopService {
                                 Shop shop = new Shop();
                                 shop.setShopName(request.shopName());
                                 shop.setAddress(request.address());
-                                shop.setEmail(request.email());
                                 shop.setUserID(request.userID());
                                 return shopRepository.save(shop);
                             }))
@@ -137,7 +135,6 @@ public class ShopService {
                 .flatMap(shop -> {
                     shop.setShopName(request.shopName());
                     shop.setAddress(request.address());
-                    shop.setEmail(request.email());
                     shop.setUserID(request.userID());
                     return shopRepository.save(shop);
                 })
@@ -154,18 +151,18 @@ public class ShopService {
         if (shop.getUserID() == null) {
             return Mono.just(new ShopResponse(
                     shop.getShopID(), shop.getShopName(), shop.getAddress(),
-                    shop.getEmail(), null, null
+                     null, null
             ));
         }
         return userRepository.findById(shop.getUserID())
                 .map(User::getLogin)
                 .map(login -> new ShopResponse(
                         shop.getShopID(), shop.getShopName(), shop.getAddress(),
-                        shop.getEmail(), shop.getUserID(), login
+                         shop.getUserID(), login
                 ))
                 .defaultIfEmpty(new ShopResponse(
                         shop.getShopID(), shop.getShopName(), shop.getAddress(),
-                        shop.getEmail(), shop.getUserID(), null
+                         shop.getUserID(), null
                 ));
     }
 

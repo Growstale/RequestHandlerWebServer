@@ -330,7 +330,14 @@ public class RequestService {
                 !"Closed".equals(response.status())) {
 
             LocalDateTime deadline = response.createdAt().plusDays(response.daysForTask());
-            daysRemaining = (int) java.time.Duration.between(LocalDateTime.now(), deadline).toDays();
+
+            long hours = java.time.Duration.between(LocalDateTime.now(), deadline).toHours();
+
+            if (hours < 0) {
+                daysRemaining = (int) (hours / 24) - 1;
+            } else {
+                daysRemaining = (int) (hours / 24);
+            }
         }
 
         return new RequestResponse(

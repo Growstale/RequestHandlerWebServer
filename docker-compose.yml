@@ -20,6 +20,10 @@ services:
       - ACCEPT_EULA=Y
       - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD}
       - MSSQL_PID=Express
+    command:
+      - /opt/mssql/bin/sqlservr
+      - -T272
+    stop_grace_period: 60s
 
   db-init:
     image: mcr.microsoft.com/mssql-tools

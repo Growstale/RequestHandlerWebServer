@@ -35,7 +35,7 @@ export default function Requests({ archived = false }) {
     const isModerator = user?.role === 'Moderator';
     const isContractor = user?.role === 'Contractor';
     const isStoreManager = user?.role === 'StoreManager';
-    const [viewMode, setViewMode] = useState('byShop'); 
+    const [viewMode, setViewMode] = useState(user?.role === 'StoreManager' ? 'table' : 'byShop');
     const canCreate = isAdmin || isModerator;    
 
     const [unreadNotifications, setUnreadNotifications] = useState([]);
@@ -591,19 +591,19 @@ const clearAndCheckNotifs = (requestId, keywords) => {
     <h1 className="text-2xl md:text-3xl font-semibold">{archived ? 'Архив заявок' : 'Управление заявками'}</h1>
     
     <div className="grid grid-cols-2 md:flex items-center gap-2 w-full md:w-auto">
-        {!archived && (
-            <>
-                <Button variant={viewMode === 'table' ? 'secondary' : 'outline'} onClick={() => setViewMode('table')} className="w-full text-xs sm:text-sm px-2 md:w-auto">
-                    <List className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> Таблица
-                </Button>
-                <Button variant={viewMode === 'gantt' ? 'secondary' : 'outline'} onClick={() => setViewMode('gantt')} className="w-full text-xs sm:text-sm px-2 md:w-auto">
-                    <BarChart3 className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> Диаграмма
-                </Button>
-                <Button variant={viewMode === 'byShop' ? 'secondary' : 'outline'} onClick={() => setViewMode('byShop')} className="w-full col-span-2 md:col-span-1 text-xs sm:text-sm px-2 md:w-auto">
-                    <Store className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> По магазинам
-                </Button>
-            </>
-        )}
+    {!isStoreManager && (
+        <>
+            <Button variant={viewMode === 'table' ? 'secondary' : 'outline'} onClick={() => setViewMode('table')} className="w-full text-xs sm:text-sm px-2 md:w-auto">
+                <List className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> Таблица
+            </Button>
+            <Button variant={viewMode === 'gantt' ? 'secondary' : 'outline'} onClick={() => setViewMode('gantt')} className="w-full text-xs sm:text-sm px-2 md:w-auto">
+                <BarChart3 className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> Диаграмма
+            </Button>
+            <Button variant={viewMode === 'byShop' ? 'secondary' : 'outline'} onClick={() => setViewMode('byShop')} className="w-full col-span-2 md:col-span-1 text-xs sm:text-sm px-2 md:w-auto">
+                <Store className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> По магазинам
+            </Button>
+        </>
+    )}
 
         {canCreate  && !archived && (
             <>
@@ -928,7 +928,7 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                                                 </Button>
                                             )}
                                             
-                                            {isAdmin && (
+                                            {(isAdmin || isModerator) && (
                                                 <Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)} title="Удалить"><Trash2 className="h-4 w-4" /></Button>
                                             )}
                                                 </div>
@@ -1033,7 +1033,7 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                                                                     )}
                                                                     {(isAdmin || isModerator) && req.status !== 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openEditForm(req)}><Edit className="h-4 w-4" /></Button>)}
                                                                     {(isAdmin || isModerator) && archived && req.status === 'Closed' && (<Button variant="outline" size="icon" className="px-2 hover:text-indigo-700" onClick={() => {setTargetRequestId(req.requestID); setIsRestoreAlertOpen(true);}}><RotateCcw className="h-4 w-4" /></Button>)}
-                                                                    {isAdmin && (<Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)}><Trash2 className="h-4 w-4" /></Button>)}
+                                                                    {(isAdmin || isModerator) && (<Button variant="destructive" size="icon" className="px-2 hover:text-indigo-700" onClick={() => openDeleteAlert(req)}><Trash2 className="h-4 w-4" /></Button>)}
                                                                 </div>
                                                             </TableCell>
                                                         </TableRow>
@@ -1138,6 +1138,11 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                                 <div className="w-4 h-4 rounded bg-[#ef4444]"></div>
                                 <span className="text-gray-700">Просрочено (активные)</span>
                             </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded bg-[#94a3b8]"></div>
+                                <span className="text-gray-700">Закрыто (Архив)</span>
+                            </div>
+
                         </>
                     ) : (
                         <>

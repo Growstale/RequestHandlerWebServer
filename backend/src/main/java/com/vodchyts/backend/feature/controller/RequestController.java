@@ -94,7 +94,7 @@ public class RequestController {
     }
 
     @DeleteMapping("/{requestId}")
-    @PreAuthorize("hasRole('RetailAdmin')")
+    @PreAuthorize("hasAnyRole('RetailAdmin', 'Moderator')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> deleteRequest(@PathVariable Integer requestId, ServerWebExchange exchange) {
         return requestService.getRequestById(requestId)

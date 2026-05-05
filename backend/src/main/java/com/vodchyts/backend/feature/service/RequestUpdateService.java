@@ -198,8 +198,8 @@ public class RequestUpdateService {
                                                 sendNotification &&
                                                 !isWeekend()) {
 
-                                            long realDaysOverdue = Duration.between(deadline, LocalDateTime.now()).toDays();
-                                            long daysReported = Math.max(1, realDaysOverdue);
+                                            long hoursOverdue = Duration.between(deadline, LocalDateTime.now()).toHours();
+                                            long daysReported = (hoursOverdue / 24) + 1; // Учитываем, что часы положительные
                                             return sendOverdueAlert(savedReq, daysReported);
                                         }
                                         return Mono.just(savedReq);
@@ -235,7 +235,8 @@ public class RequestUpdateService {
                         if (daysForTask == null) return Mono.empty();
 
                         LocalDateTime deadline = request.getCreatedAt().plusDays(daysForTask);
-                        long daysOverdue = Duration.between(deadline, LocalDateTime.now()).toDays();
+                        long hoursOverdue = Duration.between(deadline, LocalDateTime.now()).toHours();
+                        long daysOverdue = (hoursOverdue / 24) + 1;
 
                         if (daysOverdue >= 1) {
                             return sendOverdueAlert(request, daysOverdue);

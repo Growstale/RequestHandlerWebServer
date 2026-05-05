@@ -38,7 +38,6 @@ CREATE TABLE dbo.Shops (
                            ShopID INT IDENTITY(1,1) NOT NULL,
                            ShopName NVARCHAR(150) NOT NULL,
                            Address NVARCHAR(300) NULL,
-                           Email NVARCHAR(150) NULL,
                            UserID INT NULL,
                            CONSTRAINT PK_Shops PRIMARY KEY (ShopID),
                            CONSTRAINT FK_Shops_Users FOREIGN KEY (UserID) REFERENCES dbo.Users(UserID),

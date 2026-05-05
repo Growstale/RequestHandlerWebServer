@@ -1691,9 +1691,11 @@ async def select_urgency_callback(update: Update, context: CallbackContext) -> i
 
         await query.edit_message_text(f"Выбрана срочность: <b>{urgency['urgencyName']}</b>", parse_mode=ParseMode.HTML)
 
+        mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
         msg = await context.bot.send_message(
             update.effective_chat.id,
-            "<b>Шаг 5/5:</b> Теперь введите подробное описание заявки.",
+            f"{mention} <b>Шаг 5/5:</b> Теперь введите подробное описание заявки.",
+            reply_markup=ForceReply(selective=True),
             parse_mode=ParseMode.HTML
         )
         asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 300))
@@ -1703,12 +1705,20 @@ async def select_urgency_callback(update: Update, context: CallbackContext) -> i
 
 
 async def description_handler(update: Update, context: CallbackContext) -> int:
+    # Игнорируем чужие сообщения в группах (ждем только ответ на бота)
+    if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        if not update.message.reply_to_message or update.message.reply_to_message.from_user.id != context.bot.id:
+            return CREATE_ENTER_DESCRIPTION
+
     description = update.message.text
     context.user_data['request_data']['description'] = description
 
     if context.user_data.get('is_customizable'):
+        mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
         msg = await update.message.reply_text(
-            "Срочность 'Настраиваемая'. Введите количество дней на выполнение (например, 10)."
+            f"{mention} Срочность 'Настраиваемая'. Введите количество дней на выполнение (например, 10).",
+            reply_markup=ForceReply(selective=True),
+            parse_mode=ParseMode.HTML
         )
         asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 300))
         return CREATE_ENTER_CUSTOM_DAYS
@@ -1717,6 +1727,11 @@ async def description_handler(update: Update, context: CallbackContext) -> int:
 
 
 async def custom_days_handler(update: Update, context: CallbackContext) -> int:
+    # Игнорируем чужие сообщения в группах
+    if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        if not update.message.reply_to_message or update.message.reply_to_message.from_user.id != context.bot.id:
+            return CREATE_ENTER_CUSTOM_DAYS
+
     days = update.message.text
     if not days.isdigit() or not 1 <= int(days) <= 365:
         msg = await update.message.reply_text("❌ Неверное значение. Введите число от 1 до 365.")
@@ -2083,14 +2098,19 @@ async def editor_main_callback(update: Update, context: Context) -> int:
 
     elif data == "edit_field_desc":
         current_desc = context.user_data['editor_draft'].get('description', '')
+        try:
+            await query.delete_message()
+        except:
+            pass
 
-        context.user_data['editor_prompt_message_id'] = query.message.message_id
-
-        await query.edit_message_text(
-            f"Текущее описание:\n<i>{escape_markdown(current_desc)}</i>\n\n"
-            "Введите новое описание (текстом):",
+        mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
+        prompt_msg = await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"{mention} Текущее описание:\n<i>{html.escape(current_desc)}</i>\n\nВведите новое описание (текстом):",
+            reply_markup=ForceReply(selective=True),
             parse_mode=ParseMode.HTML
         )
+        context.user_data['editor_prompt_message_id'] = prompt_msg.message_id
         return EDITOR_INPUT_TEXT
 
     elif data == "edit_field_status":
@@ -2171,9 +2191,19 @@ async def _handle_selection(update: Update, context: Context,
             context.user_data['editor_draft'][draft_name_key] = item.get('fullName') or item.get(name_key)
 
             if list_key == 'dict_urgencies' and item['urgencyName'] in ['Customizable', 'Настраиваемая']:
-                context.user_data['editor_prompt_message_id'] = query.message.message_id
+                try:
+                    await query.delete_message()
+                except:
+                    pass
 
-                await query.edit_message_text("Введите количество дней (число от 1 до 365):")
+                mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
+                prompt_msg = await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"{mention} Введите количество дней (число от 1 до 365):",
+                    reply_markup=ForceReply(selective=True),
+                    parse_mode=ParseMode.HTML
+                )
+                context.user_data['editor_prompt_message_id'] = prompt_msg.message_id
                 context.user_data['editor_waiting_custom_days'] = True
                 return EDITOR_INPUT_TEXT
 
@@ -2220,6 +2250,10 @@ async def editor_select_status(update: Update, context: Context) -> int:
 
 async def editor_input_text(update: Update, context: Context) -> int:
     if not check_rate_limit(update.effective_user.id): return EDITOR_INPUT_TEXT
+
+    if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        if not update.message.reply_to_message or update.message.reply_to_message.from_user.id != context.bot.id:
+            return EDITOR_INPUT_TEXT
 
     text = update.message.text
 

@@ -21,9 +21,6 @@ public class Shop {
     @Column("Address")
     private String address;
 
-    @Column("Email")
-    private String email;
-
     @Column("UserID")
     private Integer userID;
 

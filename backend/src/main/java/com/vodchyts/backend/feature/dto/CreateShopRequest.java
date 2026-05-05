@@ -13,9 +13,5 @@ public record CreateShopRequest(
         @Size(max = 300, message = "Адрес не может превышать 300 символов")
         String address,
 
-        @Email(message = "Неверный формат email")
-        @Size(max = 150, message = "Email не может превышать 150 символов")
-        String email,
-
         Integer userID
 ) {}

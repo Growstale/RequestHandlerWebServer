@@ -29,13 +29,13 @@ export default function App() {
     <>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="md:hidden fixed top-0 left-0 w-full h-14 bg-white border-b flex items-center px-4 z-30 shadow-sm">
+      <div className="print:hidden md:hidden fixed top-0 left-0 w-full h-14 bg-white border-b flex items-center px-4 z-30 shadow-sm">
           <button onClick={() => setSidebarOpen(true)} className="p-2 -ml-2">
               <Menu className="h-6 w-6 text-gray-700" />
           </button>
           <span className="ml-2 font-bold text-blue-600">MART INN FOOD</span>
       </div>
-
+      
       <div className="pt-14 md:pt-0 md:pl-64 min-h-screen bg-background">
         <Routes>
           <Route 

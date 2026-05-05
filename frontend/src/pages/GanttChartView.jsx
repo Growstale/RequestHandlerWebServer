@@ -21,13 +21,15 @@ export default function GanttChartView({ filters, onTaskClick }) {
                 const tasks = response.data.content
                     .filter(req => req.daysForTask > 0)
                     .map(req => {
-                        let color = '#22c55e';
-                        if (req.isOverdue && req.status === 'In work') {
-                            color = '#ef4444';
-                        } else if (req.status === 'Done') {
-                            color = '#3b82f6';
-                        }
+                        let color = '#22c55e'; // По умолчанию зеленый (В работе)
 
+                        if (req.status === 'Closed') {
+                            color = '#94a3b8'; // Серый для архива
+                        } else if (req.isOverdue && req.status === 'In work') {
+                            color = '#ef4444'; // Красный для просрочки
+                        } else if (req.status === 'Done') {
+                            color = '#3b82f6'; // Синий для выполненных
+                        }
                         return {
                             id: req.requestID,
                             text: `#${req.requestID} ${req.shopName}`,

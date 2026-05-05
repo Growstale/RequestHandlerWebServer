@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label'
 import { getUrgencyDisplayName } from '@/lib/displayNames'
 
 export default function UrgencyCategoryForm({ currentCategory, onSubmit, onCancel, apiError }) {
-  const [days, setDays] = useState(currentCategory?.defaultDays || 1);
+  const [days, setDays] = useState(currentCategory?.defaultDays ?? 1);
 
   const handleSubmit = (e) => {
     e.preventDefault();

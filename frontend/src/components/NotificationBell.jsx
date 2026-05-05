@@ -57,12 +57,17 @@ export default function NotificationBell() {
         try {
             await api.delete(`/api/web-notifications/${id}`);
             setNotifications(prev => prev.filter(n => n.notificationID !== id));
+            
             if (requestId) {
-                navigate(`/requests?openId=${requestId}`);
+                const res = await api.get(`/api/requests/${requestId}`);
+                const isClosed = res.data.status === 'Closed';
+                
+                const targetPath = isClosed ? '/requests/archive' : '/requests';
+                navigate(`${targetPath}?openId=${requestId}`);
             }
             setOpen(false);
         } catch (e) {
-            console.error(e);
+            setOpen(false);
         }
     };
 

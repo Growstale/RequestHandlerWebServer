@@ -14,7 +14,6 @@ const getInitialFormData = (shop) => {
   return {
     shopName: shop?.shopName || '',
     address: shop?.address || '',
-    email: shop?.email || '',
     userID: shop?.userID || null,
   }
 }
@@ -51,11 +50,6 @@ export default function ShopForm({ currentShop, users = [], onSubmit, onCancel, 
         <div className="grid grid-cols-4 items-center gap-4">
           <Label htmlFor="address" className="text-right">Адрес</Label>
           <Input id="address" name="address" value={formData.address} onChange={handleChange} className="col-span-3" />
-        </div>
-
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label htmlFor="email" className="text-right">Email</Label>
-          <Input id="email" name="email" type="email" value={formData.email} onChange={handleChange} className="col-span-3" />
         </div>
 
         <div className="grid grid-cols-4 items-center gap-4">

@@ -13,7 +13,7 @@ import {
     Briefcase, Printer, Download, Clock, ShieldCheck, CalendarRange, TrendingUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getUrgencyDisplayName } from '@/lib/displayNames';
+import { getUrgencyDisplayName, getStatusDisplayName } from '@/lib/displayNames';
 import * as XLSX from 'xlsx';
 
 const COLORS =['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
@@ -77,45 +77,92 @@ export default function Dashboard() {
         ? ((stats.completedRequests / stats.totalRequests) * 100).toFixed(0) 
         : "0";
 
-    const handleExportExcel = () => {
+const handleExportExcel = () => {
         if (!stats) return;
 
         const workbook = XLSX.utils.book_new();
 
+        // Формируем красивую строку периода для шапки отчета
+        let periodTitle = "За выбранный период";
+        if (period === 'all') periodTitle = "За всё время";
+        else if (period === 'today') periodTitle = "За сегодня";
+        else if (customStart && customEnd) periodTitle = `С ${customStart} по ${customEnd}`;
+
+        // Функция для настройки ширины столбцов
+        const setColWidths = (sheet, widths) => {
+            sheet['!cols'] = widths.map(w => ({ wch: w }));
+        };
+
+        // ==========================================
+        // ЛИСТ 1: СВОДКА И KPI
+        // ==========================================
         const summaryData = [
-            ["Показатель", "Значение"],
+            ["ОТЧЕТ ПО ЗАЯВКАМ: MART INN FOOD"],
+            [`Период отчета: ${periodTitle}`],
+            [`Дата генерации: ${new Date().toLocaleString('ru-RU')}`],
+            [], // пустая строка для красоты
+            ["--- КЛЮЧЕВЫЕ ПОКАЗАТЕЛИ (KPI) ---", ""],
             ["Всего заявок (создано)", stats.totalRequests],
             ["В работе (текущий бэклог)", stats.activeRequests],
             ["Просрочено (текущий долг)", stats.overdueRequests],
             ["Выполнено (за период)", stats.completedRequests],
-            ["Коэффициент закрытия (%)", resolutionRate],
-            ["Среднее время выполнения (дней)", stats.averageCompletionTimeDays?.toFixed(1)],
-            ["Соблюдение SLA (%)", stats.slaCompliancePercent?.toFixed(1)]
+            ["Коэффициент закрытия", `${resolutionRate}%`],
+            ["Среднее время выполнения", `${stats.averageCompletionTimeDays?.toFixed(1) || 0} дней`],
+            ["Соблюдение SLA", `${stats.slaCompliancePercent?.toFixed(1) || 0}%`],
+            [],
+            ["--- ПРОБЛЕМНЫЕ МАГАЗИНЫ (ПРОСРОЧКИ) ---", ""],
+            ["Магазин", "Кол-во просроченных"],
+            ...stats.worstShops.map(s => [s.name, s.value]),
+            ...(stats.worstShops.length === 0 ? [["Просрочек нет", "-"]] : []),
+            [],
+            ["--- АНТИРЕЙТИНГ ПОДРЯДЧИКОВ ---", ""],
+            ["Имя подрядчика", "Кол-во просроченных"],
+            ...stats.worstContractors.map(c => [c.name, c.value]),
+            ...(stats.worstContractors.length === 0 ? [["Просрочек нет", "-"]] : []),
         ];
         const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-        XLSX.utils.book_append_sheet(workbook, summarySheet, "Сводка");
+        setColWidths(summarySheet, [40, 20]); // Ширина 1-го и 2-го столбца
+        XLSX.utils.book_append_sheet(workbook, summarySheet, "Главная сводка");
 
-        const contractorsData = [
-            ["Имя подрядчика", "Выполнено заявок"],
-            ...stats.topContractors.map(c => [c.name, c.completedCount])
+        // ==========================================
+        // ЛИСТ 2: АНАЛИТИКА (Виды работ, Срочность, Статусы)
+        // ==========================================
+        const analyticsData = [
+            ["--- СТАТУСЫ ЗАЯВОК ---", ""],
+            ...stats.requestsByStatus.map(s => [getStatusDisplayName(s.name) || s.name, s.value]),
+            [],
+            ["--- РАСПРЕДЕЛЕНИЕ ПО СРОЧНОСТИ ---", ""],
+            ...stats.requestsByUrgency.map(u => [getUrgencyDisplayName(u.name) || u.name, u.value]),
+            [],
+            ["--- ТОП ВИДОВ РАБОТ ---", ""],
+            ...stats.requestsByWorkCategory.map(w => [w.name, w.value])
         ];
-        const contractorsSheet = XLSX.utils.aoa_to_sheet(contractorsData);
-        XLSX.utils.book_append_sheet(workbook, contractorsSheet, "Топ подрядчиков");
+        const analyticsSheet = XLSX.utils.aoa_to_sheet(analyticsData);
+        setColWidths(analyticsSheet, [40, 15]);
+        XLSX.utils.book_append_sheet(workbook, analyticsSheet, "Аналитика");
 
-        const worstContractorsData = [
-            ["Имя подрядчика", "Просроченных заявок (активных)"],
-            ...stats.worstContractors.map(c => [c.name, c.value])
+        // ==========================================
+        // ЛИСТ 3: ДИНАМИКА И ИСПОЛНИТЕЛИ
+        // ==========================================
+        const dynamicsData = [
+            ["--- ДИНАМИКА СОЗДАНИЯ ЗАЯВОК ---", ""],
+            ["Период", "Кол-во новых заявок"],
+            ...stats.requestsLast7Days.map(d => [d.date, d.count]),
+            [],
+            ["--- ЛИДЕРЫ ПО ПРОДУКТИВНОСТИ ---", ""],
+            ["Имя подрядчика", "Закрыто заявок"],
+            ...stats.topContractors.map(c => [c.name, c.completedCount]),
+            ...(stats.topContractors.length === 0 ? [["Нет выполненных заявок", "-"]] : []),
+            [],
+            ["--- ТЕКУЩАЯ НАГРУЗКА (БЭКЛОГ) ---", ""],
+            ["Имя подрядчика", "Заявок в работе"],
+            ...stats.contractorWorkload.map(c => [c.name, c.value])
         ];
-        const worstContractorsSheet = XLSX.utils.aoa_to_sheet(worstContractorsData);
-        XLSX.utils.book_append_sheet(workbook, worstContractorsSheet, "Худшие подрядчики");
+        const dynamicsSheet = XLSX.utils.aoa_to_sheet(dynamicsData);
+        setColWidths(dynamicsSheet, [40, 25]);
+        XLSX.utils.book_append_sheet(workbook, dynamicsSheet, "Динамика и Подрядчики");
 
-        const worstShopsData = [
-            ["Магазин", "Просроченных заявок (активных)"],
-            ...stats.worstShops.map(s =>[s.name, s.value])
-        ];
-        const worstShopsSheet = XLSX.utils.aoa_to_sheet(worstShopsData);
-        XLSX.utils.book_append_sheet(workbook, worstShopsSheet, "Проблемные магазины");
-
+        // Генерируем файл
         const dateStr = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
         XLSX.writeFile(workbook, `Otchet_Dashboard_${dateStr}.xlsx`);
     };
