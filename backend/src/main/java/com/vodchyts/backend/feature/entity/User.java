@@ -33,7 +33,7 @@ public class User {
     private String contactInfo;
 
     @Column("TelegramID")
-    private Long telegramID;
+    private String telegramID;
 
     @Column("TelegramUsername")
     private String telegramUsername;

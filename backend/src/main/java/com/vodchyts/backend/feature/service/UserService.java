@@ -42,6 +42,6 @@ public class UserService {
     }
 
     public Mono<User> findByTelegramId(Long telegramId) {
-        return userRepository.findByTelegramID(telegramId);
+        return userRepository.findByTelegramID(telegramId.toString());
     }
 }

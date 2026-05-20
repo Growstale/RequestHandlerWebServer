@@ -152,7 +152,7 @@ public class RequestUpdateService {
         log.info("Проверка статусов просрочки...");
 
         Flux<Request> requestsToCheck = template.select(
-                query(where("Status").in("In work", "Done")),
+                query(where("Status").is("In work")),
                 Request.class
         );
 

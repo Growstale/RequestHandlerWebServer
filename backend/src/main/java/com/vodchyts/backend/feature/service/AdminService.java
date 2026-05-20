@@ -77,7 +77,7 @@ public class AdminService {
                                 user.setFullName(request.fullName());
                                 user.setContactInfo(request.contactInfo());
                                 if (request.telegramID() != null && !request.telegramID().isBlank()) {
-                                    user.setTelegramID(Long.parseLong(request.telegramID()));
+                                    user.setTelegramID(request.telegramID().trim());
                                 }
                                 if ("Contractor".equals(role.getRoleName()) && request.telegramUsername() != null && !request.telegramUsername().isBlank()) {
                                     user.setTelegramUsername(request.telegramUsername().replace("@", "").trim());
@@ -96,7 +96,7 @@ public class AdminService {
             row.get("RoleName", String.class),
             row.get("FullName", String.class),
             row.get("ContactInfo", String.class),
-            row.get("TelegramID", Long.class),
+            row.get("TelegramID", String.class),
             row.get("TelegramUsername", String.class)
     );
 
@@ -200,16 +200,9 @@ public class AdminService {
                     if (request.contactInfo() != null) targetUser.setContactInfo(request.contactInfo());
                     if (request.fullName() != null) targetUser.setFullName(request.fullName());
                     if (request.telegramID() != null) {
-                        if (request.telegramID().isBlank()) {
-                            targetUser.setTelegramID(null);
-                        } else {
-                            try {
-                                targetUser.setTelegramID(Long.parseLong(request.telegramID().trim()));
-                            } catch (NumberFormatException e) {
-                                return Mono.error(new OperationNotAllowedException("Telegram ID должен быть числом"));
-                            }
-                        }
+                        targetUser.setTelegramID(request.telegramID().isBlank() ? null : request.telegramID().trim());
                     }
+
 
                     String cleanedUsername = (request.telegramUsername() != null)
                             ? request.telegramUsername().replace("@", "").trim()

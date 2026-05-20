@@ -34,59 +34,69 @@ public class AnalyticsService {
         LocalDate start = startDate != null ? startDate : LocalDate.of(2000, 1, 1);
         LocalDate end = endDate != null ? endDate.plusDays(1) : LocalDate.now().plusDays(1);
 
-        String dateFilter = " WHERE CreatedAt >= :start AND CreatedAt < :end ";
+        String creationDateFilter = " WHERE r.CreatedAt >= :start AND r.CreatedAt < :end ";
+        String completionDateFilter = " WHERE r.ClosedAt >= :start AND r.ClosedAt < :end ";
 
-        // 1. Базовые счетчики (за период)
-        Mono<Long> total = db.sql("SELECT COUNT(*) FROM Requests" + dateFilter)
+        String deadlineDateFilter = " JOIN UrgencyCategories uc ON r.UrgencyID = uc.UrgencyID " +
+                " LEFT JOIN RequestCustomDays rcd ON r.RequestID = rcd.RequestID " +
+                " WHERE r.IsOverdue = 1 " +
+                " AND DATEADD(day, CASE WHEN uc.UrgencyName = 'Customizable' THEN COALESCE(rcd.Days, uc.DefaultDays) ELSE uc.DefaultDays END, r.CreatedAt) >= :start " +
+                " AND DATEADD(day, CASE WHEN uc.UrgencyName = 'Customizable' THEN COALESCE(rcd.Days, uc.DefaultDays) ELSE uc.DefaultDays END, r.CreatedAt) < :end ";
+
+        // 1. Базовые счетчики
+        // Total - по дате СОЗДАНИЯ
+        Mono<Long> total = db.sql("SELECT COUNT(*) FROM Requests r" + creationDateFilter.replace("r.", ""))
                 .bind("start", start).bind("end", end).map(row -> getLong(row, 0)).one();
 
-        Mono<Long> active = db.sql("SELECT COUNT(*) FROM Requests" + dateFilter + " AND Status = 'In work'")
+        // Active - ВСЕГДА текущее состояние, без фильтра по дате
+        Mono<Long> active = db.sql("SELECT COUNT(*) FROM Requests WHERE Status = 'In work'")
+                .map(row -> getLong(row, 0)).one();
+
+        // Completed - по дате ЗАКРЫТИЯ
+        Mono<Long> completed = db.sql("SELECT COUNT(*) FROM Requests r" + completionDateFilter + " AND r.Status IN ('Done', 'Closed')")
                 .bind("start", start).bind("end", end).map(row -> getLong(row, 0)).one();
 
-        Mono<Long> completed = db.sql("SELECT COUNT(*) FROM Requests" + dateFilter + " AND Status IN ('Done', 'Closed')")
-                .bind("start", start).bind("end", end).map(row -> getLong(row, 0)).one();
-
-        Mono<Long> overdue = db.sql("SELECT COUNT(*) FROM Requests" + dateFilter + " AND IsOverdue = 1")
+        Mono<Long> overdue = db.sql("SELECT COUNT(*) FROM Requests r " + deadlineDateFilter)
                 .bind("start", start).bind("end", end).map(row -> getLong(row, 0)).one();
 
         // 2. KPI
+        // AvgTime - по дате ЗАКРЫТИЯ
         Mono<Double> avgTime = db.sql(
-                "SELECT COALESCE(AVG(CAST(DATEDIFF(hour, CreatedAt, ClosedAt) AS FLOAT) / 24.0), 0.0) " +
-                        "FROM Requests " + dateFilter + " AND Status IN ('Done', 'Closed') AND ClosedAt IS NOT NULL"
+                "SELECT COALESCE(AVG(CAST(DATEDIFF(hour, r.CreatedAt, r.ClosedAt) AS FLOAT) / 24.0), 0.0) " +
+                        "FROM Requests r " + completionDateFilter + " AND r.Status IN ('Done', 'Closed') AND r.ClosedAt IS NOT NULL"
         ).bind("start", start).bind("end", end).map(row -> {
             Double val = row.get(0, Double.class);
             return val != null ? val : 0.0;
         }).one().defaultIfEmpty(0.0);
 
+        // SlaPercent - по дате ЗАКРЫТИЯ
         Mono<Double> slaPercent = db.sql(
-                "SELECT COALESCE(CAST(SUM(CASE WHEN IsOverdue = 0 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) AS FLOAT), 100.0) " +
-                        "FROM Requests " + dateFilter + " AND Status IN ('Done', 'Closed')"
+                "SELECT COALESCE(CAST(SUM(CASE WHEN r.IsOverdue = 0 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) AS FLOAT), 100.0) " +
+                        "FROM Requests r " + completionDateFilter + " AND r.Status IN ('Done', 'Closed')"
         ).bind("start", start).bind("end", end).map(row -> {
             Double val = row.get(0, Double.class);
             return val != null ? val : 100.0;
         }).one().defaultIfEmpty(100.0);
 
-        // 3. Стандартные графики (с фильтром по дате)
-        Flux<DashboardStatsResponse.ChartData> byStatus = db.sql("SELECT Status, COUNT(*) as cnt FROM Requests " + dateFilter + " GROUP BY Status")
+        // 3. Графики
+        // byStatus, byUrgency, byCategory - по дате СОЗДАНИЯ
+        Flux<DashboardStatsResponse.ChartData> byStatus = db.sql("SELECT r.Status, COUNT(*) as cnt FROM Requests r " + creationDateFilter + " GROUP BY r.Status")
                 .bind("start", start).bind("end", end).map(row -> new DashboardStatsResponse.ChartData(row.get("Status", String.class), getLong(row, "cnt"))).all();
 
-        Flux<DashboardStatsResponse.ChartData> byUrgency = db.sql("SELECT uc.UrgencyName, COUNT(r.RequestID) as cnt FROM Requests r JOIN UrgencyCategories uc ON r.UrgencyID = uc.UrgencyID " + dateFilter.replace("WHERE", "WHERE r.") + " GROUP BY uc.UrgencyName")
+        Flux<DashboardStatsResponse.ChartData> byUrgency = db.sql("SELECT uc.UrgencyName, COUNT(r.RequestID) as cnt FROM Requests r JOIN UrgencyCategories uc ON r.UrgencyID = uc.UrgencyID " + creationDateFilter + " GROUP BY uc.UrgencyName")
                 .bind("start", start).bind("end", end).map(row -> new DashboardStatsResponse.ChartData(row.get("UrgencyName", String.class), getLong(row, "cnt"))).all();
 
-        Flux<DashboardStatsResponse.ChartData> byCategory = db.sql("SELECT TOP 5 wc.WorkCategoryName, COUNT(r.RequestID) as cnt FROM Requests r JOIN WorkCategories wc ON r.WorkCategoryID = wc.WorkCategoryID " + dateFilter.replace("WHERE", "WHERE r.") + " GROUP BY wc.WorkCategoryName ORDER BY cnt DESC")
+        Flux<DashboardStatsResponse.ChartData> byCategory = db.sql("SELECT TOP 5 wc.WorkCategoryName, COUNT(r.RequestID) as cnt FROM Requests r JOIN WorkCategories wc ON r.WorkCategoryID = wc.WorkCategoryID " + creationDateFilter + " GROUP BY wc.WorkCategoryName ORDER BY cnt DESC")
                 .bind("start", start).bind("end", end).map(row -> new DashboardStatsResponse.ChartData(row.get("WorkCategoryName", String.class), getLong(row, "cnt"))).all();
 
-        // ДИНАМИЧЕСКИЙ ГРАФИК (по дням или месяцам в зависимости от размаха дат)
+        // Динамика - по дате СОЗДАНИЯ
         long daysBetween = ChronoUnit.DAYS.between(start, end);
         String dynamicsSql;
         if (daysBetween > 60) {
-            // Группировка по месяцам (Год-Месяц)
-            dynamicsSql = "SELECT FORMAT(CreatedAt, 'yyyy-MM') as CreateDate, COUNT(*) as cnt FROM Requests " + dateFilter + " GROUP BY FORMAT(CreatedAt, 'yyyy-MM') ORDER BY CreateDate ASC";
+            dynamicsSql = "SELECT FORMAT(r.CreatedAt, 'yyyy-MM') as CreateDate, COUNT(*) as cnt FROM Requests r " + creationDateFilter + " GROUP BY FORMAT(r.CreatedAt, 'yyyy-MM') ORDER BY CreateDate ASC";
         } else {
-            // Группировка по дням
-            dynamicsSql = "SELECT CAST(CreatedAt AS DATE) as CreateDate, COUNT(*) as cnt FROM Requests " + dateFilter + " GROUP BY CAST(CreatedAt AS DATE) ORDER BY CreateDate ASC";
+            dynamicsSql = "SELECT CAST(r.CreatedAt AS DATE) as CreateDate, COUNT(*) as cnt FROM Requests r " + creationDateFilter + " GROUP BY CAST(r.CreatedAt AS DATE) ORDER BY CreateDate ASC";
         }
-
         Flux<DashboardStatsResponse.DateChartData> dynamics = db.sql(dynamicsSql)
                 .bind("start", start).bind("end", end)
                 .map(row -> {
@@ -99,21 +109,25 @@ public class AnalyticsService {
                     }
                 }).all();
 
-        Flux<DashboardStatsResponse.TopContractorData> topContractors = db.sql("SELECT TOP 5 u.FullName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID " + dateFilter.replace("WHERE", "WHERE r.") + " AND r.Status IN ('Done', 'Closed') GROUP BY u.FullName ORDER BY cnt DESC")
+        // topContractors - по дате ЗАКРЫТИЯ
+        Flux<DashboardStatsResponse.TopContractorData> topContractors = db.sql("SELECT TOP 5 u.FullName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID " + completionDateFilter + " AND r.Status IN ('Done', 'Closed') GROUP BY u.FullName ORDER BY cnt DESC")
                 .bind("start", start).bind("end", end)
                 .map(row -> new DashboardStatsResponse.TopContractorData(row.get("FullName", String.class), getLong(row, "cnt"))).all();
 
+        // workload - ВСЕГДА текущее, без фильтра
         Flux<DashboardStatsResponse.ChartData> workload = db.sql("SELECT TOP 7 u.FullName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID WHERE r.Status = 'In work' GROUP BY u.FullName ORDER BY cnt DESC")
                 .map(row -> new DashboardStatsResponse.ChartData(row.get("FullName", String.class), getLong(row, "cnt"))).all();
 
-        Flux<DashboardStatsResponse.ChartData> problemShops = db.sql("SELECT TOP 5 s.ShopName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Shops s ON r.ShopID = s.ShopID " + dateFilter.replace("WHERE", "WHERE r.") + " GROUP BY s.ShopName ORDER BY cnt DESC")
+        // problemShops - по дате СОЗДАНИЯ
+        Flux<DashboardStatsResponse.ChartData> problemShops = db.sql("SELECT TOP 5 s.ShopName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Shops s ON r.ShopID = s.ShopID " + creationDateFilter + " GROUP BY s.ShopName ORDER BY cnt DESC")
                 .bind("start", start).bind("end", end).map(row -> new DashboardStatsResponse.ChartData(row.get("ShopName", String.class), getLong(row, "cnt"))).all();
 
-        Flux<DashboardStatsResponse.ChartData> worstContractors = db.sql("SELECT TOP 5 u.FullName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID WHERE r.IsOverdue = 1 GROUP BY u.FullName ORDER BY cnt DESC")
-                .map(row -> new DashboardStatsResponse.ChartData(row.get("FullName", String.class), getLong(row, "cnt"))).all();
+        // worstContractors и worstShops - ВСЕГДА текущие просрочки, без фильтра
+        Flux<DashboardStatsResponse.ChartData> worstContractors = db.sql("SELECT TOP 5 u.FullName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Users u ON r.AssignedContractorID = u.UserID " + deadlineDateFilter + " GROUP BY u.FullName ORDER BY cnt DESC")
+                .bind("start", start).bind("end", end).map(row -> new DashboardStatsResponse.ChartData(row.get("FullName", String.class), getLong(row, "cnt"))).all();
 
-        Flux<DashboardStatsResponse.ChartData> worstShops = db.sql("SELECT TOP 5 s.ShopName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Shops s ON r.ShopID = s.ShopID WHERE r.IsOverdue = 1 GROUP BY s.ShopName ORDER BY cnt DESC")
-                .map(row -> new DashboardStatsResponse.ChartData(row.get("ShopName", String.class), getLong(row, "cnt"))).all();
+        Flux<DashboardStatsResponse.ChartData> worstShops = db.sql("SELECT TOP 5 s.ShopName, COUNT(r.RequestID) as cnt FROM Requests r JOIN Shops s ON r.ShopID = s.ShopID " + deadlineDateFilter + " GROUP BY s.ShopName ORDER BY cnt DESC")
+                .bind("start", start).bind("end", end).map(row -> new DashboardStatsResponse.ChartData(row.get("ShopName", String.class), getLong(row, "cnt"))).all();
 
         return Mono.zip(
                 Mono.zip(total, active, completed, overdue, avgTime, slaPercent),

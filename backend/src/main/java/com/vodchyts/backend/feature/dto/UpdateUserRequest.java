@@ -16,11 +16,8 @@ public record UpdateUserRequest(
         @Size(max = 400, message = "Контактная информация не должна превышать 400 символов")
         String contactInfo,
 
-        @Pattern(
-                regexp = "^[0-9]*$",
-                message = "Telegram ID должен состоять только из цифр"
-        )
-        @Size(max = 19, message = "Telegram ID слишком длинный")
+        @Pattern(regexp = "^[0-9,\\s\\-]*$", message = "Telegram ID должен содержать только цифры и запятые")
+        @Size(max = 500, message = "Поле Telegram ID слишком длинное")
         String telegramID,
 
         @Size(max = 100, message = "Ник Telegram слишком длинный")

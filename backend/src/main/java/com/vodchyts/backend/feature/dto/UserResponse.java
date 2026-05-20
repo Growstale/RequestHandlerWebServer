@@ -6,6 +6,6 @@ public record UserResponse(
         String roleName,
         String fullName,
         String contactInfo,
-        Long telegramID,
+        String telegramID,
         String telegramUsername
 ) {}

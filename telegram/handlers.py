@@ -863,10 +863,11 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
                 # Прячем упоминание пользователя в эмодзи (требуется для срабатывания ForceReply)
             mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
 
+            hint = "\n\n👇 <i>Напишите текст прямо в ответ на это сообщение.</i>"
             if parent_id:
-                text = f"{mention} Введите текст вашего ответа:"
+                text = f"{mention} Введите текст вашего ответа:{hint}"
             else:
-                text = f"{mention} Введите текст комментария к заявке <b>#{req_id}</b>:"
+                text = f"{mention} Введите текст комментария к заявке <b>#{req_id}</b>:{hint}"
 
             prompt_msg = await context.bot.send_message(
                 chat_id=update.effective_chat.id,
@@ -1694,7 +1695,7 @@ async def select_urgency_callback(update: Update, context: CallbackContext) -> i
         mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
         msg = await context.bot.send_message(
             update.effective_chat.id,
-            f"{mention} <b>Шаг 5/5:</b> Теперь введите подробное описание заявки.",
+            f"{mention} <b>Шаг 5/5:</b> Теперь введите подробное описание заявки.\n\n👇 <i>Напишите текст в ответ на это сообщение.</i>",
             reply_markup=ForceReply(selective=True),
             parse_mode=ParseMode.HTML
         )
@@ -1716,7 +1717,7 @@ async def description_handler(update: Update, context: CallbackContext) -> int:
     if context.user_data.get('is_customizable'):
         mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
         msg = await update.message.reply_text(
-            f"{mention} Срочность 'Настраиваемая'. Введите количество дней на выполнение (например, 10).",
+            f"{mention} Срочность 'Настраиваемая'. Введите количество дней на выполнение (например, 10).\n\n👇 <i>Отправьте число в ответ на это сообщение.</i>",
             reply_markup=ForceReply(selective=True),
             parse_mode=ParseMode.HTML
         )
@@ -2106,7 +2107,7 @@ async def editor_main_callback(update: Update, context: Context) -> int:
         mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
         prompt_msg = await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=f"{mention} Текущее описание:\n<i>{html.escape(current_desc)}</i>\n\nВведите новое описание (текстом):",
+            text=f"{mention} Текущее описание:\n<i>{html.escape(current_desc)}</i>\n\nВведите новое описание:\n\n👇 <i>Отправьте текст в ответ на это сообщение.</i>",
             reply_markup=ForceReply(selective=True),
             parse_mode=ParseMode.HTML
         )
@@ -2199,10 +2200,11 @@ async def _handle_selection(update: Update, context: Context,
                 mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
                 prompt_msg = await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"{mention} Введите количество дней (число от 1 до 365):",
+                    text=f"{mention} Введите количество дней (число от 1 до 365):\n\n👇 <i>Отправьте число в ответ на это сообщение.</i>",
                     reply_markup=ForceReply(selective=True),
                     parse_mode=ParseMode.HTML
                 )
+
                 context.user_data['editor_prompt_message_id'] = prompt_msg.message_id
                 context.user_data['editor_waiting_custom_days'] = True
                 return EDITOR_INPUT_TEXT

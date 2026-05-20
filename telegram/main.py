@@ -2,7 +2,7 @@ import logging
 import asyncio
 import io
 from aiohttp import web
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.error import BadRequest, TelegramError
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -261,6 +261,12 @@ async def main():
     application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
 
     await application.initialize()
+
+    await application.bot.set_my_commands([
+        BotCommand("requests", "📋 Мои заявки"),
+        BotCommand("newrequest", "➕ Новая заявка"),
+    ])
+
     await application.start()
     await application.updater.start_polling()
 

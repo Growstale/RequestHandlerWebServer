@@ -110,8 +110,15 @@ export default function UserForm({ currentUser, onSubmit, onCancel, apiError, ro
         </div>
 
         <div className="grid grid-cols-4 items-center gap-4">
-          <Label htmlFor="telegramID" className="text-right">Telegram ID</Label>
-          <Input id="telegramID" name="telegramID" value={formData.telegramID} onChange={handleChange} className="col-span-3" />
+            <Label htmlFor="telegramID" className="text-right">Telegram ID</Label>
+            <Input 
+                id="telegramID" 
+                name="telegramID" 
+                value={formData.telegramID} 
+                onChange={handleChange} 
+                className="col-span-3"
+                placeholder="Например: 1234567, 9876543 (через запятую)" 
+            />
         </div>
 
         {formData.roleName === 'Contractor' && (

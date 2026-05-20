@@ -1,6 +1,7 @@
 package com.vodchyts.backend.feature.repository;
 
 import com.vodchyts.backend.feature.entity.User;
+import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
@@ -12,5 +13,6 @@ public interface ReactiveUserRepository extends ReactiveCrudRepository<User, Int
     Mono<Boolean> existsByLogin(String login);
     Flux<User> findAllByRoleID(Integer roleID);
     Mono<Long> countByRoleID(Integer roleID);
-    Mono<User> findByTelegramID(Long telegramId);
+    @Query("SELECT * FROM Users WHERE ',' + REPLACE(TelegramID, ' ', '') + ',' LIKE '%,' + :telegramId + ',%'")
+    Mono<User> findByTelegramID(String telegramId);
 }

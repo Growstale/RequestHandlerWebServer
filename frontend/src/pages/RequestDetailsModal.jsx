@@ -20,12 +20,26 @@ const renderDeadlineInfo = (request) => {
     if (request.urgencyName === 'Notes' || request.status === 'Closed' || request.daysRemaining === null) {
         return '—';
     }
+    
     if (request.daysRemaining >= 0) {
         return `Осталось ${request.daysRemaining} дн.`;
     }
-    return `Просрочено на ${Math.abs(request.daysRemaining)} дн.`;
+    
+    // Если daysRemaining < 0 (время вышло)
+    const absDays = Math.abs(request.daysRemaining);
+    
+    // Если заявка в статусе "Выполнена"
+    if (request.status === 'Done') {
+        if (request.isOverdue) {
+            return `Просрочено на ${absDays} дн. (была просрочена во время выполнения)`;
+        } else {
+            return `-${absDays} дн. (выполнена вовремя)`;
+        }
+    }
+    
+    // Если заявка всё ещё "В работе"
+    return `Просрочено на ${absDays} дн.`;
 };
-
 
 export default function RequestDetailsModal({ isOpen, onClose, request, footerContent, highlightUpdate, isAdmin }) {
     const [chatInfo, setChatInfo] = useState({ status: 'idle', data: null });
@@ -110,7 +124,7 @@ export default function RequestDetailsModal({ isOpen, onClose, request, footerCo
                             </div>
                             <div>
                                 <p className="font-semibold text-gray-700">Срок:</p>
-                                <p className={cn(request.isOverdue && request.status === 'In work' && 'font-bold text-red-600')}>
+                                <p className={cn(request.isOverdue && 'font-bold text-red-600')}>
                                     {renderDeadlineInfo(request)}
                                 </p>
                             </div>

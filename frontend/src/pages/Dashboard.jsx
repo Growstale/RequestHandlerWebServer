@@ -10,11 +10,17 @@ import {
 } from 'recharts';
 import { 
     Activity, CheckCircle2, AlertTriangle, 
-    Briefcase, Printer, Download, Clock, ShieldCheck, CalendarRange, TrendingUp
+    Briefcase, Printer, Download, Clock, ShieldCheck, CalendarRange, TrendingUp, Info
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getUrgencyDisplayName, getStatusDisplayName } from '@/lib/displayNames';
 import * as XLSX from 'xlsx';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 const COLORS =['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
@@ -23,12 +29,10 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Состояния для фильтра дат
     const [period, setPeriod] = useState('month'); 
     const [customStart, setCustomStart] = useState('');
     const [customEnd, setCustomEnd] = useState('');
 
-    // Вычисление дат для пресетов
     const dateRanges = useMemo(() => {
         const today = new Date();
         const end = today.toISOString().split('T')[0];
@@ -51,7 +55,6 @@ export default function Dashboard() {
 
     useEffect(() => {
         const fetchStats = async () => {
-            // Ждем ввода обеих дат, если выбран "Свой период"
             if (period === 'custom' && (!customStart || !customEnd)) return; 
 
             setLoading(true);
@@ -77,30 +80,25 @@ export default function Dashboard() {
         ? ((stats.completedRequests / stats.totalRequests) * 100).toFixed(0) 
         : "0";
 
-const handleExportExcel = () => {
+    const handleExportExcel = () => {
         if (!stats) return;
 
         const workbook = XLSX.utils.book_new();
 
-        // Формируем красивую строку периода для шапки отчета
         let periodTitle = "За выбранный период";
         if (period === 'all') periodTitle = "За всё время";
         else if (period === 'today') periodTitle = "За сегодня";
         else if (customStart && customEnd) periodTitle = `С ${customStart} по ${customEnd}`;
 
-        // Функция для настройки ширины столбцов
         const setColWidths = (sheet, widths) => {
             sheet['!cols'] = widths.map(w => ({ wch: w }));
         };
 
-        // ==========================================
-        // ЛИСТ 1: СВОДКА И KPI
-        // ==========================================
         const summaryData = [
             ["ОТЧЕТ ПО ЗАЯВКАМ: MART INN FOOD"],
             [`Период отчета: ${periodTitle}`],
             [`Дата генерации: ${new Date().toLocaleString('ru-RU')}`],
-            [], // пустая строка для красоты
+            [], 
             ["--- КЛЮЧЕВЫЕ ПОКАЗАТЕЛИ (KPI) ---", ""],
             ["Всего заявок (создано)", stats.totalRequests],
             ["В работе (текущий бэклог)", stats.activeRequests],
@@ -121,12 +119,9 @@ const handleExportExcel = () => {
             ...(stats.worstContractors.length === 0 ? [["Просрочек нет", "-"]] : []),
         ];
         const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-        setColWidths(summarySheet, [40, 20]); // Ширина 1-го и 2-го столбца
+        setColWidths(summarySheet, [40, 20]); 
         XLSX.utils.book_append_sheet(workbook, summarySheet, "Главная сводка");
 
-        // ==========================================
-        // ЛИСТ 2: АНАЛИТИКА (Виды работ, Срочность, Статусы)
-        // ==========================================
         const analyticsData = [
             ["--- СТАТУСЫ ЗАЯВОК ---", ""],
             ...stats.requestsByStatus.map(s => [getStatusDisplayName(s.name) || s.name, s.value]),
@@ -141,9 +136,6 @@ const handleExportExcel = () => {
         setColWidths(analyticsSheet, [40, 15]);
         XLSX.utils.book_append_sheet(workbook, analyticsSheet, "Аналитика");
 
-        // ==========================================
-        // ЛИСТ 3: ДИНАМИКА И ИСПОЛНИТЕЛИ
-        // ==========================================
         const dynamicsData = [
             ["--- ДИНАМИКА СОЗДАНИЯ ЗАЯВОК ---", ""],
             ["Период", "Кол-во новых заявок"],
@@ -162,7 +154,6 @@ const handleExportExcel = () => {
         setColWidths(dynamicsSheet, [40, 25]);
         XLSX.utils.book_append_sheet(workbook, dynamicsSheet, "Динамика и Подрядчики");
 
-        // Генерируем файл
         const dateStr = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
         XLSX.writeFile(workbook, `Otchet_Dashboard_${dateStr}.xlsx`);
     };
@@ -189,123 +180,126 @@ const handleExportExcel = () => {
     })) || [];
 
     return (
-        <main className="container mx-auto p-6 space-y-6">
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
-                <h1 className="text-3xl font-bold tracking-tight">Дашборд</h1>
-                
-<div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center bg-white border rounded-lg shadow-sm no-print p-1 gap-1 max-w-full">
-                    <div className="flex items-center w-full sm:w-auto">
-                        <div className="pl-2 pr-1 hidden sm:flex items-center justify-center">
-                            <CalendarRange className="h-4 w-4 text-gray-500" />
-                        </div>
-                        <Select value={period} onValueChange={setPeriod}>
-                            <SelectTrigger className="w-full sm:w-[150px] border-none shadow-none focus:ring-0 focus:ring-offset-0 bg-transparent h-8">
-                                <SelectValue placeholder="Выберите период" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="today">За сегодня</SelectItem>
-                                <SelectItem value="week">За 7 дней</SelectItem>
-                                <SelectItem value="month">За месяц</SelectItem>
-                                <SelectItem value="quarter">За квартал</SelectItem>
-                                <SelectItem value="half_year">За полгода</SelectItem>
-                                <SelectItem value="year">За год</SelectItem>
-                                <SelectItem value="all">За всё время</SelectItem>
-                                <SelectItem value="custom">Свой период...</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
+        <TooltipProvider delayDuration={200}>
+            <main className="container mx-auto p-6 space-y-6">
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+                    <h1 className="text-3xl font-bold tracking-tight">Дашборд</h1>
                     
-                    {period === 'custom' && (
-                        <div className="flex items-center gap-2 px-1 sm:px-2 sm:border-l border-gray-100 pb-1 sm:pb-0 w-full sm:w-auto">
-                            <Input 
-                                type="date" 
-                                value={customStart} 
-                                onChange={e => setCustomStart(e.target.value)} 
-                                className="h-8 text-xs flex-1 sm:w-[125px] border-gray-200 focus-visible:ring-1" 
-                            />
-                            <span className="text-gray-400 text-xs hidden sm:inline">—</span>
-                            <Input 
-                                type="date" 
-                                value={customEnd} 
-                                onChange={e => setCustomEnd(e.target.value)} 
-                                className="h-8 text-xs flex-1 sm:w-[125px] border-gray-200 focus-visible:ring-1" 
-                            />
+                    <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center bg-white border rounded-lg shadow-sm no-print p-1 gap-1 max-w-full">
+                        <div className="flex items-center w-full sm:w-auto">
+                            <div className="pl-2 pr-1 hidden sm:flex items-center justify-center">
+                                <CalendarRange className="h-4 w-4 text-gray-500" />
+                            </div>
+                            <Select value={period} onValueChange={setPeriod}>
+                                <SelectTrigger className="w-full sm:w-[150px] border-none shadow-none focus:ring-0 focus:ring-offset-0 bg-transparent h-8">
+                                    <SelectValue placeholder="Выберите период" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="today">За сегодня</SelectItem>
+                                    <SelectItem value="week">За 7 дней</SelectItem>
+                                    <SelectItem value="month">За месяц</SelectItem>
+                                    <SelectItem value="quarter">За квартал</SelectItem>
+                                    <SelectItem value="half_year">За полгода</SelectItem>
+                                    <SelectItem value="year">За год</SelectItem>
+                                    <SelectItem value="all">За всё время</SelectItem>
+                                    <SelectItem value="custom">Свой период...</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
-                    )}
+                        
+                        {period === 'custom' && (
+                            <div className="flex items-center gap-2 px-1 sm:px-2 sm:border-l border-gray-100 pb-1 sm:pb-0 w-full sm:w-auto">
+                                <Input 
+                                    type="date" 
+                                    value={customStart} 
+                                    onChange={e => setCustomStart(e.target.value)} 
+                                    className="h-8 text-xs flex-1 sm:w-[125px] border-gray-200 focus-visible:ring-1" 
+                                />
+                                <span className="text-gray-400 text-xs hidden sm:inline">—</span>
+                                <Input 
+                                    type="date" 
+                                    value={customEnd} 
+                                    onChange={e => setCustomEnd(e.target.value)} 
+                                    className="h-8 text-xs flex-1 sm:w-[125px] border-gray-200 focus-visible:ring-1" 
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex gap-2 no-print">
+                        <Button onClick={handleExportExcel} variant="outline" className="gap-2 bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:text-green-800">
+                            <Download className="h-4 w-4" />
+                            Скачать Excel
+                        </Button>
+                        <Button onClick={handlePrint} variant="outline" className="gap-2">
+                            <Printer className="h-4 w-4" />
+                            Печать
+                        </Button>
+                    </div>
                 </div>
 
-                <div className="flex gap-2 no-print">
-                    <Button onClick={handleExportExcel} variant="outline" className="gap-2 bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:text-green-800">
-                        <Download className="h-4 w-4" />
-                        Скачать Excel
-                    </Button>
-                    <Button onClick={handlePrint} variant="outline" className="gap-2">
-                        <Printer className="h-4 w-4" />
-                        Печать
-                    </Button>
+                {/* Карточки KPI */}
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+                    <StatsCard 
+                        title="Создано заявок" 
+                        value={stats.totalRequests} 
+                        icon={Briefcase} 
+                        description="За период создания"
+                        tooltipText="Показывает объем новой работы, поступившей в систему (дата создания попадает в выбранный период)."
+                    />
+                    <StatsCard 
+                        title="В работе (Всего)" 
+                        value={stats.activeRequests} 
+                        icon={Activity} 
+                        className="text-blue-600"
+                        description="Текущий бэклог"
+                        tooltipText="Текущая очередь задач. Сколько заявок прямо сейчас находятся в статусе 'В работе'. Фильтр по датам на этот показатель не влияет."
+                    />
+                    <StatsCard 
+                        title="Выполнено" 
+                        value={stats.completedRequests} 
+                        icon={CheckCircle2} 
+                        className="text-green-600"
+                        description="За период закрытия"
+                        tooltipText="Количество заявок, которые были окончательно проверены и переведены в статус 'Закрыта' (в Архив) в выбранный период."
+                    />
+                    <StatsCard 
+                        title="Просрочено" 
+                        value={stats.overdueRequests} 
+                        icon={AlertTriangle} 
+                        className="text-red-600"
+                        description="Дедлайн в этот период"
+                        tooltipText="Количество заявок, дедлайн которых выпал на выбранный период, и они не были выполнены вовремя (ушли в просрочку)."
+                    />
+                    <StatsCard 
+                        title="Коэф. закрытия" 
+                        value={`${resolutionRate}%`} 
+                        icon={TrendingUp} 
+                        className={resolutionRate >= 95 ? "text-green-600" : resolutionRate > 80 ? "text-orange-500" : "text-red-600"}
+                        description="Выполнено / Создано за период"
+                        tooltipText="Показывает, справляется ли команда с потоком. Считается как отношение заявок, закрытых в выбранный период, к числу созданных за этот же период. Если больше 100% — команда разгребает старые долги."
+                    />
+                    <StatsCard 
+                        title="Среднее время" 
+                        value={stats.averageCompletionTimeDays ? `${stats.averageCompletionTimeDays.toFixed(1)} дн.` : "—"} 
+                        icon={Clock} 
+                        className="text-purple-600"
+                        description="Для закрытых за период"
+                        tooltipText="Скорость реакции. Среднее время от создания заявки до её окончательного закрытия админом. Учитываются только заявки, переведенные в 'Закрыта' в выбранный период."
+                    />
+                    <StatsCard 
+                        title="SLA (Соблюдение)" 
+                        value={stats.slaCompliancePercent ? `${stats.slaCompliancePercent.toFixed(0)}%` : "—"} 
+                        icon={ShieldCheck} 
+                        className={stats.slaCompliancePercent >= 90 ? "text-green-600" : "text-orange-500"}
+                        description="Для закрытых за период"
+                        tooltipText="Качество сервиса. Процент заявок, которые были закрыты без нарушения дедлайна, от общего числа закрытых в выбранный период."
+                    />
                 </div>
-            </div>
 
-            {/* Карточки KPI */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-                <StatsCard 
-                    title="Создано заявок" 
-                    value={stats.totalRequests} 
-                    icon={Briefcase} 
-                    description="За выбранный период"
-                />
-                <StatsCard 
-                    title="В работе (Всего)" 
-                    value={stats.activeRequests} 
-                    icon={Activity} 
-                    className="text-blue-600"
-                    description="Текущий бэклог"
-                />
-                <StatsCard 
-                    title="Выполнено" 
-                    value={stats.completedRequests} 
-                    icon={CheckCircle2} 
-                    className="text-green-600"
-                    description="За выбранный период"
-                />
-                <StatsCard 
-                    title="Просрочено (Всего)" 
-                    value={stats.overdueRequests} 
-                    icon={AlertTriangle} 
-                    className="text-red-600"
-                    description="Срыв сроков"
-                />
-                <StatsCard 
-                    title="Коэф. закрытия" 
-                    value={`${resolutionRate}%`} 
-                    icon={TrendingUp} 
-                    className={resolutionRate >= 95 ? "text-green-600" : resolutionRate > 80 ? "text-orange-500" : "text-red-600"}
-                    description="Выполнено / Создано"
-                />
-                <StatsCard 
-                    title="Среднее время" 
-                    value={stats.averageCompletionTimeDays ? `${stats.averageCompletionTimeDays.toFixed(1)} дн.` : "—"} 
-                    icon={Clock} 
-                    className="text-purple-600"
-                    description="Скорость решения"
-                />
-                <StatsCard 
-                    title="SLA (Соблюдение)" 
-                    value={stats.slaCompliancePercent ? `${stats.slaCompliancePercent.toFixed(0)}%` : "—"} 
-                    icon={ShieldCheck} 
-                    className={stats.slaCompliancePercent >= 90 ? "text-green-600" : "text-orange-500"}
-                    description="Решено в срок"
-                />
-            </div>
-
-            {/* Ряд 1: Динамика и Круговая диаграмма */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <Card className="col-span-4">
-                    <CardHeader>
-                        <CardTitle>Динамика создания заявок</CardTitle>
-                        <CardDescription>Распределение по датам</CardDescription>
-                    </CardHeader>
-                    <CardContent className="pl-2">
+                {/* Ряд 1: Динамика и Круговая диаграмма */}
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+                    <ChartCard className="col-span-4" title="Динамика создания заявок" description="На основе даты создания за период" tooltipText="Показывает пики и спады нагрузки по дням. Помогает понять, в какие дни поступает больше всего заявок.">
                         <div className="h-[300px] w-full min-h-[300px]"> 
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={stats.requestsLast7Days}>
@@ -323,15 +317,9 @@ const handleExportExcel = () => {
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
-                    </CardContent>
-                </Card>
+                    </ChartCard>
 
-                <Card className="col-span-3">
-                    <CardHeader>
-                        <CardTitle>Срочность</CardTitle>
-                        <CardDescription>За выбранный период</CardDescription>
-                    </CardHeader>
-                    <CardContent>
+                    <ChartCard className="col-span-3" title="Срочность" description="На основе даты создания за период" tooltipText="Структура входящих проблем: какая доля заявок — это аварии, а какая — плановые работы (среди созданных в выбранный период).">
                         <div className="h-[250px] flex items-center justify-center">
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
@@ -352,7 +340,7 @@ const handleExportExcel = () => {
                                 </PieChart>
                             </ResponsiveContainer>
                         </div>
-                        <div className="flex justify-center gap-3 text-xs text-gray-500 flex-wrap">
+                        <div className="flex justify-center gap-3 text-xs text-gray-500 flex-wrap mt-2">
                             {urgencyData.map((entry, index) => (
                                 <div key={index} className="flex items-center gap-1">
                                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
@@ -360,126 +348,124 @@ const handleExportExcel = () => {
                                 </div>
                             ))}
                         </div>
-                    </CardContent>
-                </Card>
-            </div>
+                    </ChartCard>
+                </div>
 
-            {/* Ряд 2: Антирейтинги (Просрочки) */}
-            <div className="grid gap-4 md:grid-cols-2">
-                <Card className="border-red-100 shadow-sm">
-                    <CardHeader className="bg-red-50/50 pb-4 border-b">
-                        <CardTitle className="text-red-600 flex items-center gap-2">
-                            <AlertTriangle className="h-5 w-5" /> Антирейтинг подрядчиков
-                        </CardTitle>
-                        <CardDescription>Текущие активные просрочки</CardDescription>
-                    </CardHeader>
-                    <CardContent className="pt-4 h-[250px]">
-                        {stats.worstContractors.length === 0 ? (
-                            <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
-                        ) : (
+                {/* Ряд 2: Антирейтинги (Просрочки) */}
+                <div className="grid gap-4 md:grid-cols-2">
+                        <ChartCard 
+                            title={<span className="text-red-600 flex items-center gap-2"><AlertTriangle className="h-5 w-5" /> Антирейтинг подрядчиков</span>}
+                            description="По дате дедлайна за период"
+                            tooltipText="Показывает исполнителей, у которых больше всего заявок с дедлайном в выбранном периоде ушло в просрочку."
+                            headerClassName="bg-red-50/50 pb-4 border-b"
+                            className="border-red-100 shadow-sm"
+                        >
+                        <div className="h-[250px] pt-4">
+                            {stats.worstContractors.length === 0 ? (
+                                <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
+                            ) : (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart layout="vertical" data={stats.worstContractors} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                        <XAxis type="number" allowDecimals={false} hide />
+                                        <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
+                                        <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                        <Bar dataKey="value" fill="#ef4444" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            )}
+                        </div>
+                    </ChartCard>
+
+                        <ChartCard 
+                            title={<span className="text-red-600 flex items-center gap-2"><AlertTriangle className="h-5 w-5" /> Проблемные магазины</span>}
+                            description="По дате дедлайна за период"
+                            tooltipText="Показывает магазины, инфраструктура которых чаще всего страдает от затянувшихся ремонтов (по кол-ву просроченных дедлайнов в выбранный период)."
+                            headerClassName="bg-red-50/50 pb-4 border-b"
+                            className="border-red-100 shadow-sm"
+                        >
+                        <div className="h-[250px] pt-4">
+                            {stats.worstShops.length === 0 ? (
+                                <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
+                            ) : (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart layout="vertical" data={stats.worstShops} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                        <XAxis type="number" allowDecimals={false} hide />
+                                        <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
+                                        <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                        <Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            )}
+                        </div>
+                    </ChartCard>
+                </div>
+
+                {/* Ряд 3: Загрузка подрядчиков и Топ магазинов (Общее) */}
+                <div className="grid gap-4 md:grid-cols-2">
+                    <ChartCard 
+                        title="Текущая загрузка подрядчиков" 
+                        description="Активные заявки (без фильтра по дате)"
+                        tooltipText="Помогает равномерно распределять новые заявки. Учитываются все заявки со статусом 'В работе' (неважно, просрочены они или нет)."
+                    >
+                        <div className="h-[250px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart layout="vertical" data={stats.worstContractors} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                <BarChart layout="vertical" data={stats.contractorWorkload} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                                    <XAxis type="number" allowDecimals={false} hide />
-                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
+                                    <XAxis type="number" allowDecimals={false} />
+                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 12}} />
                                     <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                    <Bar dataKey="value" fill="#ef4444" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
+                                    <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} name="В работе" barSize={15} />
                                 </BarChart>
                             </ResponsiveContainer>
-                        )}
-                    </CardContent>
-                </Card>
+                        </div>
+                    </ChartCard>
 
-                <Card className="border-red-100 shadow-sm">
-                    <CardHeader className="bg-red-50/50 pb-4 border-b">
-                        <CardTitle className="text-red-600 flex items-center gap-2">
-                            <AlertTriangle className="h-5 w-5" /> Проблемные магазины
-                        </CardTitle>
-                        <CardDescription>Текущие активные просрочки</CardDescription>
-                    </CardHeader>
-                    <CardContent className="pt-4 h-[250px]">
-                        {stats.worstShops.length === 0 ? (
-                            <div className="h-full flex items-center justify-center text-gray-400">Просрочек нет 🎉</div>
-                        ) : (
+                    <ChartCard 
+                        title="Самые активные магазины" 
+                        description="По кол-ву созданных заявок за период"
+                        tooltipText="Показывает 'исторически' проблемные объекты, инфраструктура которых чаще всего требует ремонта (среди созданных в период)."
+                    >
+                        <div className="h-[250px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart layout="vertical" data={stats.worstShops} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                                    <XAxis type="number" allowDecimals={false} hide />
-                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
+                                <BarChart data={stats.topProblemShops} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="name" tick={{fontSize: 11}} interval={0} angle={-15} textAnchor="end" height={60}/>
+                                    <YAxis allowDecimals={false} />
                                     <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                    <Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} name="Просрочено" barSize={20} />
+                                    <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Всего заявок" barSize={30} />
                                 </BarChart>
                             </ResponsiveContainer>
-                        )}
-                    </CardContent>
-                </Card>
-            </div>
+                        </div>
+                    </ChartCard>
+                </div>
 
-            {/* Ряд 3: Загрузка подрядчиков и Топ магазинов (Общее) */}
-            <div className="grid gap-4 md:grid-cols-2">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Текущая загрузка подрядчиков</CardTitle>
-                        <CardDescription>Количество активных заявок ("В работе")</CardDescription>
-                    </CardHeader>
-                    <CardContent className="h-[250px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart layout="vertical" data={stats.contractorWorkload} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                                <XAxis type="number" allowDecimals={false} />
-                                <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 12}} />
-                                <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} name="В работе" barSize={15} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
+                {/* Ряд 4: Виды работ и Лидеры */}
+                <div className="grid gap-4 md:grid-cols-2">
+                    <ChartCard 
+                        title="Топ категорий работ" 
+                        description="На основе даты создания за период"
+                        tooltipText="Показывает, какое оборудование ломается чаще всего (сантехника, электрика и т.д.) среди созданных в выбранный период."
+                    >
+                        <div className="h-[250px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart layout="vertical" data={stats.requestsByWorkCategory} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                    <XAxis type="number" allowDecimals={false} />
+                                    <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 11}} />
+                                    <RechartsTooltip cursor={{fill: 'transparent'}} />
+                                    <Bar dataKey="value" fill="#8884d8" radius={[0, 4, 4, 0]} name="Заявки" barSize={15} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </ChartCard>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Самые активные магазины</CardTitle>
-                        <CardDescription>По количеству созданных заявок</CardDescription>
-                    </CardHeader>
-                    <CardContent className="h-[250px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={stats.topProblemShops} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                <XAxis dataKey="name" tick={{fontSize: 11}} interval={0} angle={-15} textAnchor="end" height={60}/>
-                                <YAxis allowDecimals={false} />
-                                <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Всего заявок" barSize={30} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* Ряд 4: Виды работ и Лидеры */}
-            <div className="grid gap-4 md:grid-cols-2">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Топ категорий работ</CardTitle>
-                        <CardDescription>Самые частые причины обращений</CardDescription>
-                    </CardHeader>
-                    <CardContent className="h-[250px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart layout="vertical" data={stats.requestsByWorkCategory} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                                <XAxis type="number" allowDecimals={false} />
-                                <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 11}} />
-                                <RechartsTooltip cursor={{fill: 'transparent'}} />
-                                <Bar dataKey="value" fill="#8884d8" radius={[0, 4, 4, 0]} name="Заявки" barSize={15} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Лидеры по продуктивности</CardTitle>
-                        <CardDescription>Выполнено заявок (Топ 5)</CardDescription>
-                    </CardHeader>
-                    <CardContent>
+                    <ChartCard 
+                        title="Лидеры по продуктивности" 
+                        description="Закрыто заявок (по дате закрытия)"
+                        tooltipText="Показывает лучших работников периода. В зачёт идут только те заявки исполнителя, которые были окончательно переведены в статус 'Закрыта' (Архив) в выбранный период."
+                    >
                         <div className="space-y-4">
                             {stats.topContractors.length === 0 ? (
                                 <p className="text-center text-gray-400 py-6">Нет данных о выполненных заявках за этот период</p>
@@ -497,23 +483,63 @@ const handleExportExcel = () => {
                                 </div>
                             ))}
                         </div>
-                    </CardContent>
-                </Card>
-            </div>
-        </main>
+                    </ChartCard>
+                </div>
+            </main>
+        </TooltipProvider>
     );
 }
 
-function StatsCard({ title, value, icon: Icon, description, className }) {
+// Вспомогательный компонент для маленьких карточек с Tooltip
+function StatsCard({ title, value, icon: Icon, description, className, tooltipText }) {
     return (
         <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium leading-tight">{title}</CardTitle>
+                <div className="flex items-center gap-1.5">
+                    <CardTitle className="text-sm font-medium leading-tight">{title}</CardTitle>
+                    {tooltipText && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Info className="h-3.5 w-3.5 text-gray-400 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[250px] bg-slate-800 text-white text-xs z-50">
+                                <p>{tooltipText}</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
+                </div>
                 <Icon className={cn("h-4 w-4 text-muted-foreground", className)} />
             </CardHeader>
             <CardContent>
                 <div className={cn("text-2xl font-bold", className)}>{value}</div>
                 <p className="text-xs text-muted-foreground mt-1">{description}</p>
+            </CardContent>
+        </Card>
+    );
+}
+
+// Вспомогательный компонент для больших графиков с Tooltip
+function ChartCard({ title, description, children, className, headerClassName, tooltipText }) {
+    return (
+        <Card className={className}>
+            <CardHeader className={headerClassName}>
+                <div className="flex items-center gap-1.5">
+                    <CardTitle className="text-lg">{title}</CardTitle>
+                    {tooltipText && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Info className="h-4 w-4 text-gray-400 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[300px] bg-slate-800 text-white text-xs z-50">
+                                <p>{tooltipText}</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
+                </div>
+                {description && <CardDescription>{description}</CardDescription>}
+            </CardHeader>
+            <CardContent>
+                {children}
             </CardContent>
         </Card>
     );

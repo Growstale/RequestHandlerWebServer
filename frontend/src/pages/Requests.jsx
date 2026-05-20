@@ -882,8 +882,8 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                                     <TableCell>{req.assignedContractorName || '—'}</TableCell>
                                     <TableCell>{getStatusDisplayName(req.status)}</TableCell>
                                     <TableCell className={cn({ 
-                                        'font-bold text-red-600': req.isOverdue && req.urgencyName !== 'Notes' && req.status === 'In work', 
-                                        'text-green-600': req.daysRemaining > 0 && req.urgencyName !== 'Notes' 
+                                        'font-bold text-red-600': req.isOverdue && req.urgencyName !== 'Notes', 
+                                        'text-green-600': req.daysRemaining > 0 && req.urgencyName !== 'Notes' && !req.isOverdue
                                     })}>
                                         {req.urgencyName === 'Notes' ? '—' : (req.daysRemaining !== null ? req.daysRemaining : '—')}
                                     </TableCell>
@@ -1007,7 +1007,9 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                                                             <TableCell>{getUrgencyDisplayName(req.urgencyName)}</TableCell>
                                                             <TableCell>{req.assignedContractorName || '—'}</TableCell>
                                                             <TableCell>{getStatusDisplayName(req.status)}</TableCell>
-                                                            <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 })}>{req.daysRemaining !== null ? req.daysRemaining : '—'}</TableCell>
+                                                            <TableCell className={cn({ 'font-bold text-red-600': req.isOverdue, 'text-green-600': req.daysRemaining > 0 && !req.isOverdue })}>
+                                                                {req.daysRemaining !== null ? req.daysRemaining : '—'}
+                                                            </TableCell>
                                                             <TableCell>
                                                                 <div className="flex gap-1">
                                                                     <Button variant="ghost" size="icon" className={cn("px-2", hasUpdate ? "text-yellow-600 bg-yellow-100 animate-pulse hover:text-yellow-700 hover:bg-yellow-200" : "hover:text-indigo-700")} onClick={() => openDetails(req)} title="Просмотр деталей">
