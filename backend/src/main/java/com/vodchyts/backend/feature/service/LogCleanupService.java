@@ -37,15 +37,25 @@ public class LogCleanupService {
 
         loggingService.deleteOldLogs(logCutoffDate)
                 .subscribe(
-                        count -> log.info("Очистка логов приложения завершена. Удалено {} записей старше {} дней.",
-                                count, logRetentionDays),
+                        count -> {
+                            log.info("Очистка логов приложения завершена. Удалено {} записей старше {} дней.", count, logRetentionDays);
+                            if (count > 0) {
+                                loggingService.logInfo("LogCleanupService", "Очистка логов приложения завершена. Удалено записей: " + count,
+                                        null, "SYSTEM", "127.0.0.1", "Quartz Scheduler", "cron", "JOB").subscribe();
+                            }
+                        },
                         error -> log.error("Ошибка во время очистки логов приложения.", error)
                 );
 
         auditService.deleteOldAuditLogs(auditCutoffDate)
                 .subscribe(
-                        count -> log.info("Очистка записей аудита завершена. Удалено {} записей старше {} дней.",
-                                count, auditRetentionDays),
+                        count -> {
+                            log.info("Очистка записей аудита завершена. Удалено {} записей старше {} дней.", count, auditRetentionDays);
+                            if (count > 0) {
+                                loggingService.logInfo("LogCleanupService", "Очистка логов аудита завершена. Удалено записей: " + count,
+                                        null, "SYSTEM", "127.0.0.1", "Quartz Scheduler", "cron", "JOB").subscribe();
+                            }
+                        },
                         error -> log.error("Ошибка во время очистки записей аудита.", error)
                 );
     }

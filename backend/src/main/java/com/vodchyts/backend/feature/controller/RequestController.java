@@ -16,6 +16,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import com.vodchyts.backend.exception.ResourceNotFoundException;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -73,6 +74,12 @@ public class RequestController {
                         })));
     }
 
+
+    @GetMapping("/{requestId}")
+    public Mono<RequestResponse> getRequestById(@PathVariable Integer requestId) {
+        return requestService.getRequestById(requestId)
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Заявка не найдена")));
+    }
 
     @PutMapping("/{requestId}")
     @PreAuthorize("hasAnyRole('RetailAdmin', 'Moderator')")

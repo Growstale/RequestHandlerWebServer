@@ -8,15 +8,16 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 
-@Service
 public class TokenCleanupService {
 
     private static final Logger log = LoggerFactory.getLogger(TokenCleanupService.class);
 
     private final ReactiveRefreshTokenRepository refreshTokenRepository;
+    private final LoggingService loggingService;
 
-    public TokenCleanupService(ReactiveRefreshTokenRepository refreshTokenRepository) {
+    public TokenCleanupService(ReactiveRefreshTokenRepository refreshTokenRepository, LoggingService loggingService) {
         this.refreshTokenRepository = refreshTokenRepository;
+        this.loggingService = loggingService;
     }
 
     @Scheduled(cron = "0 0 23 * * *")
@@ -24,7 +25,13 @@ public class TokenCleanupService {
         log.info("Запуск задачи по очистке истекших refresh-токенов...");
         refreshTokenRepository.deleteExpiredTokens(LocalDateTime.now())
                 .subscribe(
-                        count -> log.info("Задача по очистке токенов завершена. Удалено {} токенов.", count),
+                        count -> {
+                            log.info("Задача по очистке токенов завершена. Удалено {} токенов.", count);
+                            if (count > 0) {
+                                loggingService.logInfo("TokenCleanupService", "Очистка истекших токенов завершена. Удалено: " + count,
+                                        null, "SYSTEM", "127.0.0.1", "Quartz Scheduler", "cron", "JOB").subscribe();
+                            }
+                        },
                         error -> log.error("Ошибка во время очистки истекших токенов.", error)
                 );
     }

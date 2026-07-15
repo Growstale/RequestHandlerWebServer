@@ -71,6 +71,12 @@ public class BotController {
             @RequestParam(defaultValue = "5") int size,
             @RequestParam(required = false) boolean archived,
             @RequestParam(required = false) String searchTerm,
+            @RequestParam(required = false) Integer shopId,
+            @RequestParam(required = false) Integer workCategoryId,
+            @RequestParam(required = false) Integer urgencyId,
+            @RequestParam(required = false) Integer contractorId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean overdue,
             @RequestParam(required = false) List<String> sort
     ) {
         return userService.findByTelegramId(telegram_id)
@@ -84,21 +90,24 @@ public class BotController {
 
                             if (isPrivateChat) {
                                 if ("RetailAdmin".equals(roleName) || "Moderator".equals(roleName)) {
-                                    return requestService.getAllRequests(archived, searchTerm, null, null, null, null, null, null, null, null, null, null, sortParams, page, size, user.getLogin());
+                                    return requestService.getAllRequests(archived, searchTerm, shopId, workCategoryId, urgencyId, contractorId, status, overdue, null, null, null, null, sortParams, page, size, user.getLogin());
                                 } else if ("Contractor".equals(roleName)) {
-                                    return requestService.getAllRequests(archived, searchTerm, null, null, null, user.getUserID(), null, null, null, null, null, null, sortParams, page, size, user.getLogin());
+                                    return requestService.getAllRequests(archived, searchTerm, shopId, workCategoryId, urgencyId, user.getUserID(), status, overdue, null, null, null, null, sortParams, page, size, user.getLogin());
                                 }
                             } else {
                                 return chatService.findByTelegramId(chat_id)
                                         .switchIfEmpty(Mono.error(new OperationNotAllowedException("Этот чат не привязан ни к одной связке Магазин-Подрядчик.")))
                                         .flatMap(link -> {
+                                            Integer effectiveShopId = link.shopID() != null ? link.shopID() : shopId;
+                                            Integer effectiveContractorId = link.contractorID() != null ? link.contractorID() : contractorId;
+
                                             if ("RetailAdmin".equals(roleName)) {
-                                                return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, link.contractorID(), null, null, null, null, null, null, sortParams, page, size, user.getLogin());
+                                                return requestService.getAllRequests(archived, searchTerm, effectiveShopId, workCategoryId, urgencyId, effectiveContractorId, status, overdue, null, null, null, null, sortParams, page, size, user.getLogin());
                                             } else if ("Contractor".equals(roleName)) {
                                                 if (link.contractorID() != null && !link.contractorID().equals(user.getUserID())) {
                                                     return Mono.error(new OperationNotAllowedException("У вас нет прав доступа к заявкам в этом чате (чат закреплен за другим исполнителем)."));
                                                 }
-                                                return requestService.getAllRequests(archived, searchTerm, link.shopID(), null, null, user.getUserID(), null, null, null, null, null, null, sortParams, page, size, user.getLogin());
+                                                return requestService.getAllRequests(archived, searchTerm, effectiveShopId, workCategoryId, urgencyId, user.getUserID(), status, overdue, null, null, null, null, sortParams, page, size, user.getLogin());
                                             }
                                             return Mono.error(new OperationNotAllowedException("Доступ запрещен."));
                                         });
@@ -154,8 +163,13 @@ public class BotController {
     }
 
     @PutMapping("/requests/{requestId}")
-    public Mono<RequestResponse> updateRequestFromBot(@PathVariable Integer requestId, @Valid @RequestBody Mono<UpdateRequestRequest> requestDto) {
-        return requestDto.flatMap(dto -> requestService.updateAndEnrichRequest(requestId, dto, null));
+    public Mono<RequestResponse> updateRequestFromBot(
+            @PathVariable Integer requestId,
+            @RequestParam("telegram_id") Long telegramId,
+            @Valid @RequestBody Mono<UpdateRequestRequest> requestDto) {
+        return userService.findByTelegramId(telegramId)
+                .switchIfEmpty(Mono.error(new UserNotFoundException("Пользователь с таким Telegram ID не найден.")))
+                .flatMap(user -> requestDto.flatMap(dto -> requestService.updateAndEnrichRequest(requestId, dto, user.getUserID())));
     }
 
     @DeleteMapping("/requests/comments/{commentId}")
@@ -203,5 +217,11 @@ public class BotController {
                         .contentType(MediaType.IMAGE_JPEG)
                         .body(imageData))
                 .defaultIfEmpty(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/requests/{requestId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public Mono<Void> deleteRequestFromBot(@PathVariable Integer requestId) {
+        return requestService.deleteRequest(requestId);
     }
 }

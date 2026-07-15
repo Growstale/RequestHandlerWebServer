@@ -175,7 +175,7 @@ public class RequestService {
                                     conditions.add("r.ShopID = :shopId");
                                     bindings.put("shopId", shopId);
                                 }
-                                if ("RetailAdmin".equals(userRole)) {
+                                if ("RetailAdmin".equals(userRole) || "Moderator".equals(userRole)) {
                                     if (contractorId != null) {
                                         conditions.add("r.AssignedContractorID = :contractorId");
                                         bindings.put("contractorId", contractorId);

@@ -18,20 +18,28 @@ export default function NotificationBell() {
     const fetchNotifications = useCallback(async () => {
         if (!accessToken) return;
         try {
-            const res = await api.get('/api/web-notifications');
+            // Добавляем timestamp, чтобы браузер не кэшировал пустой ответ
+            const res = await api.get(`/api/web-notifications?t=${new Date().getTime()}`);
             setNotifications(res.data);
         } catch (e) {
             console.error("Ошибка получения уведомлений:", e);
         }
     }, [accessToken]);
 
-        useEffect(() => {
+    useEffect(() => {
         fetchNotifications();
+    }, [fetchNotifications]);
+
+    // Слушаем кастомное событие для моментального обновления UI при удалении
+    useEffect(() => {
+        const handleRefresh = () => fetchNotifications();
+        window.addEventListener('refresh-notifications', handleRefresh);
+        return () => window.removeEventListener('refresh-notifications', handleRefresh);
     }, [fetchNotifications]);
 
     useSSE(useCallback((message) => {
         if (message === `WEB_NOTIFICATION_USER_${user?.id}`) {
-            fetchNotifications();
+            setTimeout(() => fetchNotifications(), 500);
         }
     }, [user?.id, fetchNotifications]));
 
@@ -54,10 +62,17 @@ export default function NotificationBell() {
     }, [open]);
 
     const handleAction = async (id, requestId) => {
+        // Удаляем уведомление, не блокируя дальнейшие действия
         try {
             await api.delete(`/api/web-notifications/${id}`);
             setNotifications(prev => prev.filter(n => n.notificationID !== id));
-            
+            window.dispatchEvent(new Event('refresh-notifications')); // синхронизируем с каталогом
+        } catch (e) {
+            console.error("Не удалось удалить уведомление:", e);
+        }
+
+        // Переходим к заявке
+    try {
             if (requestId) {
                 const res = await api.get(`/api/requests/${requestId}`);
                 const isClosed = res.data.status === 'Closed';
@@ -65,8 +80,13 @@ export default function NotificationBell() {
                 const targetPath = isClosed ? '/requests/archive' : '/requests';
                 navigate(`${targetPath}?openId=${requestId}`);
             }
-            setOpen(false);
         } catch (e) {
+            console.error("Ошибка при получении статуса заявки:", e);
+            // Если не удалось определить статус, всё равно пробуем перейти в активные заявки
+            if (requestId) {
+                navigate(`/requests?openId=${requestId}`);
+            }
+        } finally {
             setOpen(false);
         }
     };
@@ -75,6 +95,7 @@ export default function NotificationBell() {
         try {
             await api.delete('/api/web-notifications/clear-all');
             setNotifications([]);
+            window.dispatchEvent(new Event('refresh-notifications')); // синхронизируем с каталогом
         } catch (e) {
             console.error(e);
         }

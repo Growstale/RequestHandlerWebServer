@@ -119,6 +119,12 @@ public class NotificationSchedulerService {
         private ReactiveNotificationRecipientRepository recipientRepository;
         private ReactiveShopContractorChatRepository chatRepository;
         private TelegramNotificationService telegramService;
+        private LoggingService loggingService;
+
+        @org.springframework.beans.factory.annotation.Autowired
+        public void setLoggingService(LoggingService loggingService) {
+            this.loggingService = loggingService;
+        }
 
         @org.springframework.beans.factory.annotation.Autowired
         public void setRecipientRepository(ReactiveNotificationRecipientRepository recipientRepository) {
@@ -137,11 +143,11 @@ public class NotificationSchedulerService {
 
         @Override
         public void execute(JobExecutionContext context) throws JobExecutionException {
-            DayOfWeek today = LocalDate.now().getDayOfWeek();
+            /*DayOfWeek today = LocalDate.now().getDayOfWeek();
             if (today == DayOfWeek.SATURDAY || today == DayOfWeek.SUNDAY) {
                 logger.info("Сегодня выходной, рассылка уведомлений пропущена.");
                 return;
-            }
+            }*/
 
             JobDataMap dataMap = context.getJobDetail().getJobDataMap();
             Integer notificationId = dataMap.getInt("notificationId");
@@ -154,6 +160,9 @@ public class NotificationSchedulerService {
             String fullMessage = "*" + safeTitle + "*\n\n" + safeMessage;
 
             logger.info("Начало рассылки уведомления ID={}", notificationId);
+
+            loggingService.logInfo("NotificationScheduler", "Выполнена автоматическая рассылка: " + rawTitle,
+                    null, "SYSTEM", "127.0.0.1", "Quartz Scheduler", "cron", "JOB").subscribe();
 
             recipientRepository.findByNotificationID(notificationId)
                     .flatMap(recipient -> chatRepository.findById(recipient.getShopContractorChatID()))

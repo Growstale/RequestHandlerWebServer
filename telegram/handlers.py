@@ -112,8 +112,9 @@ async def safe_answer_query(query, **kwargs):
  CREATE_SELECT_URGENCY, CREATE_ENTER_DESCRIPTION, CREATE_ENTER_CUSTOM_DAYS) = range(6)
 
 (VIEW_MAIN_MENU, VIEW_SET_SEARCH_TERM, VIEW_SET_SORTING, VIEW_DETAILS,
- VIEW_COMMENT_LIST, VIEW_ADD_COMMENT, VIEW_PHOTO_LIST, VIEW_ADD_PHOTO) = range(6, 14)
-
+ VIEW_COMMENT_LIST, VIEW_ADD_COMMENT, VIEW_PHOTO_LIST, VIEW_ADD_PHOTO,
+ VIEW_FILTER_MAIN, VIEW_FILTER_SHOP, VIEW_FILTER_CONTRACTOR, VIEW_FILTER_WORK,
+ VIEW_FILTER_URGENCY, VIEW_FILTER_STATUS) = range(6, 20)
 
 async def delayed_delete_messages(context, chat_id, message_ids, delay=30):
     await asyncio.sleep(delay)
@@ -303,7 +304,7 @@ def _format_sort_list(sort_list: List[str]) -> str:
     for idx, sort_param in enumerate(sort_list, start=1):
         field, *direction = sort_param.split(',', 1)
         dir_value = (direction[0] if direction else 'asc').lower()
-        arrow = "⬆️" if dir_value == 'asc' else "⬇️"
+        arrow = "⬇️" if dir_value == 'asc' else "⬆️"
         label = escape_markdown(SORT_LABELS.get(field, field))
         lines.append(f"{idx}\\.\u00A0{label} {arrow}")
     return "\n".join(lines)
@@ -420,21 +421,26 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
     requests, total_pages = _slice_page(dataset, page)
 
     is_default_sort = (filters.get('sort') == ['requestID,asc'] or not filters.get('sort'))
-    is_default_filters = (not filters.get('archived') and not filters.get('searchTerm'))
-    
-    message_text = ""
 
-    if not (is_default_sort and is_default_filters):
-        filter_lines = []
-        if filters.get('archived'): filter_lines.append("Тип: Архив")
-        if filters.get('searchTerm'): filter_lines.append(f"Поиск: '{escape_markdown(filters['searchTerm'])}'")
-        
-        if not is_default_sort:
-            sort_list = _get_sort_list(filters)
-            filter_lines.append(f"Сортировка:\n{_format_sort_list(sort_list)}")
-        
-        if filter_lines:
-            message_text = f"⚙️ *Активные фильтры:*\n" + "\n".join(filter_lines) + "\n\n"
+    active_filters = []
+    if filters.get('archived'): active_filters.append("Тип: Архив")
+    if filters.get('searchTerm'): active_filters.append(f"Поиск: '{escape_markdown(filters['searchTerm'])}'")
+    if filters.get('shopName'): active_filters.append(f"Магазин: {escape_markdown(filters['shopName'])}")
+    if filters.get('contractorName'): active_filters.append(
+        f"Исполнитель: {escape_markdown(filters['contractorName'])}")
+    if filters.get('workCategoryName'): active_filters.append(
+        f"Вид работ: {escape_markdown(filters['workCategoryName'])}")
+    if filters.get('urgencyName'): active_filters.append(f"Срочность: {escape_markdown(filters['urgencyName'])}")
+    if filters.get('status'): active_filters.append(f"Статус: {escape_markdown(get_status_ru(filters['status']))}")
+    if filters.get('overdue'): active_filters.append("Только просроченные")
+
+    if not is_default_sort:
+        sort_list = _get_sort_list(filters)
+        active_filters.append(f"Сортировка:\n{_format_sort_list(sort_list)}")
+
+    message_text = ""
+    if active_filters:
+        message_text = f"⚙️ *Активные фильтры:*\n" + "\n".join(active_filters) + "\n\n"
 
     if not requests:
         message_text += "_Заявок не найдено\\._"
@@ -465,11 +471,14 @@ async def render_main_view_menu(update: Update, context: Context, is_callback: b
 
     keyboard.append([
         InlineKeyboardButton("🔎 Поиск", callback_data="view_search"),
-        InlineKeyboardButton("📊 Сортировка", callback_data="view_sort"),
+        InlineKeyboardButton("🎛 Фильтры", callback_data="view_filter")
     ])
     keyboard.append([
+        InlineKeyboardButton("📊 Сортировка", callback_data="view_sort"),
         InlineKeyboardButton("🗂 Архив" if not filters.get('archived') else "📂 Активные",
-                             callback_data="view_toggle_archive"),
+                             callback_data="view_toggle_archive")
+    ])
+    keyboard.append([
         InlineKeyboardButton("🔄 Сброс", callback_data="view_reset")
     ])
     if nav_row:
@@ -567,6 +576,10 @@ async def view_menu_callback(update: Update, context: Context) -> int:
     elif action == 'sort':
         await _show_sort_menu(query, context)
         return VIEW_SET_SORTING
+    elif action == 'filter':
+        await _preload_dictionaries(context)
+        await _show_filter_menu(query, context)
+        return VIEW_FILTER_MAIN
 
     await render_main_view_menu(update, context, is_callback=True)
     return VIEW_MAIN_MENU
@@ -863,7 +876,7 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
                 # Прячем упоминание пользователя в эмодзи (требуется для срабатывания ForceReply)
             mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
 
-            hint = "\n\n👇 <i>Напишите текст прямо в ответ на это сообщение.</i>"
+            hint = "\n\n👇 <i>Отправьте текст следующим сообщением.</i>"
             if parent_id:
                 text = f"{mention} Введите текст вашего ответа:{hint}"
             else:
@@ -872,7 +885,6 @@ async def action_callback_handler(update: Update, context: Context) -> int | Non
             prompt_msg = await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text=text,
-                reply_markup=ForceReply(selective=True),
                 parse_mode=ParseMode.HTML  # Обязательно HTML для работы скрытой ссылки
             )
 
@@ -1220,13 +1232,7 @@ async def finalize_delete_photo_handler(update: Update, context: Context) -> int
 
     return VIEW_DETAILS
 
-
 async def add_comment_handler(update: Update, context: Context) -> int:
-    # Игнорируем общение в группах (защита от перехвата чужих сообщений)
-    if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        if not update.message.reply_to_message or update.message.reply_to_message.from_user.id != context.bot.id:
-            return VIEW_ADD_COMMENT
-
     if not check_rate_limit(update.effective_user.id):
         return VIEW_ADD_COMMENT
 
@@ -1695,8 +1701,7 @@ async def select_urgency_callback(update: Update, context: CallbackContext) -> i
         mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
         msg = await context.bot.send_message(
             update.effective_chat.id,
-            f"{mention} <b>Шаг 5/5:</b> Теперь введите подробное описание заявки.\n\n👇 <i>Напишите текст в ответ на это сообщение.</i>",
-            reply_markup=ForceReply(selective=True),
+            f"{mention} <b>Шаг 5/5:</b> Теперь введите подробное описание заявки.\n\n👇 <i>Отправьте текст следующим сообщением.</i>",
             parse_mode=ParseMode.HTML
         )
         asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 300))
@@ -1706,33 +1711,20 @@ async def select_urgency_callback(update: Update, context: CallbackContext) -> i
 
 
 async def description_handler(update: Update, context: CallbackContext) -> int:
-    # Игнорируем чужие сообщения в группах (ждем только ответ на бота)
-    if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        if not update.message.reply_to_message or update.message.reply_to_message.from_user.id != context.bot.id:
-            return CREATE_ENTER_DESCRIPTION
-
     description = update.message.text
     context.user_data['request_data']['description'] = description
 
     if context.user_data.get('is_customizable'):
         mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
         msg = await update.message.reply_text(
-            f"{mention} Срочность 'Настраиваемая'. Введите количество дней на выполнение (например, 10).\n\n👇 <i>Отправьте число в ответ на это сообщение.</i>",
-            reply_markup=ForceReply(selective=True),
+            f"{mention} Срочность 'Настраиваемая'. Введите количество дней на выполнение (например, 10).\n\n👇 <i>Отправьте число следующим сообщением.</i>",
             parse_mode=ParseMode.HTML
         )
         asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 300))
         return CREATE_ENTER_CUSTOM_DAYS
-    else:
-        return await submit_request(update, context)
 
 
 async def custom_days_handler(update: Update, context: CallbackContext) -> int:
-    # Игнорируем чужие сообщения в группах
-    if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        if not update.message.reply_to_message or update.message.reply_to_message.from_user.id != context.bot.id:
-            return CREATE_ENTER_CUSTOM_DAYS
-
     days = update.message.text
     if not days.isdigit() or not 1 <= int(days) <= 365:
         msg = await update.message.reply_text("❌ Неверное значение. Введите число от 1 до 365.")
@@ -1746,13 +1738,16 @@ async def custom_days_handler(update: Update, context: CallbackContext) -> int:
 async def chat_id_command(update: Update, context: CallbackContext):
     if not check_rate_limit(update.effective_user.id): return
     chat_id = update.message.chat.id
+
+    title = update.message.chat.title or update.message.chat.full_name or "Личный чат"
+
     message_text = (
         f"Информация о чате:\n"
-        f"📝 **Название:** {update.message.chat.title}\n"
-        f"🆔 **ID Чата:** `{chat_id}`\n\n"
+        f"📝 <b>Название:</b> {html.escape(title)}\n"
+        f"🆔 <b>ID Чата:</b> <code>{chat_id}</code>\n\n"
         f"Используйте этот ID при настройке связей в админ-панели."
     )
-    msg = await update.message.reply_text(message_text, parse_mode=ParseMode.MARKDOWN)
+    msg = await update.message.reply_text(message_text, parse_mode=ParseMode.HTML)
     asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 60))
 
 
@@ -1789,6 +1784,179 @@ async def submit_request(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 
+async def _show_filter_menu(query, context: Context):
+    filters = context.user_data.get('view_filters', {})
+    shop_name = filters.get('shopName', 'Все')
+    contractor_name = filters.get('contractorName', 'Все')
+    work_name = filters.get('workCategoryName', 'Все')
+    urgency_name = filters.get('urgencyName', 'Все')
+    status_raw = filters.get('status', 'Все')
+    status_name = get_status_ru(status_raw) if status_raw not in ['ALL', 'Все'] else 'Все'
+    overdue_name = 'Да' if filters.get('overdue') else 'Нет/Все'
+
+    buttons = [
+        [InlineKeyboardButton(f"🏪 Магазин: {shop_name}", callback_data="vfilt_shop")],
+        [InlineKeyboardButton(f"👷 Исполнитель: {contractor_name}", callback_data="vfilt_contractor")],
+        [InlineKeyboardButton(f"🛠 Вид работ: {work_name}", callback_data="vfilt_work")],
+        [InlineKeyboardButton(f"🔥 Срочность: {urgency_name}", callback_data="vfilt_urgency")],
+        [InlineKeyboardButton(f"📊 Статус: {status_name}", callback_data="vfilt_status")],
+        [InlineKeyboardButton(f"❗️ Просрочено: {overdue_name}", callback_data="vfilt_overdue")],
+        [InlineKeyboardButton("🧹 Сбросить фильтры", callback_data="vfilt_reset")],
+        [InlineKeyboardButton("✅ Применить", callback_data="vfilt_apply")]
+    ]
+    await _edit_message_markdown(query, "🎛 *Фильтры*\nВыберите параметры для фильтрации заявок:",
+                                 InlineKeyboardMarkup(buttons))
+
+
+async def view_filter_main_callback(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context): return
+    query = update.callback_query
+    await safe_answer_query(query)
+    data = query.data
+    filters = context.user_data.get('view_filters', {})
+
+    if data == "vfilt_apply":
+        filters['page'] = 0
+        _invalidate_requests_cache(context)
+        await render_main_view_menu(update, context, is_callback=True)
+        return VIEW_MAIN_MENU
+    elif data == "vfilt_reset":
+        for k in ['shopId', 'shopName', 'contractorId', 'contractorName', 'workCategoryId', 'workCategoryName',
+                  'urgencyId', 'urgencyName', 'status', 'overdue', 'searchTerm']:
+            filters.pop(k, None)
+        await _show_filter_menu(query, context)
+        return VIEW_FILTER_MAIN
+    elif data == "vfilt_shop":
+        items = context.user_data.get('dict_shops', [])
+        keyboard = create_paginated_keyboard(items, 0, 'vfshop', 'shopName', 'shopID')
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.insert(0, [InlineKeyboardButton("❌ Любой магазин", callback_data="vfshop_clear")])
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="vfshop_back")])
+        await query.edit_message_text("Выберите магазин для фильтра:", reply_markup=InlineKeyboardMarkup(new_rows))
+        return VIEW_FILTER_SHOP
+    elif data == "vfilt_contractor":
+        items = context.user_data.get('dict_contractors', [])
+        keyboard = create_paginated_keyboard(items, 0, 'vfcontr', 'login', 'userID')
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.insert(0, [InlineKeyboardButton("❌ Любой исполнитель", callback_data="vfcontr_clear")])
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="vfcontr_back")])
+        await query.edit_message_text("Выберите исполнителя для фильтра:", reply_markup=InlineKeyboardMarkup(new_rows))
+        return VIEW_FILTER_CONTRACTOR
+    elif data == "vfilt_work":
+        items = context.user_data.get('dict_works', [])
+        keyboard = create_paginated_keyboard(items, 0, 'vfwork', 'workCategoryName', 'workCategoryID')
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.insert(0, [InlineKeyboardButton("❌ Любой вид работ", callback_data="vfwork_clear")])
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="vfwork_back")])
+        await query.edit_message_text("Выберите вид работ для фильтра:", reply_markup=InlineKeyboardMarkup(new_rows))
+        return VIEW_FILTER_WORK
+    elif data == "vfilt_urgency":
+        items = context.user_data.get('dict_urgencies', [])
+        keyboard = create_paginated_keyboard(items, 0, 'vfurg', 'urgencyName', 'urgencyID')
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.insert(0, [InlineKeyboardButton("❌ Любая срочность", callback_data="vfurg_clear")])
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data="vfurg_back")])
+        await query.edit_message_text("Выберите срочность для фильтра:", reply_markup=InlineKeyboardMarkup(new_rows))
+        return VIEW_FILTER_URGENCY
+    elif data == "vfilt_status":
+        buttons = [
+            [InlineKeyboardButton("❌ Любой статус", callback_data="vfs_clear")],
+            [InlineKeyboardButton("В работе", callback_data="vfs_In work")],
+            [InlineKeyboardButton("Выполнена", callback_data="vfs_Done")],
+            [InlineKeyboardButton("Закрыта", callback_data="vfs_Closed")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="vfs_back")]
+        ]
+        await query.edit_message_text("Выберите статус для фильтра:", reply_markup=InlineKeyboardMarkup(buttons))
+        return VIEW_FILTER_STATUS
+    elif data == "vfilt_overdue":
+        filters['overdue'] = not filters.get('overdue', False)
+        await _show_filter_menu(query, context)
+        return VIEW_FILTER_MAIN
+
+    return VIEW_FILTER_MAIN
+
+
+async def _handle_filter_selection(update: Update, context: Context,
+                                   prefix: str, list_key: str, id_key: str, name_key: str,
+                                   filter_id_key: str, filter_name_key: str, next_state: int):
+    if not await check_menu_ownership(update, context): return
+    query = update.callback_query
+    await safe_answer_query(query)
+    data = query.data
+
+    if data == f"{prefix}_back":
+        await _show_filter_menu(query, context)
+        return VIEW_FILTER_MAIN
+
+    if data == f"{prefix}_clear":
+        context.user_data['view_filters'].pop(filter_id_key, None)
+        context.user_data['view_filters'].pop(filter_name_key, None)
+        await _show_filter_menu(query, context)
+        return VIEW_FILTER_MAIN
+
+    action, value = data.split('_', 2)[1:]
+
+    if action == 'page':
+        items = context.user_data.get(list_key, [])
+        keyboard = create_paginated_keyboard(items, int(value), prefix, name_key, id_key)
+        new_rows = list(keyboard.inline_keyboard)
+        new_rows.insert(0, [InlineKeyboardButton("❌ Любой", callback_data=f"{prefix}_clear")])
+        new_rows.append([InlineKeyboardButton("🔙 Назад", callback_data=f"{prefix}_back")])
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_rows))
+        return next_state
+
+    elif action == 'select':
+        selected_id = int(value)
+        items = context.user_data.get(list_key, [])
+        item = next((i for i in items if i[id_key] == selected_id), None)
+        if item:
+            context.user_data['view_filters'][filter_id_key] = selected_id
+            # Для исполнителей используем login (так как fullName может быть пустым) или name_key
+            context.user_data['view_filters'][filter_name_key] = item.get('fullName') or item.get('login') or item.get(
+                name_key)
+
+        await _show_filter_menu(query, context)
+        return VIEW_FILTER_MAIN
+
+    return next_state
+
+
+async def view_filter_shop_callback(update: Update, context: Context) -> int:
+    return await _handle_filter_selection(update, context, 'vfshop', 'dict_shops', 'shopID', 'shopName', 'shopId',
+                                          'shopName', VIEW_FILTER_SHOP)
+
+
+async def view_filter_contractor_callback(update: Update, context: Context) -> int:
+    return await _handle_filter_selection(update, context, 'vfcontr', 'dict_contractors', 'userID', 'login',
+                                          'contractorId', 'contractorName', VIEW_FILTER_CONTRACTOR)
+
+
+async def view_filter_work_callback(update: Update, context: Context) -> int:
+    return await _handle_filter_selection(update, context, 'vfwork', 'dict_works', 'workCategoryID', 'workCategoryName',
+                                          'workCategoryId', 'workCategoryName', VIEW_FILTER_WORK)
+
+
+async def view_filter_urgency_callback(update: Update, context: Context) -> int:
+    return await _handle_filter_selection(update, context, 'vfurg', 'dict_urgencies', 'urgencyID', 'urgencyName',
+                                          'urgencyId', 'urgencyName', VIEW_FILTER_URGENCY)
+
+
+async def view_filter_status_callback(update: Update, context: Context) -> int:
+    query = update.callback_query
+    await safe_answer_query(query)
+    data = query.data
+    if data == "vfs_back":
+        pass
+    elif data == "vfs_clear":
+        context.user_data['view_filters'].pop('status', None)
+    else:
+        status = data.split('_')[1]
+        context.user_data['view_filters']['status'] = status
+
+    await _show_filter_menu(query, context)
+    return VIEW_FILTER_MAIN
+
+
 async def start_command(update: Update, context: CallbackContext):
     if not check_rate_limit(update.effective_user.id): return
     await update.message.reply_html(
@@ -1796,7 +1964,6 @@ async def start_command(update: Update, context: CallbackContext):
         "Воспользуйтесь меню внизу для управления вашими задачами.",
         reply_markup=get_main_menu_keyboard()
     )
-
 
 (
     EDITOR_MAIN_MENU,
@@ -1808,9 +1975,10 @@ async def start_command(update: Update, context: CallbackContext):
     EDITOR_SELECT_STATUS,
     EDITOR_ADD_PHOTO,
     DELETE_COMMENT_SELECT,
-    DELETE_PHOTO_SELECT
+    DELETE_PHOTO_SELECT,
 ) = range(20, 30)
 
+DELETE_REQ_WAIT_ID, DELETE_REQ_CONFIRM = range(31, 33)
 
 URGENCY_TRANSLATIONS = {
     "Emergency": "Аварийная",
@@ -1820,6 +1988,131 @@ URGENCY_TRANSLATIONS = {
     "Notes": "Заметки"
 }
 
+async def delete_request_start(update: Update, context: Context) -> int:
+    if not check_rate_limit(update.effective_user.id):
+        return ConversationHandler.END
+
+    user_id = update.effective_user.id
+    user_info = await api_client.get_user_by_telegram_id(user_id)
+
+    # Проверка роли пользователя
+    if not user_info or user_info.get("roleName") not in ["RetailAdmin", "Moderator"]:
+        msg = await update.message.reply_text("❌ У вас нет прав для удаления заявок.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
+        return ConversationHandler.END
+
+    # Промпт для ввода ID
+    mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
+    msg = await update.message.reply_text(
+        f"{mention} Пожалуйста, введите ID заявки, которую вы хотите удалить:\n\n"
+        f"👇 <i>Отправьте число следующим сообщением.</i>",
+        parse_mode=ParseMode.HTML
+    )
+    context.user_data['delete_prompt_msg_id'] = msg.message_id
+    asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 300))
+    return DELETE_REQ_WAIT_ID
+
+
+async def delete_request_id_received(update: Update, context: Context) -> int:
+    if not check_rate_limit(update.effective_user.id):
+        return DELETE_REQ_WAIT_ID
+
+    text = update.message.text
+    try:
+        await update.message.delete()
+    except:
+        pass
+
+    prompt_msg_id = context.user_data.pop('delete_prompt_msg_id', None)
+    if prompt_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=prompt_msg_id)
+        except:
+            pass
+
+    if not text.isdigit():
+        msg = await update.message.reply_text("❌ ID заявки должно быть числом. Попробуйте еще раз.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
+        return DELETE_REQ_WAIT_ID
+
+    request_id = int(text)
+    user_id = update.effective_user.id
+
+    # Проверяем существование заявки перед удалением
+    req = await api_client.get_request_details(user_id, request_id)
+    if not req or "error_message" in req:
+        msg = await update.message.reply_text(f"❌ Заявка #{request_id} не найдена или недоступна.")
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
+        return ConversationHandler.END
+
+    context.user_data['delete_request_id'] = request_id
+
+    # Клавиатура подтверждения
+    keyboard = [
+        [
+            InlineKeyboardButton("🔥 Да, удалить", callback_data="confirm_delete_request"),
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel_delete_request")
+        ]
+    ]
+
+    shop_name = req.get('shopName', 'Неизвестно')
+    description = req.get('description', '')
+    short_desc = description[:100] + "..." if len(description) > 100 else description
+
+    msg = await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"❓ Вы уверены, что хотите удалить заявку <b>#{request_id}</b>?\n\n"
+             f"🏪 <b>Магазин:</b> {html.escape(shop_name)}\n"
+             f"📝 <b>Описание:</b> {html.escape(short_desc)}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML
+    )
+    context.user_data['delete_confirm_msg_id'] = msg.message_id
+    set_menu_owner(context, msg.message_id, update.effective_user.id)
+    return DELETE_REQ_CONFIRM
+
+
+async def delete_request_confirm_callback(update: Update, context: Context) -> int:
+    if not await check_menu_ownership(update, context):
+        return DELETE_REQ_CONFIRM
+    query = update.callback_query
+    await query.answer()
+
+    request_id = context.user_data.get('delete_request_id')
+    confirm_msg_id = context.user_data.pop('delete_confirm_msg_id', None)
+
+    if confirm_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=confirm_msg_id)
+        except:
+            pass
+
+    if query.data == "confirm_delete_request":
+        success = await api_client.delete_request(request_id)
+        if success:
+            _invalidate_requests_cache(context)
+            msg = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"✅ Заявка #{request_id} успешно удалена.",
+                reply_markup=get_main_menu_keyboard()
+            )
+        else:
+            msg = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"❌ Не удалось удалить заявку #{request_id}.",
+                reply_markup=get_main_menu_keyboard()
+            )
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
+    else:
+        msg = await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Удаление отменено.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        asyncio.create_task(delayed_delete_messages(context, update.effective_chat.id, [msg.message_id], 15))
+
+    context.user_data.pop('delete_request_id', None)
+    return ConversationHandler.END
 
 def get_urgency_ru(name: str) -> str:
     return URGENCY_TRANSLATIONS.get(name, name)
@@ -2107,8 +2400,7 @@ async def editor_main_callback(update: Update, context: Context) -> int:
         mention = f"<a href='tg://user?id={update.effective_user.id}'>💬</a>"
         prompt_msg = await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=f"{mention} Текущее описание:\n<i>{html.escape(current_desc)}</i>\n\nВведите новое описание:\n\n👇 <i>Отправьте текст в ответ на это сообщение.</i>",
-            reply_markup=ForceReply(selective=True),
+            text=f"{mention} Текущее описание:\n<i>{html.escape(current_desc)}</i>\n\nВведите новое описание:\n\n👇 <i>Отправьте текст следующим сообщением.</i>",
             parse_mode=ParseMode.HTML
         )
         context.user_data['editor_prompt_message_id'] = prompt_msg.message_id
@@ -2253,10 +2545,6 @@ async def editor_select_status(update: Update, context: Context) -> int:
 async def editor_input_text(update: Update, context: Context) -> int:
     if not check_rate_limit(update.effective_user.id): return EDITOR_INPUT_TEXT
 
-    if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        if not update.message.reply_to_message or update.message.reply_to_message.from_user.id != context.bot.id:
-            return EDITOR_INPUT_TEXT
-
     text = update.message.text
 
     try:
@@ -2312,7 +2600,7 @@ async def _submit_editor_data(update: Update, context: Context) -> int:
     else:
         payload['status'] = draft.get('status', 'In work')
         request_id = draft.get('requestID')
-        response = await api_client.update_request(request_id, payload)
+        response = await api_client.update_request(request_id, update.effective_user.id, payload)
 
     # Определяем ID созданной/обновленной заявки
     request_id = None

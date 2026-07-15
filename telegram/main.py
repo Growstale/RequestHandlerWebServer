@@ -21,6 +21,10 @@ from handlers import (
     view_requests_start, view_menu_callback, view_search_handler,
     view_sort_callback, action_callback_handler, add_comment_handler, add_photo_handler, view_request_details,
     VIEW_MAIN_MENU, VIEW_SET_SEARCH_TERM, VIEW_SET_SORTING, VIEW_DETAILS, VIEW_ADD_COMMENT, VIEW_ADD_PHOTO,
+    VIEW_FILTER_MAIN, VIEW_FILTER_SHOP, VIEW_FILTER_CONTRACTOR, VIEW_FILTER_WORK,
+    VIEW_FILTER_URGENCY, VIEW_FILTER_STATUS,
+    view_filter_main_callback, view_filter_shop_callback, view_filter_contractor_callback,
+    view_filter_work_callback, view_filter_urgency_callback, view_filter_status_callback,
     start_create_request, start_edit_request,
     editor_main_callback, editor_select_shop, editor_select_contractor,
     editor_select_work, editor_select_urgency, editor_select_status, editor_input_text,
@@ -31,7 +35,9 @@ from handlers import (
     editor_photo_back,
     start_delete_comment_handler, confirm_delete_comment_handler,
     start_delete_photo_handler, preview_delete_photo_handler, finalize_delete_photo_handler,
-    DELETE_COMMENT_SELECT, DELETE_PHOTO_SELECT
+    DELETE_COMMENT_SELECT, DELETE_PHOTO_SELECT,
+    delete_request_start, delete_request_id_received, delete_request_confirm_callback,
+    DELETE_REQ_WAIT_ID, DELETE_REQ_CONFIRM
 )
 
 REPLY_COMMENT_SELECT = 29
@@ -229,6 +235,13 @@ async def main():
             VIEW_SET_SEARCH_TERM: [MessageHandler(filters.TEXT & ~filters.COMMAND, view_search_handler)],
             VIEW_SET_SORTING: [CallbackQueryHandler(view_sort_callback, pattern="^(view|sort)_")],
 
+            VIEW_FILTER_MAIN: [CallbackQueryHandler(view_filter_main_callback, pattern="^vfilt_")],
+            VIEW_FILTER_SHOP: [CallbackQueryHandler(view_filter_shop_callback, pattern="^vfshop_")],
+            VIEW_FILTER_CONTRACTOR: [CallbackQueryHandler(view_filter_contractor_callback, pattern="^vfcontr_")],
+            VIEW_FILTER_WORK: [CallbackQueryHandler(view_filter_work_callback, pattern="^vfwork_")],
+            VIEW_FILTER_URGENCY: [CallbackQueryHandler(view_filter_urgency_callback, pattern="^vfurg_")],
+            VIEW_FILTER_STATUS: [CallbackQueryHandler(view_filter_status_callback, pattern="^vfs_")],
+
             VIEW_ADD_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_comment_handler)],
 
             VIEW_ADD_PHOTO: [
@@ -252,9 +265,22 @@ async def main():
         persistent=False,
         allow_reentry=True
     )
+    delete_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("deleterequest", delete_request_start)
+        ],
+        states={
+            DELETE_REQ_WAIT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_request_id_received)],
+            DELETE_REQ_CONFIRM: [
+                CallbackQueryHandler(delete_request_confirm_callback, pattern="^(confirm|cancel)_delete_request")]
+        },  # <--- Здесь была закрывающая квадратная скобка ] вместо фигурной }
+        fallbacks=[CommandHandler("cancel", cancel_command)],
+        allow_reentry=True
+    )
 
     application.add_handler(create_conv)
     application.add_handler(view_conv)
+    application.add_handler(delete_conv)
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("refresh", refresh_command))
     application.add_handler(CommandHandler("chatid", chat_id_command))

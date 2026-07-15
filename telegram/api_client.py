@@ -157,8 +157,9 @@ async def get_photo(photo_id: int):
             return None
 
 
-async def update_request(request_id: int, request_data: dict):
-    return await _make_request("PUT", f"/api/bot/requests/{request_id}", json=request_data)
+async def update_request(request_id: int, telegram_id: int, request_data: dict):
+    params = {'telegram_id': telegram_id}
+    return await _make_request("PUT", f"/api/bot/requests/{request_id}", params=params, json=request_data)
 
 
 async def delete_comment(comment_id: int):
@@ -167,3 +168,6 @@ async def delete_comment(comment_id: int):
 
 async def delete_photo(photo_id: int):
     return await _make_request("DELETE", f"/api/bot/requests/photos/{photo_id}")
+
+async def delete_request(request_id: int):
+    return await _make_request("DELETE", f"/api/bot/requests/{request_id}")

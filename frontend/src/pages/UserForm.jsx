@@ -117,7 +117,7 @@ export default function UserForm({ currentUser, onSubmit, onCancel, apiError, ro
                 value={formData.telegramID} 
                 onChange={handleChange} 
                 className="col-span-3"
-                placeholder="Например: 1234567, 9876543 (через запятую)" 
+                placeholder="Например: 1234567" 
             />
         </div>
 

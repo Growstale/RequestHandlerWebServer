@@ -87,7 +87,16 @@ const clearAndCheckNotifs = (requestId, keywords) => {
         );
 
         if (toDelete.length > 0) {
-            toDelete.forEach(n => api.delete(`/api/web-notifications/${n.notificationID}`).catch(e => console.error(e)));
+            toDelete.forEach(n => {
+                api.delete(`/api/web-notifications/${n.notificationID}`)
+                   .then(() => {
+                       // Мгновенно говорим колокольчику обновиться
+                       window.dispatchEvent(new Event('refresh-notifications'));
+                   })
+                   .catch(e => console.error(e));
+            });
+            // Оптимистично убираем из локального стейта, чтобы не ждать SSE
+            setUnreadNotifications(prev => prev.filter(n => !toDelete.includes(n)));
             return toDelete;
         }
         return [];
@@ -143,7 +152,7 @@ const clearAndCheckNotifs = (requestId, keywords) => {
 
     const fetchUnreadNotifications = useCallback(async () => {
         try {
-            const res = await api.get('/api/web-notifications');
+            const res = await api.get(`/api/web-notifications?t=${new Date().getTime()}`);
             setUnreadNotifications(res.data);
         } catch (e) {
             console.error("Ошибка загрузки уведомлений", e);
@@ -152,6 +161,13 @@ const clearAndCheckNotifs = (requestId, keywords) => {
 
     useEffect(() => {
         fetchUnreadNotifications();
+    }, [fetchUnreadNotifications]);
+
+    // Синхронизация: обновляем обводку в каталоге, если уведомление удалили из колокольчика
+    useEffect(() => {
+        const handleRefresh = () => fetchUnreadNotifications();
+        window.addEventListener('refresh-notifications', handleRefresh);
+        return () => window.removeEventListener('refresh-notifications', handleRefresh);
     }, [fetchUnreadNotifications]);
 
     const groupedRequests = useMemo(() => {
@@ -235,7 +251,8 @@ const clearAndCheckNotifs = (requestId, keywords) => {
             reloadRef.current(true);
         }
         if (message === `WEB_NOTIFICATION_USER_${user?.id}`) {
-            fetchUnreadNotifications();
+            // Увеличиваем задержку до 500мс и обходим кэш
+            setTimeout(() => fetchUnreadNotifications(), 500);
         }
     }, [user?.id, fetchUnreadNotifications]));
 
@@ -402,20 +419,20 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                 setUrgencyCategories(urgencyCatsRes.data);
                 setContractors(contractorsRes.data);
 
-                if (isAdmin) {
-                    const shopsRes = await getShops({ size: 1000 });
-                    setShops(shopsRes.data.content);
+                        if (isAdmin || isModerator) {
+                            const shopsRes = await getShops({ size: 1000 });
+                            setShops(shopsRes.data.content);
+                        }
+                    } catch (error) {
+                        console.error("Failed to fetch filter data", error);
+                        setError("Не удалось загрузить данные для фильтров.");
+                    }
+                };
+        
+                if (user) {
+                    fetchFiltersData();
                 }
-            } catch (error) {
-                console.error("Failed to fetch filter data", error);
-                setError("Не удалось загрузить данные для фильтров.");
-            }
-        };
-
-        if (user) {
-            fetchFiltersData();
-        }
-    }, [user, isAdmin]); 
+            }, [user, isAdmin, isModerator]); 
 
 
     useEffect(() => {
@@ -464,12 +481,19 @@ const clearAndCheckNotifs = (requestId, keywords) => {
             const handleOpen = (req) => {
                 setCurrentRequest(req);
                 const deletedNotifs = clearAndCheckNotifs(req.requestID, ['обновлен', 'выполнен', 'новая', 'восстановлен', 'просроч']);
+                
+                const allMessages = deletedNotifs.map(n => n.message?.toLowerCase() || "").join(" ");
+                
                 setHighlightConfig(prev => ({ 
                     ...prev, 
                     details: {
-                        updated: deletedNotifs.some(n => /обновлен|выполнен|новая/i.test(n.title)),
-                        overdue: deletedNotifs.some(n => /просроч/i.test(n.title)),
-                        restored: deletedNotifs.some(n => /восстановлен/i.test(n.title))
+                        status: allMessages.includes('статус'),
+                        urgency: allMessages.includes('срочность'),
+                        contractor: allMessages.includes('исполнитель'),
+                        shop: allMessages.includes('магазин'),
+                        description: allMessages.includes('описание'),
+                        overdue: deletedNotifs.some(n => n.title.toLowerCase().includes('просроч')),
+                        restored: deletedNotifs.some(n => n.title.toLowerCase().includes('восстановлен'))
                     } 
                 }));
                 setIsDetailsOpen(true);
@@ -587,10 +611,10 @@ const clearAndCheckNotifs = (requestId, keywords) => {
 
     return (
         <main className="container mx-auto p-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-4">
     <h1 className="text-2xl md:text-3xl font-semibold">{archived ? 'Архив заявок' : 'Управление заявками'}</h1>
     
-    <div className="grid grid-cols-2 md:flex items-center gap-2 w-full md:w-auto">
+    <div className="grid grid-cols-2 md:flex md:flex-wrap items-center gap-2 w-full xl:w-auto">
     {!isStoreManager && (
         <>
             <Button variant={viewMode === 'table' ? 'secondary' : 'outline'} onClick={() => setViewMode('table')} className="w-full text-xs sm:text-sm px-2 md:w-auto">
@@ -599,7 +623,7 @@ const clearAndCheckNotifs = (requestId, keywords) => {
             <Button variant={viewMode === 'gantt' ? 'secondary' : 'outline'} onClick={() => setViewMode('gantt')} className="w-full text-xs sm:text-sm px-2 md:w-auto">
                 <BarChart3 className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> Диаграмма
             </Button>
-            <Button variant={viewMode === 'byShop' ? 'secondary' : 'outline'} onClick={() => setViewMode('byShop')} className="w-full col-span-2 md:col-span-1 text-xs sm:text-sm px-2 md:w-auto">
+            <Button variant={viewMode === 'byShop' ? 'secondary' : 'outline'} onClick={() => setViewMode('byShop')} className="w-full col-span-2 md:w-auto text-xs sm:text-sm px-2">
                 <Store className="mr-1 sm:mr-2 h-4 w-4 shrink-0" /> По магазинам
             </Button>
         </>
@@ -607,7 +631,7 @@ const clearAndCheckNotifs = (requestId, keywords) => {
 
         {canCreate  && !archived && (
             <>
-                <Button onClick={openCreateForm} className="w-full col-span-2 md:col-span-1 md:w-auto">
+                <Button onClick={openCreateForm} className="w-full col-span-2 md:w-auto">
                     <PlusCircle className="mr-2 h-4 w-4 shrink-0" /> Создать заявку
                 </Button>
                 <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
@@ -745,7 +769,7 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                  )}
 
 
-                 {isAdmin && (
+                 {(isAdmin || isModerator) && (
                     <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground ml-1">Магазин</Label>
                         <Select onValueChange={(v) => updateQueryParam('shopId', v)} value={shopId}>
@@ -794,7 +818,7 @@ const clearAndCheckNotifs = (requestId, keywords) => {
                     </div>
                 )}
 
-                {isAdmin && (
+                {(isAdmin || isModerator) && (
                     <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground ml-1">Подрядчик</Label>
                         <Select onValueChange={(v) => updateQueryParam('contractorId', v)} value={contractorId}>

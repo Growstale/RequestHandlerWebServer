@@ -44,9 +44,9 @@ const renderDeadlineInfo = (request) => {
 export default function RequestDetailsModal({ isOpen, onClose, request, footerContent, highlightUpdate, isAdmin }) {
     const [chatInfo, setChatInfo] = useState({ status: 'idle', data: null });
 
-    // Загрузка информации о чате при открытии модалки
+    // Загрузка информации о чате при открытии модалки (Только для админов/модераторов)
     useEffect(() => {
-        if (isOpen && request?.shopID && request?.assignedContractorID) {
+        if (isOpen && request?.shopID && request?.assignedContractorID && isAdmin) {
             setChatInfo({ status: 'loading', data: null });
             
             getShopContractorChats({ size: 1000 }).then(res => {

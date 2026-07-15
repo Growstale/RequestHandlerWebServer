@@ -44,7 +44,7 @@ public class RequestUpdateService {
     private ScheduledFuture<?> dailyReminderTask;
     private final UpdateBroadcaster updateBroadcaster;
     private long currentCheckInterval = 30000;
-    private String currentReminderCron = "0 0 10 * * MON-FRI";
+    private String currentReminderCron = "0 0 10 * * *";
     private final ReactiveUserRepository userRepository;
 
     public RequestUpdateService(R2dbcEntityTemplate template,
@@ -195,8 +195,7 @@ public class RequestUpdateService {
                                         updateBroadcaster.publish("REQUESTS_UPDATED");
                                         if ("In work".equalsIgnoreCase(savedReq.getStatus()) &&
                                                 isTransitionToOverdue &&
-                                                sendNotification &&
-                                                !isWeekend()) {
+                                                sendNotification) {
 
                                             long hoursOverdue = Duration.between(deadline, LocalDateTime.now()).toHours();
                                             long daysReported = (hoursOverdue / 24) + 1; // Учитываем, что часы положительные
